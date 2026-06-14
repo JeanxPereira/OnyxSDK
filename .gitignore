@@ -1,0 +1,10 @@
+build/
+Build/
+build-*/
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+cmake-build-*/
+out/
