@@ -16,6 +16,10 @@ struct AppConfig {
   int windowH = 720;
   bool maximized = false;
 
+  // Window title shown in the (custom) title bar + OS window. Runtime-only:
+  // set by the app each run (e.g. in its registrar); NOT serialized to GTKC.
+  std::string windowTitle = "Onyx Toolkit";
+
   // Accent color (ImGuiCol_ButtonActive / backdrop)
   float accentR = 0.880f; // default Custom Top Red
   float accentG = 0.150f;

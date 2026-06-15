@@ -127,7 +127,7 @@ void Window::initGLFW() {
     configureGLFW();
 
     m_window = glfwCreateWindow(m_config.windowW, m_config.windowH,
-                                "God Of War Toolkit", nullptr, nullptr);
+                                m_config.windowTitle.c_str(), nullptr, nullptr);
     if (!m_window) {
         glfwTerminate();
         fprintf(stderr, "Failed to create GLFW window\n");

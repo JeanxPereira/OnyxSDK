@@ -394,7 +394,7 @@ void App::drawMenuBar() {
   // â”€â”€ Phase 3: Titlebar buttons + centered title â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   if (m_window)
     m_wantClose =
-        TitleBar::draw(m_window, "God Of War Toolkit", m_decorator.borderless);
+        TitleBar::draw(m_window, m_config ? m_config->windowTitle.c_str() : "Onyx Toolkit", m_decorator.borderless);
 
   // â”€â”€ Phase 4: macOS borderless drag â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #if defined(GOWTOOL_OS_MACOS)
