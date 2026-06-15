@@ -7,12 +7,12 @@
 namespace Onyx::Container {
 
 struct ChunkFormat {
-    uint8_t tagBytes = 4;                 // 4 (v5+/v8) or 2 (old SCUMM/earwax)
+    uint8_t tagBytes = 4;                 // 4 (typical IFF/RIFF) or 2 (legacy 16-bit-tag formats)
     enum class Endian { Big, Little };
     Endian   sizeEndian         = Endian::Big;
     bool     sizeIncludesHeader = true;   // size field counts the tag+size header
-    bool     sizeBeforeTag      = false;  // earwax: <size(LE u32)><tag(2)>
-    uint32_t alignment          = 1;      // SCUMM = 2
+    bool     sizeBeforeTag      = false;  // some legacy formats: <size(LE u32)><tag(2)>
+    uint32_t alignment          = 1;      // e.g. 2 for word-aligned formats
 };
 
 struct ChunkHeader {
