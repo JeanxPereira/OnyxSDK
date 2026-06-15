@@ -13,6 +13,14 @@
 
 namespace Onyx::Domain {
 
+// Declares the files a profile can open, for the File->Open picker.
+// extensions are lowercase, WITHOUT the leading dot (e.g. {"iso","wad"}).
+struct OpenFilter {
+    std::string label;                  // e.g. "God of War II (PS2)"
+    std::vector<std::string> extensions;
+    bool valid() const { return !extensions.empty(); }
+};
+
 class IAssetProfile {
 public:
     virtual ~IAssetProfile() = default;
@@ -41,6 +49,9 @@ public:
     // do any pre-parse setup (e.g. ensure an external config file exists).
     // Default: no-op. Profiles override if they need it.
     virtual void PrepareForParse(const std::filesystem::path& path) {}
+
+    // Files this profile can open (for the File->Open picker). Default: none.
+    virtual OpenFilter GetOpenFilter() const { return {}; }
 
 };
 
