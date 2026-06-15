@@ -105,6 +105,12 @@ void App::frameBegin() {
 }
 
 void App::frame() {
+  // Keep the OS/taskbar title in sync with the app-set config title.
+  if (m_window && m_config && m_config->windowTitle != m_lastAppliedTitle) {
+    glfwSetWindowTitle(m_window, m_config->windowTitle.c_str());
+    m_lastAppliedTitle = m_config->windowTitle;
+  }
+
   // Process task manager deferred calls and garbage collection
   Onyx::Services::TaskManager::runDeferredCalls();
   Onyx::Services::TaskManager::collectGarbage();
@@ -155,12 +161,15 @@ void App::frame() {
 
   ImGui::PopStyleVar(); // Pop FramePadding
 
-  // â"€â"€ DockSpace â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+  // -- DockSpace ---------------------------------------------------------------
   ImGuiID dockspace_id = ImGui::GetID("GoWToolDockSpace");
 
-  if (!m_layoutInitialized) {
-    m_layoutInitialized = true;
-    setupDockLayout(dockspace_id);
+  if (m_resetLayout) {
+    ImGui::DockBuilderRemoveNode(dockspace_id);
+    m_resetLayout = false;
+  }
+  if (ImGui::DockBuilderGetNode(dockspace_id) == nullptr && m_defaultLayout) {
+    m_defaultLayout(dockspace_id);
   }
 
   ImGui::DockSpace(dockspace_id, ImVec2(0, 0), ImGuiDockNodeFlags_None);
@@ -187,32 +196,6 @@ void App::frameEnd() {
   EventFrameEnd::post();
 }
 
-void App::setupDockLayout(ImGuiID dockspace_id) {
-  ImGui::DockBuilderRemoveNode(dockspace_id);
-  ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
-  ImGui::DockBuilderSetNodeSize(dockspace_id, ImGui::GetMainViewport()->Size);
-
-  ImGuiID dock_main = dockspace_id;
-  ImGuiID dock_left = 0;
-  ImGuiID dock_bottom = 0;
-  ImGuiID dock_right = 0;
-
-  ImGui::DockBuilderSplitNode(dock_main, ImGuiDir_Left, 0.22f, &dock_left,
-                              &dock_main);
-  ImGui::DockBuilderSplitNode(dock_main, ImGuiDir_Down, 0.20f, &dock_bottom,
-                              &dock_main);
-  ImGui::DockBuilderSplitNode(dock_main, ImGuiDir_Right, 0.25f, &dock_right,
-                              &dock_main);
-
-  ImGui::DockBuilderDockWindow("PAK Browser", dock_left);
-  ImGui::DockBuilderDockWindow("WAD Browser", dock_left);
-  ImGui::DockBuilderDockWindow("Viewer", dock_main);
-  ImGui::DockBuilderDockWindow("Inspector", dock_right);
-  ImGui::DockBuilderDockWindow("Camera", dock_right); // tab next to Inspector
-  ImGui::DockBuilderDockWindow("Log", dock_bottom);
-
-  ImGui::DockBuilderFinish(dockspace_id);
-}
 
 void App::drawOpenDialog() {
   if (m_showOpenDialog) {
@@ -493,7 +476,7 @@ void App::drawMenuItems() {
                                     &p->visible);
     }
     if (NativeMenuBar::menuItem("Reset Layout"))
-      m_layoutInitialized = false;
+      m_resetLayout = true;   // triggers DockBuilderRemoveNode + default-layout rebuild next frame
     NativeMenuBar::endMenu();
   }
 }

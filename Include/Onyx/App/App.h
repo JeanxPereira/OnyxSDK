@@ -22,10 +22,15 @@ public:
 
     // Hook the executable uses to register game-specific panels and viewers.
     // Set before init(); invoked once during init, after the engine's generic
-    // panels are registered. Keeps App game-agnostic â€” the engine ships no
+    // panels are registered. Keeps App game-agnostic -- the engine ships no
     // game wiring of its own.
     using AppRegistrar = std::function<void(App&)>;
     void SetRegistrar(AppRegistrar r) { m_registrar = std::move(r); }
+
+    // App-provided default dock layout, invoked once when there is no saved
+    // layout (fresh imgui.ini) -- the engine ships no game-specific layout.
+    using LayoutFn = std::function<void(ImGuiID dockspaceId)>;
+    void SetDefaultLayout(LayoutFn fn) { m_defaultLayout = std::move(fn); }
 
     // Minimal accessor the registrar uses to add a (game) panel.
     void addPanel(std::unique_ptr<IPanel> panel) { m_panels.add(std::move(panel)); }
@@ -48,7 +53,6 @@ private:
     void drawMenuItems();
     void drawPopups();
     void drawOpenDialog();
-    void setupDockLayout(ImGuiID dockspace_id);
     void registerPanels();
     void openRecentFile(Onyx::Services::RecentEntry entry);
     std::string getRecentsPath() const;
@@ -61,10 +65,15 @@ private:
     Onyx::Services::AppConfig*      m_config  = nullptr;
     GLFWwindow*           m_window  = nullptr;
     bool                  m_wantClose         = false;
-    bool                  m_layoutInitialized = false;
 
     // Injected game-specific panel/viewer registrar (supplied by the app).
     AppRegistrar          m_registrar;
+
+    // Per-app default layout callback.
+    LayoutFn              m_defaultLayout;
+    bool                  m_resetLayout = false;
+
+    std::string           m_lastAppliedTitle;   // last title pushed to glfwSetWindowTitle
 
     // Recents
     Onyx::Services::RecentFiles     m_recentFiles;
