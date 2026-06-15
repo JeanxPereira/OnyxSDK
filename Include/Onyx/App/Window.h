@@ -71,6 +71,9 @@ private:
 
     // Config path
     std::string m_configPath;
+
+    // Backing storage for io.IniFilename — must outlive the ImGui context.
+    std::string m_imguiIniPath;
 };
 
 } // namespace Onyx::App

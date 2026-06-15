@@ -85,12 +85,6 @@ Window::~Window() {
             glfwGetWindowSize(m_window, &m_config.windowW, &m_config.windowH);
         }
 
-        size_t len = 0;
-        const char* iniString = ImGui::SaveIniSettingsToMemory(&len);
-        if (iniString && len > 0) {
-            m_config.imguiIniState = std::string(iniString, len);
-        }
-
         m_config.save(m_configPath);
     }
 
@@ -181,13 +175,9 @@ void Window::initImGui() {
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
     io.ConfigWindowsMoveFromTitleBarOnly = true;
-    io.IniFilename = nullptr; // No automatic .ini file
-
-    // Load layout from saved config
-    if (!m_config.imguiIniState.empty()) {
-        ImGui::LoadIniSettingsFromMemory(m_config.imguiIniState.c_str(),
-                                          m_config.imguiIniState.size());
-    }
+    m_imguiIniPath = PathUtils::resolvePath("imgui.ini");
+    io.IniFilename = m_imguiIniPath.c_str(); // ImGui owns its native ini (auto-loads/saves)
+    io.IniSavingRate = 2.0f;
 
     // Apply centralized accent-derived theme (replaces StyleColorsDark + applyAccent)
     Onyx::Theme::ApplyTheme(m_config.getAccent(),
