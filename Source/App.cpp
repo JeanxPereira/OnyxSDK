@@ -8,8 +8,6 @@
 #include "Ui/NativeWindow.h"
 #include "Ui/TitleBar.h"
 
-#include <Onyx/App/Panels/CameraPanel.h>
-#include <Onyx/App/Panels/IsoBrowser.h>
 #include <Onyx/App/Panels/PakBrowser.h>
 #include "Ui/SettingsWindow.h"
 #include "Ui/StatusBar.h"
@@ -17,9 +15,6 @@
 // Viewer headers
 #include <Onyx/Viewers/ImageViewer.h>
 #include <Onyx/Viewers/Viewport3D.h>
-#include <Onyx/App/Panels/AnimCurveView.h>
-#include <Onyx/App/Panels/Dopesheet.h>
-#include <Onyx/App/Panels/WadStatsView.h>
 
 // Core subsystems
 #include <Onyx/Services/Events.h>
@@ -34,36 +29,23 @@
 namespace Onyx::App {
 
 void App::registerPanels() {
-  // â”€â”€ Generic (engine) panels â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  m_panels.add(std::make_unique<IsoBrowser>());
-  m_panels.add(std::make_unique<PakBrowser>());
-  m_panels.add(std::make_unique<CameraPanel>());
+  // ── Minimal core (engine) panels — useful for any consumer ──
+  // Other generic panels (Iso/Pak Browser, Camera, Anim Curves, Dopesheet,
+  // WAD Stats) are now public + opt-in: apps add the ones they want in their
+  // registrar (see Onyx/App/Panels/*.h).
   m_panels.add(std::make_unique<StatusBar>());
   m_panels.add(std::make_unique<SettingsWindow>());
-  m_panels.add(std::make_unique<Onyx::Viewers::AnimCurveView>());
-  m_panels.add(std::make_unique<Onyx::Viewers::Dopesheet>());
-  m_panels.add(std::make_unique<Onyx::Viewers::WadStatsView>());
 
-  // â”€â”€ Game (app) panels/viewers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Game (app) panels/viewers ──────────────────────────────────────────────
   // Injected by the executable so the engine stays game-agnostic. Supplies
   // the game browser, inspector, and any game-specific viewer wiring.
   if (m_registrar)
     m_registrar(*this);
 
-  // Set initial visibility
-  if (auto *iso = dynamic_cast<IsoBrowser *>(m_panels.find("ISO Browser")))
-    iso->visible = false;
+  // Set initial visibility for core panels
   if (auto *settings =
           dynamic_cast<SettingsWindow *>(m_panels.find("Settings")))
     settings->visible = false;
-  if (auto *animCurves =
-          dynamic_cast<Onyx::Viewers::AnimCurveView *>(m_panels.find("Anim Curves")))
-    animCurves->visible = false;
-  if (auto *wadStats =
-          dynamic_cast<Onyx::Viewers::WadStatsView *>(m_panels.find("WAD Stats")))
-    wadStats->visible = false;
-  if (auto *dope = dynamic_cast<Onyx::Viewers::Dopesheet *>(m_panels.find("Dopesheet")))
-    dope->visible = false;
 }
 
 App::App() {}
@@ -96,7 +78,7 @@ void App::init(GLFWwindow *window, Onyx::Services::AppConfig *config) {
   m_decorator.borderless = true;
 #endif
 
-  // WindowDecorator init â€” icon font is now managed by FontManager
+  // WindowDecorator init â€" icon font is now managed by FontManager
   m_decorator.init(window, nullptr);
 
   // Initialize panels that need config
@@ -114,7 +96,7 @@ void App::init(GLFWwindow *window, Onyx::Services::AppConfig *config) {
   EventStartupFinished::post();
 }
 
-// â”€â”€ Frame Phases â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€ Frame Phases â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 void App::frameBegin() {
   // Pass menubar height to native window for NCHITTEST
@@ -131,7 +113,7 @@ void App::frame() {
   // Per-frame tick event for animations, progress bars, etc.
   EventFrameTick::post();
 
-  // â”€â”€ Host window fullscreen â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Host window fullscreen â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   ImGuiViewport *vp = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(vp->WorkPos);
   ImGui::SetNextWindowSize(vp->WorkSize);
@@ -156,7 +138,7 @@ void App::frame() {
   ImGui::Begin("##HostWindow", nullptr, host_flags);
   ImGui::PopStyleVar(2);
 
-  // â”€â”€ Global Keyboard Shortcuts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Global Keyboard Shortcuts â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   ImGuiIO &io = ImGui::GetIO();
   if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O, false)) {
     m_showOpenDialog = true;
@@ -173,7 +155,7 @@ void App::frame() {
 
   ImGui::PopStyleVar(); // Pop FramePadding
 
-  // â”€â”€ DockSpace â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ DockSpace â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   ImGuiID dockspace_id = ImGui::GetID("GoWToolDockSpace");
 
   if (!m_layoutInitialized) {
@@ -184,14 +166,14 @@ void App::frame() {
   ImGui::DockSpace(dockspace_id, ImVec2(0, 0), ImGuiDockNodeFlags_None);
   ImGui::End();
 
-  // â”€â”€ Draw all registered panels â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  // â”€â”€ Draw all registered panels â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Draw all registered panels â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
+  // â"€â"€ Draw all registered panels â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   m_panels.DrawAll();
 
-  // â”€â”€ Document Window (tab host) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Document Window (tab host) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   m_documentWindow.Draw();
 
-  // â”€â”€ All popups / modals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ All popups / modals â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   drawPopups();
 }
 
@@ -199,7 +181,7 @@ void App::frameEnd() {
   // Font rebuild is now handled by Window::frameEnd() via Onyx::Fonts
   // Audio-volume <-> config sync is wired by the app (see AppRegistration).
 
-  // Post-draw tick â€” runs AFTER frame()'s panels/document draw for this frame,
+  // Post-draw tick â€" runs AFTER frame()'s panels/document draw for this frame,
   // matching the old frameEnd() timing. Subscribers (e.g. the audio-volume
   // write-back) can observe same-frame UI mutations here.
   EventFrameEnd::post();
@@ -367,14 +349,14 @@ void App::drawMenuBar() {
   if (!ImGui::BeginMenuBar())
     return;
 
-  // â”€â”€ Phase 1: Backdrop first so menu items render on top of it â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Phase 1: Backdrop first so menu items render on top of it â"€â"€â"€â"€â"€â"€â"€â"€â"€
   if (m_window)
     TitleBar::drawBackDrop();
 
-  // â”€â”€ Phase 2: Menu items â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Phase 2: Menu items â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   // On macOS with native decorations, menus go to the system menu bar.
   // On Windows/Linux (or macOS borderless), menus render in ImGui.
-  // NativeMenuBar::enable() persists across frames â€” only call it to
+  // NativeMenuBar::enable() persists across frames â€" only call it to
   // set state, never toggle on/off per frame (which would clear NSMenu).
 
 #if defined(GOWTOOL_OS_MACOS)
@@ -391,12 +373,12 @@ void App::drawMenuBar() {
     NativeMenuBar::endMainMenuBar();
 #endif
 
-  // â”€â”€ Phase 3: Titlebar buttons + centered title â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Phase 3: Titlebar buttons + centered title â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   if (m_window)
     m_wantClose =
         TitleBar::draw(m_window, m_config ? m_config->windowTitle.c_str() : "Onyx Toolkit", m_decorator.borderless);
 
-  // â”€â”€ Phase 4: macOS borderless drag â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â"€â"€ Phase 4: macOS borderless drag â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 #if defined(GOWTOOL_OS_MACOS)
   if (m_decorator.borderless) {
     const ImVec2 windowSize = ImGui::GetWindowSize();
@@ -439,7 +421,7 @@ void App::drawMenuItems() {
 
     NativeMenuBar::separator();
 
-    // â”€â”€ Recents submenu â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // â"€â"€ Recents submenu â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
     if (NativeMenuBar::beginMenu("Recent Files", !m_recentFiles.Empty())) {
       Onyx::Services::RecentEntry entryToOpen;
       bool shouldOpen = false;
