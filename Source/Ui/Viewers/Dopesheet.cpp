@@ -1,4 +1,4 @@
-﻿#include "Dopesheet.h"
+﻿#include <Onyx/App/Panels/Dopesheet.h>
 
 #include <Onyx/Services/Events.h>
 #include <Onyx/Rendering/AnimationPlayer.h>

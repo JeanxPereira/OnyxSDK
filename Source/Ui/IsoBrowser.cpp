@@ -1,4 +1,4 @@
-﻿#include "Ui/IsoBrowser.h"
+﻿#include <Onyx/App/Panels/IsoBrowser.h>
 #include <Onyx/Api/ToolkitApi.h>
 #include <Onyx/Fonts/SFSymbols.h>
 #include <Onyx/Vfs/IsoFileSystem.h>

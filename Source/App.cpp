@@ -8,18 +8,18 @@
 #include "Ui/NativeWindow.h"
 #include "Ui/TitleBar.h"
 
-#include "Ui/CameraPanel.h"
-#include "Ui/IsoBrowser.h"
-#include "Ui/PakBrowser.h"
+#include <Onyx/App/Panels/CameraPanel.h>
+#include <Onyx/App/Panels/IsoBrowser.h>
+#include <Onyx/App/Panels/PakBrowser.h>
 #include "Ui/SettingsWindow.h"
 #include "Ui/StatusBar.h"
 
 // Viewer headers
 #include <Onyx/Viewers/ImageViewer.h>
 #include <Onyx/Viewers/Viewport3D.h>
-#include "Ui/Viewers/AnimCurveView.h"
-#include "Ui/Viewers/Dopesheet.h"
-#include "Ui/Viewers/WadStatsView.h"
+#include <Onyx/App/Panels/AnimCurveView.h>
+#include <Onyx/App/Panels/Dopesheet.h>
+#include <Onyx/App/Panels/WadStatsView.h>
 
 // Core subsystems
 #include <Onyx/Services/Events.h>

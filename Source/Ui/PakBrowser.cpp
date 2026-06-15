@@ -1,4 +1,4 @@
-﻿#include "Ui/PakBrowser.h"
+﻿#include <Onyx/App/Panels/PakBrowser.h>
 #include <Onyx/App/UIHelpers.h>
 #include <Onyx/Services/AssetDatabase.h>
 #include <Onyx/Api/ToolkitApi.h>

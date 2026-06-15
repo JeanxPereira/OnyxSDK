@@ -1,4 +1,4 @@
-﻿#include "Ui/CameraPanel.h"
+﻿#include <Onyx/App/Panels/CameraPanel.h>
 #include <Onyx/Viewers/Viewport3D.h>
 #include <Onyx/Viewers/IDocumentContent.h>
 #include <Onyx/Rendering/Camera.h>

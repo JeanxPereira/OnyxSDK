@@ -6,7 +6,7 @@
 #include <Onyx/Services/AppConfig.h>
 #include <Onyx/Services/ThemeManager.h>
 #include <Onyx/Fonts/SFSymbols.h>
-#include "Ui/CameraPanel.h"
+#include <Onyx/App/Panels/CameraPanel.h>
 #include <Onyx/App/Widgets.h>
 #include "Ui/AnimationTimeline.h"
 #include "Ui/ActiveAnimation.h"

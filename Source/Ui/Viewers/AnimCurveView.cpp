@@ -1,4 +1,4 @@
-﻿#include "AnimCurveView.h"
+﻿#include <Onyx/App/Panels/AnimCurveView.h>
 
 #include <Onyx/Services/AssetDatabase.h>
 #include <Onyx/Services/Events.h>
