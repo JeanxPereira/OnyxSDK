@@ -9,6 +9,7 @@ add_executable(onyx_tests
     threading_test.cpp
     theme_contrast_test.cpp
     vfs_transformfile_test.cpp
+    container_chunkreader_test.cpp
 )
 target_link_libraries(onyx_tests PRIVATE Onyx::Onyx doctest::doctest imgui_lib)
 if(MSVC)
@@ -21,6 +22,7 @@ add_test(NAME OnyxMetrics       COMMAND onyx_tests "--test-case=*Metrics*")
 add_test(NAME OnyxThreading     COMMAND onyx_tests "--test-case=*Threading*")
 add_test(NAME OnyxThemeContrast COMMAND onyx_tests "--test-case=*ThemeContrast*")
 add_test(NAME OnyxTransformFile COMMAND onyx_tests "--test-case=*TransformFile*,*MakeXorFile*")
+add_test(NAME OnyxChunkReader COMMAND onyx_tests "--test-case=*ChunkReader*")
 
 add_test(NAME MinimalViewer_SelfTest
     COMMAND MinimalViewer --selftest $<TARGET_FILE:MinimalViewer>)
