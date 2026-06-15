@@ -52,7 +52,7 @@ private:
     void drawMenuBar();
     void drawMenuItems();
     void drawPopups();
-    void drawOpenDialog();
+    void handleOpenFileRequest();
     void registerPanels();
     void openRecentFile(Onyx::Services::RecentEntry entry);
     std::string getRecentsPath() const;
@@ -78,9 +78,8 @@ private:
     // Recents
     Onyx::Services::RecentFiles     m_recentFiles;
 
-    // Open dialog state
-    bool m_showOpenDialog = false;
-    int  m_openDialogSelectedGame = 1; // Default: GOW2
+    // Open file request state
+    bool m_requestOpenFile = false;
 };
 
 } // namespace Onyx::App

@@ -8,7 +8,6 @@
 #include "Ui/NativeWindow.h"
 #include "Ui/TitleBar.h"
 
-#include <Onyx/App/Panels/PakBrowser.h>
 #include "Ui/SettingsWindow.h"
 #include "Ui/StatusBar.h"
 
@@ -19,6 +18,7 @@
 // Core subsystems
 #include <Onyx/Services/Events.h>
 #include <Onyx/Services/TaskManager.h>
+#include <Onyx/Services/ProfileManager.h>
 #include <Onyx/Api/ToolkitApi.h>
 
 #include <Onyx/Services/Logger.h>
@@ -147,7 +147,7 @@ void App::frame() {
   // â"€â"€ Global Keyboard Shortcuts â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
   ImGuiIO &io = ImGui::GetIO();
   if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O, false)) {
-    m_showOpenDialog = true;
+    m_requestOpenFile = true;
   }
   if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_W, false)) {
     m_documentWindow.CloseActiveTab();
@@ -197,136 +197,40 @@ void App::frameEnd() {
 }
 
 
-void App::drawOpenDialog() {
-  if (m_showOpenDialog) {
-    if (m_db.IsLoading()) {
-      // Do not open if already loading
-      m_showOpenDialog = false;
-    } else {
-      ImGui::OpenPopup("Open Game File");
-      m_showOpenDialog = false;
-    }
+void App::handleOpenFileRequest() {
+  if (!m_requestOpenFile) return;
+  m_requestOpenFile = false;
+  if (m_db.IsLoading()) return;
+
+  std::vector<Onyx::Domain::OpenFilter> filters;
+  for (auto& p : Onyx::Services::ProfileManager::Get().GetProfiles()) {
+    auto f = p->GetOpenFilter();
+    if (f.valid()) filters.push_back(std::move(f));
   }
 
-  ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-  ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-  ImGui::SetNextWindowSize(ImVec2(420, 260), ImGuiCond_Appearing);
+  std::string path = SystemOpenFileDialog(filters);
+  if (path.empty()) return;
 
-  if (ImGui::BeginPopupModal("Open Game File", nullptr,
-                             ImGuiWindowFlags_NoResize)) {
-    ImGui::Spacing();
-    ImGui::Text("Select the game version:");
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    const char *gameVersions[] = {"God of War 1", "God of War 2",
-                                  "God of War (2018)", "God of War Ragnarok"};
-
-    ImGui::SetNextItemWidth(-1);
-    ImGui::Combo("##gameversion", &m_openDialogSelectedGame, gameVersions,
-                 IM_ARRAYSIZE(gameVersions));
-
-    ImGui::Spacing();
-    ImGui::Spacing();
-
-    ImGui::TextDisabled("Supported formats:");
-    switch (m_openDialogSelectedGame) {
-    case 0: // GOW1
-    case 1: // GOW2
-      ImGui::BulletText("ISO files (.iso) - Full game image");
-      ImGui::BulletText("WAD files (.wad) - Individual resource packs");
-      break;
-    case 2: // GOW2018
-    case 3: // Ragnarok
-      ImGui::BulletText("WAD files (.wad) - Resource packs");
-      break;
-    }
-
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Spacing();
-
-    float buttonWidth = 120.0f;
-    float totalWidth = buttonWidth * 2 + ImGui::GetStyle().ItemSpacing.x;
-    ImGui::SetCursorPosX((ImGui::GetWindowWidth() - totalWidth) * 0.5f);
-
-    if (ImGui::Button("OK", ImVec2(buttonWidth, 0))) {
-      std::string path = SystemOpenFileDialog();
-      if (!path.empty()) {
-        fs::path p(path);
-        auto ext = p.extension().string();
-        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-
-        switch (m_openDialogSelectedGame) {
-        case 0: // GOW1
-        case 1: // GOW2
-          if (ext == ".iso") {
-            m_db.LoadIsoPakAsync(p);
-            if (auto *pak =
-                    dynamic_cast<PakBrowser *>(m_panels.find("PAK Browser")))
-              pak->visible = true;
-            ImGui::SetWindowFocus("PAK Browser");
-            m_recentFiles.Add(
-                path, m_openDialogSelectedGame == 0 ? "gow1" : "gow2", "ISO");
-          } else {
-            std::string hint = m_openDialogSelectedGame == 0 ? "gow1" : "gow2";
-            m_db.LoadWadAsync(p, hint);
-            if (auto *wad = m_panels.find("WAD Browser"))
-              wad->visible = true;
-            ImGui::SetWindowFocus("WAD Browser");
-            m_recentFiles.Add(path, hint, "WAD");
-          }
-          break;
-        case 2: // GOW2018
-        case 3: // Ragnarok
-          m_db.LoadWadAsync(p, "ragnarok");
-          if (auto *wad = m_panels.find("WAD Browser"))
-            wad->visible = true;
-          ImGui::SetWindowFocus("WAD Browser");
-          m_recentFiles.Add(path, "ragnarok", "WAD");
-          break;
-        }
-      }
-      ImGui::CloseCurrentPopup();
-    }
-
-    ImGui::SameLine();
-
-    if (ImGui::Button("Cancel", ImVec2(buttonWidth, 0))) {
-      ImGui::CloseCurrentPopup();
-    }
-
-    ImGui::EndPopup();
+  if (m_db.LoadWad(path)) {
+    m_recentFiles.Add(path, "", "");
+  } else {
+    LOG_WARN("[App] Unsupported or unreadable file: %s", path.c_str());
   }
 }
 
 void App::openRecentFile(Onyx::Services::RecentEntry entry) {
-  fs::path p(entry.path);
-  if (!fs::exists(p))
+  if (!fs::exists(entry.path))
     return;
 
-  if (entry.fileType == "ISO") {
-    m_db.LoadIsoPakAsync(p);
-    if (auto *pak = dynamic_cast<PakBrowser *>(m_panels.find("PAK Browser")))
-      pak->visible = true;
-    ImGui::SetWindowFocus("PAK Browser");
-  } else {
-    m_db.LoadWadAsync(p, entry.gameHint);
-    if (auto *wad = m_panels.find("WAD Browser"))
-      wad->visible = true;
-    ImGui::SetWindowFocus("WAD Browser");
-  }
-
-  // Re-add to bump it to the top
-  m_recentFiles.Add(entry.path, entry.gameHint, entry.fileType);
+  if (m_db.LoadWad(entry.path))
+    m_recentFiles.Add(entry.path, entry.gameHint, entry.fileType);
 }
 
 std::string App::getRecentsPath() const {
   return PathUtils::resolvePath("gowtool_recents.txt");
 }
 
-void App::drawPopups() { drawOpenDialog(); }
+void App::drawPopups() { handleOpenFileRequest(); }
 
 void App::drawMenuBar() {
   if (!ImGui::BeginMenuBar())
@@ -398,7 +302,7 @@ void App::drawMenuItems() {
 
   if (NativeMenuBar::beginMenu("File")) {
     if (NativeMenuBar::menuItem("Open...", "Ctrl+O"))
-      m_showOpenDialog = true;
+      m_requestOpenFile = true;
     if (NativeMenuBar::menuItem("Close All"))
       m_db.CloseAll();
 

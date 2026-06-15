@@ -20,8 +20,12 @@ using Onyx::App::MatchesFilter;
 // this umbrella is engine-side and must stay game-agnostic. App TUs that need
 // role visuals include "ui/RoleVisuals.h" directly.
 
-// â”€â”€ Platform dialogs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- Platform dialogs -------------------------------------------------------
 #include <string>
+#include <vector>
+#include <Onyx/Domain/IAssetProfile.h>
 
-std::string SystemOpenFileDialog();
+// Native open dialog filtered to the given groups (plus an auto-added
+// “All Supported Files” union group and an “All Files” group). Empty list => All Files.
+std::string SystemOpenFileDialog(const std::vector<Onyx::Domain::OpenFilter>& filters = {});
 std::string SystemSaveFileDialog(const std::string& defaultName);

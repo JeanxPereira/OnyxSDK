@@ -1,6 +1,7 @@
 ﻿#include <Onyx/App/Panels/PakBrowser.h>
 #include <Onyx/App/UIHelpers.h>
 #include <Onyx/Services/AssetDatabase.h>
+#include <Onyx/Services/Events.h>
 #include <Onyx/Api/ToolkitApi.h>
 #include <Onyx/Fonts/SFSymbols.h>
 #include "imgui.h"
@@ -11,6 +12,10 @@
 #include <Onyx/Services/Logger.h>
 
 namespace Onyx::App {
+
+PakBrowser::PakBrowser() {
+    EventPakOpened::subscribe(this, [this](AssetContainer*) { visible = true; });
+}
 
 void PakBrowser::Draw() {
   if (!visible)
