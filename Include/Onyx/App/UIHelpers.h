@@ -25,7 +25,7 @@ using Onyx::App::MatchesFilter;
 #include <vector>
 #include <Onyx/Domain/IAssetProfile.h>
 
-// Native open dialog filtered to the given groups (plus an auto-added
-// “All Supported Files” union group and an “All Files” group). Empty list => All Files.
+// Native open dialog filtered to the given profile groups plus an auto-added
+// union group and an All Files group. Empty list: All Files.
 std::string SystemOpenFileDialog(const std::vector<Onyx::Domain::OpenFilter>& filters = {});
 std::string SystemSaveFileDialog(const std::string& defaultName);
