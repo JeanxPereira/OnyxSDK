@@ -17,6 +17,10 @@ PakBrowser::PakBrowser() {
     EventPakOpened::subscribe(this, [this](AssetContainer*) { visible = true; });
 }
 
+PakBrowser::~PakBrowser() {
+    EventPakOpened::unsubscribe(this);
+}
+
 void PakBrowser::Draw() {
   if (!visible)
     return;

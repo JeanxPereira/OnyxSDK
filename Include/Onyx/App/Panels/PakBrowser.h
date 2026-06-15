@@ -11,6 +11,7 @@ namespace Onyx::App {
 class PakBrowser : public IPanel {
 public:
     PakBrowser();
+    ~PakBrowser() override;
     void Draw() override;
     std::string_view getName() const override { return "PAK Browser"; }
 
