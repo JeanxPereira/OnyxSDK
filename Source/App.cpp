@@ -211,11 +211,16 @@ void App::handleOpenFileRequest() {
   std::string path = SystemOpenFileDialog(filters);
   if (path.empty()) return;
 
-  if (m_db.LoadWad(path)) {
-    m_recentFiles.Add(path, "", "");
-  } else {
+  // Detect the profile up front (cheap) so we can surface an "unsupported"
+  // message and label the recent entry, then load asynchronously — large ISOs
+  // must not block the UI thread.
+  auto profile = Onyx::Services::ProfileManager::Get().DetectProfileForFile(path);
+  if (!profile) {
     LOG_WARN("[App] Unsupported or unreadable file: %s", path.c_str());
+    return;
   }
+  m_recentFiles.Add(path, profile->GetName(), "");
+  m_db.LoadWadAsync(path);
 }
 
 void App::openRecentFile(Onyx::Services::RecentEntry entry) {
