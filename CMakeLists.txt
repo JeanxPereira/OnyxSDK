@@ -67,41 +67,61 @@ add_library(miniaudio STATIC
 )
 target_include_directories(miniaudio PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio)
 
-# ── ImGui lib (vendored copy in third_party/imgui) ────────────────────────
+# ── Dear ImGui (docking) via FetchContent ──────────────────────────────────
+# Pinned to the exact commit previously vendored under third_party/imgui
+# (1.92.9 WIP, build 19282). SOURCE_SUBDIR points at a non-existent dir so
+# MakeAvailable only populates the source — ImGui ships no CMakeLists and we
+# build the static lib ourselves below.
+FetchContent_Declare(imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG        2af6dd9694288e6befe1edb7ce25510911693c22
+    SOURCE_SUBDIR  _skip_add_subdirectory
+)
+FetchContent_MakeAvailable(imgui)
+
 add_library(imgui_lib STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui/imgui.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui/imgui_draw.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui/imgui_tables.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui/imgui_widgets.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui/imgui_demo.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui/backends/imgui_impl_glfw.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui/backends/imgui_impl_opengl3.cpp
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/imgui_demo.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
 )
 target_include_directories(imgui_lib PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui/backends
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
 )
 target_link_libraries(imgui_lib PUBLIC glfw glad)
 
-# ── ImPlot (submodule at third_party/implot) ─────────────────────────────
-add_library(implot_lib STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/implot/implot.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/implot/implot_items.cpp
+# ── ImPlot via FetchContent (pinned to the previously-submoduled commit) ───
+FetchContent_Declare(implot
+    GIT_REPOSITORY https://github.com/epezent/implot.git
+    GIT_TAG        d65a2bef53d32502407de3a4be80f191e2f412d7
+    SOURCE_SUBDIR  _skip_add_subdirectory
 )
-target_include_directories(implot_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/implot)
+FetchContent_MakeAvailable(implot)
+
+add_library(implot_lib STATIC
+    ${implot_SOURCE_DIR}/implot.cpp
+    ${implot_SOURCE_DIR}/implot_items.cpp
+)
+target_include_directories(implot_lib PUBLIC ${implot_SOURCE_DIR})
 target_link_libraries(implot_lib PUBLIC imgui_lib)
 
-# ── ImGuiColorTextEdit (submodule at third_party/imgui_color_text_edit) ──
-if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui_color_text_edit/TextEditor.cpp")
-    message(FATAL_ERROR
-        "third_party/imgui_color_text_edit is empty. "
-        "Run: git submodule update --init --recursive")
-endif()
+# ── ImGuiColorTextEdit via FetchContent (pinned to previously-submoduled commit) ──
+FetchContent_Declare(imgui_color_text_edit
+    GIT_REPOSITORY https://github.com/goossens/ImGuiColorTextEdit.git
+    GIT_TAG        a74fb090d2ea9276ae6c35c2f6ab39491c7d404f
+    SOURCE_SUBDIR  _skip_add_subdirectory
+)
+FetchContent_MakeAvailable(imgui_color_text_edit)
+
 add_library(imgui_color_text_edit STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui_color_text_edit/TextEditor.cpp
+    ${imgui_color_text_edit_SOURCE_DIR}/TextEditor.cpp
 )
 target_include_directories(imgui_color_text_edit PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui_color_text_edit
+    ${imgui_color_text_edit_SOURCE_DIR}
 )
 target_link_libraries(imgui_color_text_edit PUBLIC imgui_lib)
 target_compile_features(imgui_color_text_edit PUBLIC cxx_std_17)
