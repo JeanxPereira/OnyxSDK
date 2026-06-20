@@ -21,26 +21,20 @@ std::shared_ptr<Domain::IAssetProfile> ProfileManager::FindProfileByHint(const s
     std::string hintLower = hint;
     for (auto& c : hintLower) c = (char)tolower(c);
 
-    // Short aliases recognized before substring search
-    // Maps common CLI hints â†’ substring that will match the full profile name
-    const std::pair<const char*, const char*> aliases[] = {
-        {"gow1",      "god of war i"},
-        {"gow2",      "god of war ii"},
-        {"gowr",      "ragnarok"},
-        {"ragnarok",  "ragnarok"},
-        {"ps2",       "ps2"},
-        {"ps4",       "ps4"},
-        {"ps5",       "ps5"},
-    };
-    for (auto [alias, expanded] : aliases) {
-        if (hintLower == alias) { hintLower = expanded; break; }
+    // 1) Exact match against each profile’s declared CLI hints.
+    for (const auto& profile : m_profiles) {
+        for (const auto& alias : profile->GetHints()) {
+            std::string a = alias;
+            for (auto& c : a) c = (char)tolower(c);
+            if (a == hintLower) return profile;
+        }
     }
 
+    // 2) Fallback: substring match on the profile display name.
     for (const auto& profile : m_profiles) {
         std::string nameLower = profile->GetName();
         for (auto& c : nameLower) c = (char)tolower(c);
-        if (nameLower.find(hintLower) != std::string::npos)
-            return profile;
+        if (nameLower.find(hintLower) != std::string::npos) return profile;
     }
     return nullptr;
 }

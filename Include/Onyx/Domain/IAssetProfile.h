@@ -53,6 +53,10 @@ public:
     // Files this profile can open (for the File->Open picker). Default: none.
     virtual OpenFilter GetOpenFilter() const { return {}; }
 
+    // CLI hint aliases this profile answers to (lowercase, e.g. {"gow2","ps2"}).
+    // Used by ProfileManager::FindProfileByHint. Default: none.
+    virtual std::vector<std::string> GetHints() const { return {}; }
+
 };
 
 } // namespace Onyx::Domain
