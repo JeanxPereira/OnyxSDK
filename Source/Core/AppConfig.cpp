@@ -1,244 +1,219 @@
-﻿#include <Onyx/Services/AppConfig.h>
+#include <Onyx/Services/AppConfig.h>
 #include <Onyx/Services/AssetVisibility.h>
-#include "imgui.h"
+#include <toml++/toml.hpp>
+#include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <string>
-
-#pragma pack(push, 1)
-struct ConfigBinaryData {
-    char magic[4]; // 'G','T','K','C' (v5+) or legacy 'G','C','F','G'
-    uint32_t version;
-    int windowX;
-    int windowY;
-    int windowW;
-    int windowH;
-    bool maximized;
-    float accentR;
-    float accentG;
-    float accentB;
-    float accentA;
-    float uiScale;
-    float fontScale;
-    bool nativeDecorations;
-    bool nativeMenuBar;
-    float audioVolume;
-    
-    // V6 additions
-    float bgTopR, bgTopG, bgTopB;
-    float bgBotR, bgBotG, bgBotB;
-    float boneR,  boneG,  boneB;
-    float wireR,  wireG,  wireB;
-    float matcapR, matcapG, matcapB;
-    float gridR,  gridG,  gridB,  gridA;
-    float hlR, hlG, hlB, hlA;
-
-    uint32_t imguiStateSize;
-    char fontPath[256];
-
-    // V8 additions â€” camera projection settings
-    float camFov;
-    float camNearPlane;
-    float camFarPlane;
-    bool  camAutoNear;
-    bool  camAutoFar;
-    float camManualNear;
-    float camManualFar;
-    float camNearDistanceScale;
-    float camFarMargin;
-    float camNearFarRatioMax;
-    bool  camPanelVisible;
-
-    // V10 additions â€” theme mode (Dark/Light)
-    uint8_t themeMode;
-};
-#pragma pack(pop)
+#include <vector>
 
 namespace Onyx::Services {
 
 static AppConfig* s_instance = nullptr;
 
-AppConfig* AppConfig::Get() {
-    return s_instance;
+AppConfig* AppConfig::Get() { return s_instance; }
+void AppConfig::SetInstance(AppConfig* cfg) { s_instance = cfg; }
+
+namespace {
+// Overwrite each float in `outs` from a TOML array `t[key]` if present.
+// Missing entries / wrong types leave the caller's default untouched.
+void readFloats(const toml::table& t, std::string_view key,
+                std::initializer_list<float*> outs) {
+    const auto* arr = t[key].as_array();
+    if (!arr) return;
+    size_t i = 0;
+    for (float* o : outs) {
+        if (i < arr->size())
+            if (auto v = (*arr)[i].value<double>())
+                *o = static_cast<float>(*v);
+        ++i;
+    }
 }
 
-void AppConfig::SetInstance(AppConfig* cfg) {
-    s_instance = cfg;
+toml::array colorArr(std::initializer_list<float> vals) {
+    toml::array a;
+    for (float v : vals) a.push_back(static_cast<double>(v));
+    return a;
 }
+} // namespace
 
-// â”€â”€ Load â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Load ───────────────────────────────────────────────────────────────────
+// Reads onyx.toml. A missing or invalid file yields all defaults (this is also
+// the clean-break path off the legacy binary GTKC format).
 AppConfig AppConfig::load(const std::string& path) {
     AppConfig cfg;
-    std::ifstream f(path, std::ios::binary);
-    if (!f.is_open()) return cfg;
 
-    ConfigBinaryData data;
-    if (f.read(reinterpret_cast<char*>(&data), sizeof(ConfigBinaryData))) {
-        bool isGTKC = (data.magic[0] == 'G' && data.magic[1] == 'T' && data.magic[2] == 'K' && data.magic[3] == 'C');
-        bool isGCFG = (data.magic[0] == 'G' && data.magic[1] == 'C' && data.magic[2] == 'F' && data.magic[3] == 'G');
-        if (isGTKC || isGCFG) {
-            cfg.windowX = data.windowX;
-            cfg.windowY = data.windowY;
-            cfg.windowW = data.windowW;
-            cfg.windowH = data.windowH;
-            cfg.maximized = data.maximized;
-            cfg.accentR = data.accentR;
-            cfg.accentG = data.accentG;
-            cfg.accentB = data.accentB;
-            cfg.accentA = data.accentA;
-            cfg.uiScale = data.uiScale;
-            cfg.fontSize = data.fontScale; // fontScale slot stores fontSize now
+    toml::table tbl;
+    try {
+        tbl = toml::parse_file(path);
+    } catch (const toml::parse_error&) {
+        return cfg;
+    }
 
-            // Migration: old configs stored FontGlobalScale (0.5â€“3.0)
-            if (cfg.fontSize <= 5.0f) cfg.fontSize = 14.0f;
+    if (const auto* w = tbl["window"].as_table()) {
+        cfg.windowX   = static_cast<int>((*w)["x"].value_or<int64_t>(cfg.windowX));
+        cfg.windowY   = static_cast<int>((*w)["y"].value_or<int64_t>(cfg.windowY));
+        cfg.windowW   = static_cast<int>((*w)["w"].value_or<int64_t>(cfg.windowW));
+        cfg.windowH   = static_cast<int>((*w)["h"].value_or<int64_t>(cfg.windowH));
+        cfg.maximized = (*w)["maximized"].value_or(cfg.maximized);
+    }
 
-            if (data.version >= 2)
-                cfg.nativeDecorations = data.nativeDecorations;
-            if (data.version >= 3)
-                cfg.nativeMenuBar = data.nativeMenuBar;
-            if (data.version >= 4) {
-                cfg.audioVolume = data.audioVolume;
-            }
-            if (data.version >= 6) {
-                cfg.bgTopR = data.bgTopR; cfg.bgTopG = data.bgTopG; cfg.bgTopB = data.bgTopB;
-                cfg.bgBotR = data.bgBotR; cfg.bgBotG = data.bgBotG; cfg.bgBotB = data.bgBotB;
-                cfg.boneR  = data.boneR;  cfg.boneG  = data.boneG;  cfg.boneB  = data.boneB;
-                cfg.wireR  = data.wireR;  cfg.wireG  = data.wireG;  cfg.wireB  = data.wireB;
-                cfg.matcapR= data.matcapR;cfg.matcapG= data.matcapG;cfg.matcapB= data.matcapB;
-                cfg.gridR  = data.gridR;  cfg.gridG  = data.gridG;  cfg.gridB  = data.gridB;  cfg.gridA = data.gridA;
-                cfg.hlR    = data.hlR;    cfg.hlG    = data.hlG;    cfg.hlB    = data.hlB;    cfg.hlA   = data.hlA;
-            }
-            if (data.version >= 7) {
-                char safeStr[257];
-                std::strncpy(safeStr, data.fontPath, 256);
-                safeStr[256] = '\0';
-                cfg.fontPath = safeStr;
-            }
+    if (const auto* u = tbl["ui"].as_table()) {
+        cfg.uiScale            = (*u)["scale"].value_or(cfg.uiScale);
+        cfg.fontSize           = (*u)["font_size"].value_or(cfg.fontSize);
+        cfg.fontPath           = (*u)["font_path"].value_or(cfg.fontPath);
+        cfg.nativeDecorations  = (*u)["native_decorations"].value_or(cfg.nativeDecorations);
+        cfg.nativeMenuBar      = (*u)["native_menu_bar"].value_or(cfg.nativeMenuBar);
+    }
 
-            if (data.version >= 8) {
-                cfg.camFov               = data.camFov;
-                cfg.camNearPlane         = data.camNearPlane;
-                cfg.camFarPlane          = data.camFarPlane;
-                cfg.camAutoNear          = data.camAutoNear;
-                cfg.camAutoFar           = data.camAutoFar;
-                cfg.camManualNear        = data.camManualNear;
-                cfg.camManualFar         = data.camManualFar;
-                cfg.camNearDistanceScale = data.camNearDistanceScale;
-                cfg.camFarMargin         = data.camFarMargin;
-                cfg.camNearFarRatioMax   = data.camNearFarRatioMax;
-                cfg.camPanelVisible      = data.camPanelVisible;
-            }
-
-            if (data.imguiStateSize > 0) {
-                // Read embedded imgui config
-                cfg.imguiIniState.resize(data.imguiStateSize);
-                f.read(&cfg.imguiIniState[0], data.imguiStateSize);
-            }
-
-            // V9: Asset visibility overrides (after ImGui state blob)
-            if (data.version >= 9) {
-                uint32_t overrideCount = 0;
-                if (f.read(reinterpret_cast<char*>(&overrideCount), 4) && overrideCount > 0 && overrideCount < 1024) {
-                    std::vector<AssetVisibility::SerializedOverride> overrides(overrideCount);
-                    f.read(reinterpret_cast<char*>(overrides.data()),
-                           overrideCount * sizeof(AssetVisibility::SerializedOverride));
-                    AssetVisibility::Get().ImportOverrides(overrides);
+    if (const auto* th = tbl["theme"].as_table()) {
+        cfg.themeMode = static_cast<uint8_t>((*th)["mode"].value_or<int64_t>(cfg.themeMode));
+        readFloats(*th, "accent", {&cfg.accentR, &cfg.accentG, &cfg.accentB, &cfg.accentA});
+        if (const auto* presets = (*th)["preset"].as_array()) {
+            for (const auto& node : *presets) {
+                const auto* p = node.as_table();
+                if (!p) continue;
+                AppConfig::CustomPreset cp;
+                std::string name = (*p)["name"].value_or(std::string{});
+                std::strncpy(cp.name, name.c_str(), sizeof(cp.name) - 1);
+                if (const auto* c = (*p)["color"].as_array()) {
+                    if (c->size() > 0) cp.r = static_cast<float>((*c)[0].value_or(0.0));
+                    if (c->size() > 1) cp.g = static_cast<float>((*c)[1].value_or(0.0));
+                    if (c->size() > 2) cp.b = static_cast<float>((*c)[2].value_or(0.0));
                 }
-            }
-
-            // V10: Theme mode (Dark/Light)
-            if (data.version >= 10) {
-                cfg.themeMode = data.themeMode;
-            }
-
-            // V11: Custom accent presets (tail blob after visibility overrides)
-            if (data.version >= 11) {
-                uint32_t presetCount = 0;
-                if (f.read(reinterpret_cast<char*>(&presetCount), 4) &&
-                    presetCount > 0 && presetCount < 256) {
-                    cfg.customPresets.resize(presetCount);
-                    f.read(reinterpret_cast<char*>(cfg.customPresets.data()),
-                           presetCount * sizeof(AppConfig::CustomPreset));
-                }
+                cfg.customPresets.push_back(cp);
             }
         }
     }
+
+    if (const auto* a = tbl["audio"].as_table())
+        cfg.audioVolume = (*a)["volume"].value_or(cfg.audioVolume);
+
+    if (const auto* vp = tbl["viewport"].as_table()) {
+        readFloats(*vp, "bg_top",    {&cfg.bgTopR, &cfg.bgTopG, &cfg.bgTopB});
+        readFloats(*vp, "bg_bot",    {&cfg.bgBotR, &cfg.bgBotG, &cfg.bgBotB});
+        readFloats(*vp, "bone",      {&cfg.boneR, &cfg.boneG, &cfg.boneB});
+        readFloats(*vp, "wire",      {&cfg.wireR, &cfg.wireG, &cfg.wireB});
+        readFloats(*vp, "matcap",    {&cfg.matcapR, &cfg.matcapG, &cfg.matcapB});
+        readFloats(*vp, "grid",      {&cfg.gridR, &cfg.gridG, &cfg.gridB, &cfg.gridA});
+        readFloats(*vp, "highlight", {&cfg.hlR, &cfg.hlG, &cfg.hlB, &cfg.hlA});
+    }
+
+    if (const auto* cam = tbl["camera"].as_table()) {
+        cfg.camFov               = (*cam)["fov"].value_or(cfg.camFov);
+        cfg.camNearPlane         = (*cam)["near_plane"].value_or(cfg.camNearPlane);
+        cfg.camFarPlane          = (*cam)["far_plane"].value_or(cfg.camFarPlane);
+        cfg.camAutoNear          = (*cam)["auto_near"].value_or(cfg.camAutoNear);
+        cfg.camAutoFar           = (*cam)["auto_far"].value_or(cfg.camAutoFar);
+        cfg.camManualNear        = (*cam)["manual_near"].value_or(cfg.camManualNear);
+        cfg.camManualFar         = (*cam)["manual_far"].value_or(cfg.camManualFar);
+        cfg.camNearDistanceScale = (*cam)["near_distance_scale"].value_or(cfg.camNearDistanceScale);
+        cfg.camFarMargin         = (*cam)["far_margin"].value_or(cfg.camFarMargin);
+        cfg.camNearFarRatioMax   = (*cam)["near_far_ratio_max"].value_or(cfg.camNearFarRatioMax);
+        cfg.camPanelVisible      = (*cam)["panel_visible"].value_or(cfg.camPanelVisible);
+    }
+
+    if (const auto* vis = tbl["visibility"].as_table()) {
+        if (const auto* ov = (*vis)["overrides"].as_array()) {
+            std::vector<AssetVisibility::SerializedOverride> overrides;
+            for (const auto& node : *ov) {
+                const auto* o = node.as_table();
+                if (!o) continue;
+                AssetVisibility::SerializedOverride so;
+                so.typeId  = static_cast<uint16_t>((*o)["type"].value_or<int64_t>(0));
+                so.visible = (*o)["visible"].value_or(false) ? 1 : 0;
+                so._pad    = 0;
+                overrides.push_back(so);
+            }
+            if (!overrides.empty())
+                AssetVisibility::Get().ImportOverrides(overrides);
+        }
+    }
+
     return cfg;
 }
 
-// â”€â”€ Save â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Save ───────────────────────────────────────────────────────────────────
 void AppConfig::save(const std::string& path) const {
+    toml::table tbl;
+
+    tbl.insert("window", toml::table{
+        {"x", static_cast<int64_t>(windowX)},
+        {"y", static_cast<int64_t>(windowY)},
+        {"w", static_cast<int64_t>(windowW)},
+        {"h", static_cast<int64_t>(windowH)},
+        {"maximized", maximized},
+    });
+
+    tbl.insert("ui", toml::table{
+        {"scale", static_cast<double>(uiScale)},
+        {"font_size", static_cast<double>(fontSize)},
+        {"font_path", fontPath},
+        {"native_decorations", nativeDecorations},
+        {"native_menu_bar", nativeMenuBar},
+    });
+
+    toml::table theme{
+        {"mode", static_cast<int64_t>(themeMode)},
+        {"accent", colorArr({accentR, accentG, accentB, accentA})},
+    };
+    if (!customPresets.empty()) {
+        toml::array presets;
+        for (const auto& cp : customPresets) {
+            char nameBuf[33];
+            std::memcpy(nameBuf, cp.name, 32);
+            nameBuf[32] = '\0';
+            presets.push_back(toml::table{
+                {"name", std::string(nameBuf)},
+                {"color", colorArr({cp.r, cp.g, cp.b})},
+            });
+        }
+        theme.insert("preset", std::move(presets));
+    }
+    tbl.insert("theme", std::move(theme));
+
+    tbl.insert("audio", toml::table{{"volume", static_cast<double>(audioVolume)}});
+
+    tbl.insert("viewport", toml::table{
+        {"bg_top",    colorArr({bgTopR, bgTopG, bgTopB})},
+        {"bg_bot",    colorArr({bgBotR, bgBotG, bgBotB})},
+        {"bone",      colorArr({boneR, boneG, boneB})},
+        {"wire",      colorArr({wireR, wireG, wireB})},
+        {"matcap",    colorArr({matcapR, matcapG, matcapB})},
+        {"grid",      colorArr({gridR, gridG, gridB, gridA})},
+        {"highlight", colorArr({hlR, hlG, hlB, hlA})},
+    });
+
+    tbl.insert("camera", toml::table{
+        {"fov", static_cast<double>(camFov)},
+        {"near_plane", static_cast<double>(camNearPlane)},
+        {"far_plane", static_cast<double>(camFarPlane)},
+        {"auto_near", camAutoNear},
+        {"auto_far", camAutoFar},
+        {"manual_near", static_cast<double>(camManualNear)},
+        {"manual_far", static_cast<double>(camManualFar)},
+        {"near_distance_scale", static_cast<double>(camNearDistanceScale)},
+        {"far_margin", static_cast<double>(camFarMargin)},
+        {"near_far_ratio_max", static_cast<double>(camNearFarRatioMax)},
+        {"panel_visible", camPanelVisible},
+    });
+
+    auto overrides = AssetVisibility::Get().ExportOverrides();
+    if (!overrides.empty()) {
+        toml::array ov;
+        for (const auto& so : overrides) {
+            ov.push_back(toml::table{
+                {"type", static_cast<int64_t>(so.typeId)},
+                {"visible", so.visible != 0},
+            });
+        }
+        tbl.insert("visibility", toml::table{{"overrides", std::move(ov)}});
+    }
+
     std::ofstream f(path, std::ios::binary);
     if (!f.is_open()) return;
-
-    ConfigBinaryData data;
-    data.magic[0] = 'G'; data.magic[1] = 'T'; data.magic[2] = 'K'; data.magic[3] = 'C';
-    data.version = 11;
-    data.windowX = windowX;
-    data.windowY = windowY;
-    data.windowW = windowW;
-    data.windowH = windowH;
-    data.maximized = maximized;
-    data.accentR = accentR;
-    data.accentG = accentG;
-    data.accentB = accentB;
-    data.accentA = accentA;
-    data.uiScale = uiScale;
-    data.fontScale = fontSize; // fontSize stored in the fontScale binary slot
-    data.nativeDecorations = nativeDecorations;
-    data.nativeMenuBar = nativeMenuBar;
-    data.audioVolume = audioVolume;
-    
-    data.bgTopR = bgTopR; data.bgTopG = bgTopG; data.bgTopB = bgTopB;
-    data.bgBotR = bgBotR; data.bgBotG = bgBotG; data.bgBotB = bgBotB;
-    data.boneR  = boneR;  data.boneG  = boneG;  data.boneB  = boneB;
-    data.wireR  = wireR;  data.wireG  = wireG;  data.wireB  = wireB;
-    data.matcapR = matcapR; data.matcapG = matcapG; data.matcapB = matcapB;
-    data.gridR  = gridR;  data.gridG  = gridG;  data.gridB  = gridB;  data.gridA = gridA;
-    data.hlR    = hlR;    data.hlG    = hlG;    data.hlB    = hlB;    data.hlA   = hlA;
-
-    data.camFov               = camFov;
-    data.camNearPlane         = camNearPlane;
-    data.camFarPlane          = camFarPlane;
-    data.camAutoNear          = camAutoNear;
-    data.camAutoFar           = camAutoFar;
-    data.camManualNear        = camManualNear;
-    data.camManualFar         = camManualFar;
-    data.camNearDistanceScale = camNearDistanceScale;
-    data.camFarMargin         = camFarMargin;
-    data.camNearFarRatioMax   = camNearFarRatioMax;
-    data.camPanelVisible      = camPanelVisible;
-
-    data.themeMode = themeMode;
-
-    data.imguiStateSize = (uint32_t)imguiIniState.size();
-
-    std::strncpy(data.fontPath, fontPath.c_str(), 255);
-    data.fontPath[255] = '\0';
-
-    f.write(reinterpret_cast<const char*>(&data), sizeof(ConfigBinaryData));
-    
-    if (data.imguiStateSize > 0) {
-        f.write(imguiIniState.c_str(), data.imguiStateSize);
-    }
-
-    // V9: Asset visibility overrides
-    auto overrides = AssetVisibility::Get().ExportOverrides();
-    uint32_t overrideCount = (uint32_t)overrides.size();
-    f.write(reinterpret_cast<const char*>(&overrideCount), 4);
-    if (overrideCount > 0) {
-        f.write(reinterpret_cast<const char*>(overrides.data()),
-                overrideCount * sizeof(AssetVisibility::SerializedOverride));
-    }
-
-    // V11: Custom accent presets
-    uint32_t presetCount = (uint32_t)customPresets.size();
-    f.write(reinterpret_cast<const char*>(&presetCount), 4);
-    if (presetCount > 0) {
-        f.write(reinterpret_cast<const char*>(customPresets.data()),
-                presetCount * sizeof(AppConfig::CustomPreset));
-    }
+    f << "# OnyxSDK configuration (TOML). Window/dock layout lives in imgui.ini.\n";
+    f << tbl << "\n";
 }
 
 } // namespace Onyx::Services
-

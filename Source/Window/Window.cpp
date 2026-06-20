@@ -41,7 +41,7 @@ static void glfw_error_callback(int error, const char* desc) {
 // -- Constructor / Destructor --------------------------------------------------
 
 Window::Window()
-    : m_configPath(PathUtils::resolvePath("gowtool.gtkc"))
+    : m_configPath(PathUtils::resolvePath("onyx.toml"))
 {
     s_windowInstance = this;
 

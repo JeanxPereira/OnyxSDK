@@ -6,8 +6,8 @@
 
 namespace Onyx::Services {
 
-// Config persistente — salvo em gowtool.gtkc (formato binário GTKC)
-// Layout de janelas do ImGui é armazenado como blob opaco no final do arquivo
+// Persistent app config — saved as TOML (onyx.toml). The ImGui window/dock
+// layout lives in ImGui's native imgui.ini, not here.
 struct AppConfig {
   // Janela principal
   int windowX = 100;
@@ -79,10 +79,7 @@ struct AppConfig {
   float camNearFarRatioMax   = 50000.0f;
   bool  camPanelVisible      = false;
 
-  // Estado persistente das janelas/docking do ImGui
-  std::string imguiIniState;
-
-  // Load/Save usando formato binário exclusivo 'GTKC'
+  // Load/Save as TOML (onyx.toml). Window/dock layout lives in imgui.ini.
   static AppConfig load(const std::string &path);
   void save(const std::string &path) const;
 

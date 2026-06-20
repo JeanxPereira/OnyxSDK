@@ -182,6 +182,17 @@ if(WIN32 AND FFMPEG_DLLS)
     set(ONYX_FFMPEG_DLLS "${FFMPEG_DLLS}" CACHE INTERNAL "FFmpeg runtime DLLs for Onyx consumers")
 endif()
 
+# ── toml++ (header-only TOML parser for AppConfig) via FetchContent ────────
+# Populate only (SOURCE_SUBDIR points at a non-existent dir); we just need the
+# header include dir — toml++ is header-only.
+FetchContent_Declare(tomlplusplus
+    GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
+    GIT_TAG        v3.4.0
+    GIT_SHALLOW    TRUE
+    UPDATE_DISCONNECTED TRUE
+    SOURCE_SUBDIR  _skip_add_subdirectory)
+FetchContent_MakeAvailable(tomlplusplus)
+
 # ── The Onyx engine library ────────────────────────────────────────────────
 file(GLOB_RECURSE ONYX_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp"
@@ -200,6 +211,7 @@ add_library(Onyx::Onyx ALIAS Onyx)
 target_include_directories(Onyx
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/Include
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source
+            ${tomlplusplus_SOURCE_DIR}/include
 )
 
 target_compile_features(Onyx PUBLIC cxx_std_20)
