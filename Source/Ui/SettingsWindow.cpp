@@ -1,4 +1,4 @@
-﻿#define IMGUI_DEFINE_MATH_OPERATORS
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include "Ui/SettingsWindow.h"
 #include <Onyx/Services/PathUtils.h>
 #include "Core/FontManager.h"
@@ -548,7 +548,6 @@ void SettingsWindow::DrawAssetFiltersCategory() {
     auto& vis = Onyx::Services::AssetVisibility::Get();
 
     if (BeginSubWindow("Filters", ImVec2(0, 0))) {
-        // â”€â”€ Reset button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (Onyx::App::Widgets::Button(ICON_SF_ARROW_COUNTERCLOCKWISE " Reset All")) {
             vis.ResetAllOverrides();
         }
@@ -556,110 +555,62 @@ void SettingsWindow::DrawAssetFiltersCategory() {
         ImGui::TextDisabled("(restores default visibility)");
         ImGui::Separator();
 
-        // â”€â”€ Per-game-version sections â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        struct GameSection {
-            Onyx::Types::GameVersion version;
-            const char*      label;
-        };
-        static const GameSection sections[] = {
-            { Onyx::Types::GameVersion::GOW2, "God of War II (PS2)" },
-            { Onyx::Types::GameVersion::GOWR, "God of War Ragnarok" },
-        };
-
         int totalHidden  = 0;
         int totalVisible = 0;
 
-        for (const auto& section : sections) {
-            auto types = vis.GetFilterableTypes(section.version);
-            if (types.empty()) continue;
+        auto types = vis.GetFilterableTypes();
 
-            // Separate into hidden-by-default and visible-by-default groups
-            std::vector<Onyx::Services::AssetVisibility::TypeVisInfo> hiddenDefaults;
-            std::vector<Onyx::Services::AssetVisibility::TypeVisInfo> visibleDefaults;
-
-            for (const auto& t : types) {
-                if (t.defaultVis == Onyx::Services::Visibility::Hidden) {
-                    hiddenDefaults.push_back(t);
-                } else {
-                    visibleDefaults.push_back(t);
-                }
-            }
-
-            if (ImGui::TreeNodeEx(section.label, ImGuiTreeNodeFlags_DefaultOpen)) {
-
-                // â”€â”€ Hidden by Default â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                if (!hiddenDefaults.empty()) {
-                    ImGui::TextDisabled("Hidden by default:");
-                    ImGui::Indent(8.0f);
-
-                    for (auto& t : hiddenDefaults) {
-                        ImGui::PushID(static_cast<int>(t.id.value) +
-                                      static_cast<int>(section.version) * 1000);
-
-                        bool checked = t.currentlyVisible;
-                        if (ImGui::Checkbox(t.name, &checked)) {
-                            vis.SetUserOverride(section.version, t.id, checked);
-                        }
-
-                        // Show override indicator
-                        if (t.hasOverride) {
-                            ImGui::SameLine();
-                            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "*");
-                            if (ImGui::IsItemHovered()) {
-                                ImGui::SetTooltip("User override \xe2\x80\x94 click Reset to restore default");
-                            }
-                        }
-
-                        if (t.currentlyVisible) totalVisible++;
-                        else totalHidden++;
-
-                        ImGui::PopID();
-                    }
-                    ImGui::Unindent(8.0f);
-                }
-
-                // â”€â”€ Visible by Default â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-                if (!visibleDefaults.empty()) {
-                    ImGui::Spacing();
-                    ImGui::TextDisabled("Visible by default:");
-                    ImGui::Indent(8.0f);
-
-                    for (auto& t : visibleDefaults) {
-                        ImGui::PushID(static_cast<int>(t.id.value) +
-                                      static_cast<int>(section.version) * 1000 + 500);
-
-                        bool checked = t.currentlyVisible;
-                        if (ImGui::Checkbox(t.name, &checked)) {
-                            vis.SetUserOverride(section.version, t.id, checked);
-                        }
-
-                        if (t.hasOverride) {
-                            ImGui::SameLine();
-                            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "*");
-                            if (ImGui::IsItemHovered()) {
-                                ImGui::SetTooltip("User override \xe2\x80\x94 click Reset to restore default");
-                            }
-                        }
-
-                        if (t.currentlyVisible) totalVisible++;
-                        else totalHidden++;
-
-                        ImGui::PopID();
-                    }
-                    ImGui::Unindent(8.0f);
-                }
-
-                ImGui::TreePop();
-            }
+        std::vector<Onyx::Services::AssetVisibility::TypeVisInfo> hiddenDefaults;
+        std::vector<Onyx::Services::AssetVisibility::TypeVisInfo> visibleDefaults;
+        for (const auto& t : types) {
+            if (t.defaultVis == Onyx::Services::Visibility::Hidden) hiddenDefaults.push_back(t);
+            else visibleDefaults.push_back(t);
         }
 
-        // â”€â”€ Footer stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        if (!hiddenDefaults.empty()) {
+            ImGui::TextDisabled("Hidden by default:");
+            ImGui::Indent(8.0f);
+            for (auto& t : hiddenDefaults) {
+                ImGui::PushID(static_cast<int>(t.id.value));
+                bool checked = t.currentlyVisible;
+                if (ImGui::Checkbox(t.name, &checked)) vis.SetUserOverride(t.id, checked);
+                if (t.hasOverride) {
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "*");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("User override \xe2\x80\x94 click Reset to restore default");
+                }
+                if (t.currentlyVisible) totalVisible++; else totalHidden++;
+                ImGui::PopID();
+            }
+            ImGui::Unindent(8.0f);
+        }
+
+        if (!visibleDefaults.empty()) {
+            ImGui::Spacing();
+            ImGui::TextDisabled("Visible by default:");
+            ImGui::Indent(8.0f);
+            for (auto& t : visibleDefaults) {
+                ImGui::PushID(static_cast<int>(t.id.value) + 500);
+                bool checked = t.currentlyVisible;
+                if (ImGui::Checkbox(t.name, &checked)) vis.SetUserOverride(t.id, checked);
+                if (t.hasOverride) {
+                    ImGui::SameLine();
+                    ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), "*");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("User override \xe2\x80\x94 click Reset to restore default");
+                }
+                if (t.currentlyVisible) totalVisible++; else totalHidden++;
+                ImGui::PopID();
+            }
+            ImGui::Unindent(8.0f);
+        }
+
         ImGui::Separator();
         ImGui::TextDisabled("Hidden: %d types  |  Visible: %d types", totalHidden, totalVisible);
     }
     EndSubWindow();
 }
-
 // â”€â”€ Category: Theme Editor (ImHex-style per-color editor) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 void SettingsWindow::DrawThemeEditorCategory() {
