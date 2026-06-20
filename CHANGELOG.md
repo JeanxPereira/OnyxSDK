@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.5.1 — 2026-06-20
+
+### Changed
+- Third-party libs (Dear ImGui, ImPlot, ImGuiColorTextEdit) are now consumed via
+  CMake FetchContent — pinned to the exact previously-vendored/submoduled commits —
+  instead of a vendored copy + git submodules. No third-party source lives in the
+  repo anymore; updates are a one-line `GIT_TAG` bump.
+- App config migrated from the binary `GTKC` blob to human-readable **TOML**
+  (`onyx.toml`) via toml++. Old `gowtool.gtkc` is not migrated (clean break: first
+  run starts from defaults). Window/dock layout stays in ImGui's native `imgui.ini`.
+  Removes the vestigial `AppConfig::imguiIniState` field and two GoW-named remnants
+  (`gowtool.gtkc` + the `GTKC` magic).
+
+### Added
+- The default UI font is now the bundled SF Mono when the user has no saved choice.
+
 ## v0.5.0 — 2026-06-20
 
 Decoupled God of War from the SDK — the public surface is now game-agnostic.
