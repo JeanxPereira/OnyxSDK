@@ -95,6 +95,18 @@ int FindFontIndex(const std::string& path) {
     return -1;
 }
 
+// Preferred default UI font when the user has no saved choice: the bundled
+// SF Mono. Falls back to index 0 (ProggyClean) if it isn't available.
+int DefaultFontIndex() {
+    for (int i = 0; i < (int)s_fonts.size(); i++) {
+        const std::string& p = s_fonts[i].path;
+        if (p.find("SFMono-Regular") != std::string::npos ||
+            p.find("SF-Mono-Regular") != std::string::npos)
+            return i;
+    }
+    return 0;
+}
+
 // â”€â”€ BuildAtlas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Builds the complete ImGui font atlas with base font + icon font merge.
 // Does NOT upload to GPU â€” caller must call UploadAtlas() after rendering.

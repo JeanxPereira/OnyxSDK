@@ -42,6 +42,7 @@ void SetIconFont(const IconFontConfig& cfg); // configure the icon font to merge
 // ── Font list ─────────────────────────────────────────────────────────────
 const std::vector<FontEntry>& GetFontList();
 int FindFontIndex(const std::string& path); // returns -1 if not found
+int DefaultFontIndex();                     // preferred default UI font (bundled SF Mono), else 0
 
 // ── Atlas Build ───────────────────────────────────────────────────────────
 // Builds the complete ImGui font atlas: base font + icon font merge.

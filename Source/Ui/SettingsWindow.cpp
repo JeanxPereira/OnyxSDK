@@ -50,7 +50,7 @@ void SettingsWindow::Init() {
     m_uiScale = config->uiScale;
     m_fontSize = config->fontSize;
     m_fontSelected = Onyx::Fonts::FindFontIndex(config->fontPath);
-    if (m_fontSelected < 0) m_fontSelected = 0;
+    if (m_fontSelected < 0) m_fontSelected = Onyx::Fonts::DefaultFontIndex();
   }
   // Build the atlas for the first frame with the loaded config
   Onyx::Fonts::BuildAtlas(m_fontSelected, m_fontSize);
