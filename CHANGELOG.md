@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.5.0 — 2026-06-20
+
+Decoupled God of War from the SDK — the public surface is now game-agnostic.
+
+### Removed (breaking)
+- `Onyx::Types::GameVersion` enum.
+- `TypeRegistry::RegisterByMagic` / `RegisterByTag` / `ResolveByTag` and the
+  `ITypeHandler::GetMagic()` method; the `REGISTER_TYPE` / `REGISTER_TAG` macros.
+  The WAD magic/tag dispatch now lives in consumers (GoWToolkit's `Onyx::Gow`).
+- `Onyx::Parsers::ScriptTargetParser` (GoW-specific) and the deprecated
+  `Onyx::Domain::WadAssetName`.
+
+### Changed
+- `AssetVisibility` is keyed by `TypeId` alone (no game-version dimension);
+  serialized filter overrides reset once on upgrade.
+- `IAssetProfile::GetHints()` added — profiles declare their own CLI aliases;
+  the SDK no longer hardcodes any game hints.
+
+### Kept (the generic path)
+- `TypeCatalog::Register` + `TypeRegistry::RegisterByTypeId` + `Resolve(TypeId)`
+  + `REGISTER_FILE_TYPE` — unchanged.
+
 ## v0.2.0 — 2026-06-15
 
 Generic container primitives — the reusable half of the SCUMMRedux effort's
