@@ -1,6 +1,5 @@
 ﻿#pragma once
 #include <Onyx/Domain/Wad.h>
-#include <Onyx/Types/GameVersion.h>
 #include <Onyx/Types/TypeId.h>
 #include <Onyx/App/IPanel.h>
 

@@ -10,7 +10,6 @@
 namespace fs = std::filesystem;
 
 #include <Onyx/Domain/Wad.h>
-#include <Onyx/Types/GameVersion.h>
 #include <Onyx/Types/TypeId.h>
 
 namespace Onyx::Vfs {

@@ -11,7 +11,6 @@
 #include <Onyx/Schema/AssetReader.h>
 #include <Onyx/Types/TypeId.h>
 #include <Onyx/Types/TypeCatalog.h>
-#include <Onyx/Types/GameVersion.h>
 #include <Onyx/Domain/MediaKind.h>
 #include <Onyx/Domain/Entry.h>
 #include <Onyx/Domain/Wad.h>

@@ -16,7 +16,6 @@
 #include <Onyx/Domain/MediaKind.h>
 #include <Onyx/Domain/ProfileTag.h>
 #include <Onyx/Schema/AssetNode.h>
-#include <Onyx/Types/GameVersion.h>
 #include <Onyx/Types/TypeId.h>
 
 namespace Onyx::Domain {
