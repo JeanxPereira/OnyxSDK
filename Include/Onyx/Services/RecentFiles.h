@@ -12,7 +12,7 @@ struct RecentEntry {
     std::string path;       // absolute file path
     std::string gameHint;   // "gow1", "gow2", "ragnarok", etc.
     std::string fileType;   // "ISO", "WAD"
-    std::string displayName; // e.g. "God of War II (USA).iso"
+    std::string displayName; // e.g. "MyGame (USA).iso"
 };
 
 /// Manages a list of recently opened files, persisted as a simple text file.

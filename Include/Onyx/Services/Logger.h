@@ -1,6 +1,6 @@
 #pragma once
 
-// Structured logging surface for GoWToolkit.
+// Structured logging surface for Onyx.
 //
 // New (M0.T5) call sites use the category-aware macros below and produce
 // output via a configurable chain of sinks:

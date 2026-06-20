@@ -4,7 +4,7 @@
 // surface for a battery of extreme accent colors in both Dark and Light
 // base modes.
 //
-// Build: part of gowtoolkit_tests (tests/CMakeLists.txt adds ThemeManager.cpp
+// Build: part of onyx tests (tests/CMakeLists.txt adds ThemeManager.cpp
 //        and links imgui_lib).
 
 #include <doctest/doctest.h>

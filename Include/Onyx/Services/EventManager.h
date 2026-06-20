@@ -2,7 +2,7 @@
 
 // EventManager â€” Type-safe Pub/Sub event system
 // Adapted from ImHex's EventManager (WerWolv, LGPLv2.1)
-// Simplified for GOWToolkit: no plugin DLL support, no localization
+// Simplified for Onyx: no plugin DLL support, no localization
 
 #include <algorithm>
 #include <functional>

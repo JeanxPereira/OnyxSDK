@@ -1,6 +1,6 @@
 ﻿#pragma once
 
-// GOWToolkit Event Catalog
+// Onyx Event Catalog
 // All events used across the application.
 // Convention: Event names match the subsystem they belong to.
 

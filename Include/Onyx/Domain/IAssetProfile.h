@@ -15,7 +15,7 @@ namespace Onyx::Domain {
 // Declares the files a profile can open, for the File->Open picker.
 // extensions are lowercase, WITHOUT the leading dot (e.g. {"iso","wad"}).
 struct OpenFilter {
-    std::string label;                  // e.g. "God of War II (PS2)"
+    std::string label;                  // e.g. "MyGame (PS2)"
     std::vector<std::string> extensions;
     bool valid() const { return !extensions.empty(); }
 };
@@ -24,7 +24,7 @@ class IAssetProfile {
 public:
     virtual ~IAssetProfile() = default;
 
-    // Nome descritivo (ex: "God of War I (PS2)")
+    // Nome descritivo (ex: "MyGame (PS2)")
     virtual std::string GetName() const = 0;
 
     // Verifica se este perfil tem capacidade de ler essa ISO ou arquivo
