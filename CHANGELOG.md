@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.5.2 - 2026-08-17
+
+### Fixed
+- `TypeRegistry` now builds its `TypeId` -> handler index lazily on the first
+  `Resolve()` instead of eagerly at registration. Handlers self-register during
+  static init, but `GetId()` reads app-owned `TypeId` handles that stay 0 until
+  the app seeds the `TypeCatalog` inside `main()` -- so every handler was filed
+  under id 0, each overwriting the last, and `Resolve(realId)` always returned
+  `nullptr`. Consumers saw this as "No viewer found for TypeId=N" on every asset
+  (`ViewerRegistry`'s kind-based fallback calls the same `Resolve`, so it failed
+  identically). Registration now only marks the index dirty; a mutex guards the
+  map since `Resolve` runs from worker threads as well as the UI. Handlers still
+  reporting id 0 at index time are skipped with a warning instead of shadowing
+  the Unknown sentinel, and duplicate `TypeId` claims are reported rather than
+  silently overwriting.
+
+### Added
+- `TypeRegistry::InvalidateIndex()` for the rare case where a handler's id
+  changes after the fact (e.g. the catalog is re-seeded between tests).
+
 ## v0.5.1 — 2026-06-20
 
 ### Changed
