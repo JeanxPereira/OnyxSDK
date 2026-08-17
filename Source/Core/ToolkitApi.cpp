@@ -16,12 +16,32 @@ namespace Onyx::Api {
 
     static AssetEntry*         s_selectedEntry = nullptr;
     static AssetContainer*             s_selectedWad   = nullptr;
+    static bool                s_selectionGuardsInstalled = false;
 
     void Init(const InitParams& params) {
         s_database  = params.db;
         s_config    = params.config;
         s_viewers   = params.viewers;
         s_documents = params.documents;
+
+        // The selection is a pair of raw pointers into AssetDatabase::wads /
+        // ::paks. Closing a container erases those vector elements, freeing the
+        // AssetEntry storage the selection points at -- so every reader (the
+        // Inspector's per-frame draw, App's copy-hash action, the browsers'
+        // highlight test) would dereference freed memory on the very next
+        // frame. Drop the selection while the pointers are still live:
+        // AssetDatabase::CloseWad posts EventWadClosed *before* it erases.
+        //
+        // Clearing on any close mirrors DocumentWindow, which closes all tabs
+        // for the same reason. Per-container selective clearing needs viewers
+        // to track their source container first.
+        if (!s_selectionGuardsInstalled) {
+            s_selectionGuardsInstalled = true;
+            EventWadClosed::subscribe(&s_selectedEntry,
+                                      [](size_t) { SetSelected(nullptr, nullptr); });
+            EventAllClosed::subscribe(&s_selectedEntry,
+                                      []() { SetSelected(nullptr, nullptr); });
+        }
     }
 
     Onyx::Services::AssetDatabase& Database() {
