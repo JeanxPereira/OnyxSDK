@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.3 - 2026-08-17
+
+### Fixed
+- The global selection (`Onyx::Api::GetSelected` / `GetSelectedWad`) is now
+  cleared when a container closes. It holds raw pointers into
+  `AssetDatabase::wads` / `::paks`; `CloseWad` erases the vector element and
+  frees the `AssetEntry` storage, so the Inspector's per-frame draw, App's
+  copy-hash action and the browsers' highlight test all dereferenced freed
+  memory on the next frame -- closing a WAD with an entry selected crashed the
+  app. `Init()` now subscribes to `EventWadClosed` / `EventAllClosed`, both of
+  which are posted before the vectors are mutated.
+
 ## v0.5.2 - 2026-08-17
 
 ### Fixed
