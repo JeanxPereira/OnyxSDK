@@ -1,4 +1,5 @@
 #pragma once
+#include <Onyx/Services/Appearance.h>
 #include "imgui.h"
 #include <filesystem>
 #include <string>
@@ -89,6 +90,13 @@ struct AppConfig {
 
   // Get accent color as ImVec4 (theme application is handled by ThemeManager)
   ImVec4 getAccent() const { return ImVec4(accentR, accentG, accentB, accentA); }
+
+  // ── Appearance ────────────────────────────────────────────────────────────
+  // The config is the on-disk form of Appearance::State. Both directions live
+  // here so the mapping exists once: a field added to State that nobody
+  // persists fails the round-trip test rather than shipping.
+  Onyx::Appearance::State appearanceState() const;
+  void setAppearanceState(const Onyx::Appearance::State &s);
 };
 
 } // namespace Onyx::Services
