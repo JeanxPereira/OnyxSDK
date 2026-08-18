@@ -95,6 +95,22 @@ JobQueue::~JobQueue() {
             t.join();
         }
     }
+
+    // Every worker has exited, so nothing else can still be touching
+    // m_pending. Jobs left there were queued and never started -- their
+    // Done callback was never going to fire regardless (Done only ever
+    // runs from Pump(), and nothing pumps after destruction) -- but their
+    // Work closure still holds whatever it captured (e.g. a
+    // shared_ptr<Document>, per Workspace::OpenAsync). Clear each one so
+    // those captures release instead of leaking forever inside an
+    // orphaned JobState, mirroring WorkerLoop's own
+    // `job->work = nullptr` after a job actually runs.
+    for (auto& [lane, dq] : m_pending) {
+        for (auto& job : dq) {
+            job->work = nullptr;
+        }
+    }
+    m_pending.clear();
 }
 
 JobHandle JobQueue::Submit(uint64_t lane, Work work, Done onDone) {

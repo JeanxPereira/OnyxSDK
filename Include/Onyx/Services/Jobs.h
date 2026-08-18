@@ -20,6 +20,13 @@
 // never fire. Jobs already mid-flight are allowed to finish; the
 // destructor waits for them (their Done callbacks still won't run, since
 // Done only ever fires from Pump() and nothing pumps after destruction).
+// Once every worker has joined, the destructor also drains whatever is
+// still sitting in the pending queue and clears each of those jobs' Work
+// closures, so anything they captured (e.g. a shared_ptr<Document>)
+// releases instead of leaking forever inside an orphaned JobState — this
+// mirrors WorkerLoop's own `job->work = nullptr` after a job actually
+// runs. Their Done callbacks still never fire; that contract is
+// unchanged.
 
 #include <atomic>
 #include <condition_variable>
@@ -110,10 +117,14 @@ class JobQueue {
 public:
     explicit JobQueue(unsigned workers = 2);
 
-    // Signals stop and joins all worker threads. Documented blocking
-    // teardown — call only from the owning thread. Jobs not yet started
-    // are dropped without running (their Done never fires); a job already
-    // running is allowed to finish before its worker exits.
+    // Signals stop and joins all worker threads, then drains every job
+    // still sitting in the pending queue (never started) and clears each
+    // one's Work closure so whatever it captured releases instead of
+    // leaking forever pinned inside an orphaned JobState. Documented
+    // blocking teardown — call only from the owning thread. Jobs not yet
+    // started never run and their Done callback never fires (Done only
+    // ever runs from Pump(), and nothing pumps after destruction); a job
+    // already running is allowed to finish before its worker exits.
     ~JobQueue();
 
     JobQueue(const JobQueue&) = delete;
