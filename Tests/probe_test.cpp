@@ -3,6 +3,7 @@
 #include <fstream>
 #include <cstring>
 #include <filesystem>
+#include <stdexcept>
 
 using namespace Onyx::Modules;
 
@@ -59,6 +60,32 @@ TEST_CASE("File-path overload reads the header once and feeds every module") {
     auto r = RankProbes(std::vector<IGameModule*>{&s, &other}, tmp);
     CHECK(r.winner == &s);
     std::filesystem::remove(tmp);
+}
+
+TEST_CASE("A throwing Probe is contained: the other module still ranks and wins") {
+    struct ThrowingModule : FakeModule {
+        using FakeModule::FakeModule;
+        ProbeResult Probe(const ProbeInput&) const override {
+            throw std::runtime_error("boom");
+        }
+    };
+    ThrowingModule thrower("thrower", 0, "");
+    FakeModule     healthy("healthy", 90, "magic");
+
+    auto r = RankProbes(std::vector<IGameModule*>{&thrower, &healthy}, ProbeInput{});
+
+    REQUIRE(r.rows.size() == 2);
+    CHECK(r.winner == &healthy);
+
+    bool sawThrower = false;
+    for (const auto& row : r.rows) {
+        if (row.module == &thrower) {
+            sawThrower = true;
+            CHECK(row.result.confidence == 0);
+            CHECK(row.result.reason == "probe threw");
+        }
+    }
+    CHECK(sawThrower);
 }
 
 TEST_CASE("An unreadable path yields an empty ranking") {
