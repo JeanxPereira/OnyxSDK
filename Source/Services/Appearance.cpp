@@ -180,14 +180,8 @@ void Commit() {
         std::memcpy(live.Colors, liveColors, sizeof(liveColors));
 
     // The expensive path, gated on the only two inputs that can invalidate the
-    // atlas. Moving the UI scale does not come through here.
-    // Adopt whatever the font system already has, so taking ownership at
-    // startup does not force a redundant rebake of an identical atlas.
-    if (s_bakedRefPx <= 0.0f && Fonts::GetCurrentFontSize() > 0.0f) {
-        s_bakedFontPath = Fonts::GetCurrentFontPath();
-        s_bakedRefPx    = Fonts::GetCurrentFontSize();
-    }
-
+    // atlas. Moving the UI scale does not come through here, and nothing else in
+    // the engine bakes -- this is the only caller of BuildAtlas.
     const bool needsBake =
         (r.atlasFontPath != s_bakedFontPath) || (r.atlasRefPx != s_bakedRefPx);
     if (needsBake && !r.atlasFontPath.empty()) {

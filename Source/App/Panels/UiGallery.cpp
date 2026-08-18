@@ -561,39 +561,39 @@ void UiGallery::DrawThemePage() {
 void UiGallery::DrawTypographyPage() {
     ImGui::Spacing();
 
-    if (m_fontSize <= 0.0f) {
-        m_fontSize  = Fonts::GetCurrentFontSize();
-        m_fontIndex = Fonts::GetCurrentFontIndex();
-    }
-
     if (BeginSection("Font")) {
         const std::vector<Fonts::FontEntry>& fonts = Fonts::GetFontList();
-        if (m_fontIndex < 0 || m_fontIndex >= int(fonts.size()))
-            m_fontIndex = Fonts::DefaultFontIndex();
+
+        // No local copy of the size or the family: the page renders the desired
+        // state directly. A cached copy is how a slider ended up reading 17px
+        // while the resolved base was 20 -- two variables for one input.
+        const Appearance::State& want = Appearance::Get();
+        const std::string activePath =
+            want.fontPath.empty() ? Appearance::Env().defaultFontPath : want.fontPath;
+
+        int activeIndex = Fonts::FindFontIndex(activePath);
+        if (activeIndex < 0)
+            activeIndex = Fonts::DefaultFontIndex();
 
         ImGui::PushItemWidth(260.0f);
-        if (!fonts.empty() && m_fontIndex >= 0 &&
-            ImGui::BeginCombo("Family", fonts[m_fontIndex].label.c_str())) {
+        if (!fonts.empty() && activeIndex >= 0 && activeIndex < int(fonts.size()) &&
+            ImGui::BeginCombo("Family", fonts[activeIndex].label.c_str())) {
             for (int i = 0; i < int(fonts.size()); ++i) {
-                if (ImGui::Selectable(fonts[i].label.c_str(), i == m_fontIndex) &&
-                    i != m_fontIndex) {
-                    m_fontIndex = i;
+                if (ImGui::Selectable(fonts[i].label.c_str(), i == activeIndex) &&
+                    i != activeIndex) {
                     const std::string path = fonts[i].path;
-                    Appearance::Mutate([&path](Appearance::State& st) { st.fontPath = path; });
+                    Appearance::Mutate([path](Appearance::State& st) { st.fontPath = path; });
                 }
             }
             ImGui::EndCombo();
         }
 
-        // Rebuilding the atlas mid-drag would thrash the GPU upload, so the
-        // rebuild waits for the slider to be released (same as Settings does).
-        if (ImGui::SliderFloat("Size", &m_fontSize, 8.0f, 32.0f, "%.0f px"))
-            m_fontSizeDirty = true;
-        if (m_fontSizeDirty && ImGui::IsItemDeactivatedAfterEdit()) {
-            m_fontSizeDirty = false;
-            const float size = m_fontSize;
-            Appearance::Mutate([size](Appearance::State& st) { st.fontSizePt = size; });
-        }
+        // Every frame of the drag is committed. Correctness no longer depends
+        // on deferring (Commit rebakes only when the size actually differs), and
+        // the immediate feedback is worth more than the saved bakes.
+        float sizePt = want.fontSizePt;
+        if (ImGui::SliderFloat("Size", &sizePt, Appearance::kMinFontSize, 32.0f, "%.0f px"))
+            Appearance::Mutate([sizePt](Appearance::State& st) { st.fontSizePt = sizePt; });
 
         ImGui::PopItemWidth();
         ImGui::TextDisabled("UI scale lives in the bar above -- it affects every page.");
@@ -774,7 +774,7 @@ void UiGallery::DrawStylePage() {
 
     if (BeginSection("Export")) {
         Hint("These are the live (scaled) values. Copy at UI scale 1.0x if you mean "
-             "to paste them into Theme::ApplyStyleDefaults, which is authored in "
+             "to paste them into Appearance::HouseStyle, which is authored in "
              "logical units.");
         if (Widgets::Button("Copy as C++")) {
             char buf[1024];

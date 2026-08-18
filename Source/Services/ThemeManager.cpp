@@ -353,33 +353,6 @@ void BuildPalette(ImVec4 *colors, const ImVec4 &accent, ThemeMode mode) {
 
 // ── ApplyTheme ────────────────────────────────────────────────────────────
 
-// ── House style sizes ─────────────────────────────────────────────────────
-// The proportions the Onyx UI is designed around. Kept apart from the palette
-// (ApplyTheme) because ScaleManager snapshots these as the base it resets to
-// on every scale change -- before this existed the base was stock Dear ImGui,
-// so moving the UI scale slider quietly reverted the app's look.
-//
-// Values are logical (1.0x); ScaleManager multiplies them.
-void ApplyStyleDefaults() {
-    ImGuiStyle &style = ImGui::GetStyle();
-
-    style.WindowPadding    = ImVec2(10.0f, 10.0f);
-    style.FramePadding     = ImVec2(4.0f, 3.0f);
-    style.ItemSpacing      = ImVec2(8.0f, 4.0f);
-    style.CellPadding      = ImVec2(4.0f, 2.0f);
-    style.IndentSpacing    = 21.0f;
-    style.ScrollbarSize    = 14.0f;
-
-    style.WindowRounding   = 0.0f;
-    style.ChildRounding    = 0.0f;
-    style.FrameRounding    = 5.0f;
-    style.TabRounding      = 5.0f;
-    style.GrabRounding     = 4.0f;
-
-    style.WindowBorderSize = 1.0f;
-    style.FrameBorderSize  = 1.0f;
-}
-
 void ApplyTheme(const ImVec4 &accent, ThemeMode mode, bool animate) {
   ImGuiStyle &s = ImGui::GetStyle();
   s_currentAccent     = accent;

@@ -75,14 +75,6 @@ ImVec4 GetContrastColor(const ImVec4& fg, const ImVec4& bgBehind);
 // with a bright accent).
 ImVec4 TextForSurface(const ImVec4& surfaceColor);
 
-// Applies Onyx's house style *sizes* (padding, rounding, borders) over the
-// current ImGuiStyle. Colours are untouched -- that is ApplyTheme's job.
-//
-// Must run before Scale::Init(), which snapshots the live style as the base
-// every later ApplyStyleScale() resets to: called after it, the first scale
-// change would drop the app back to stock Dear ImGui proportions.
-void ApplyStyleDefaults();
-
 // ── Semantic toolbar tokens (for localized PushStyleColor) ────────────────
 ImVec4 ToolbarButton();
 ImVec4 ToolbarButtonHover();
