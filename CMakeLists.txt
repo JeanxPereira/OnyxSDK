@@ -244,6 +244,7 @@ set(ONYX_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/AssetDatabase.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/AssetVisibility.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Diagnostics.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/EventBus.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/FrameScheduler.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Jobs.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Logger.cpp

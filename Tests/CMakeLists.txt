@@ -24,6 +24,7 @@ add_executable(onyx_tests
     typeregistrar_test.cpp
     diagnostics_test.cpp
     jobs_test.cpp
+    eventbus_test.cpp
 )
 target_link_libraries(onyx_tests PRIVATE Onyx::Onyx doctest::doctest imgui_lib)
 if(MSVC)
@@ -50,6 +51,7 @@ add_test(NAME OnyxFrameScheduler COMMAND onyx_tests "--test-case=*FrameScheduler
 add_test(NAME OnyxSessionLog     COMMAND onyx_tests "--test-case=*SessionLog*")
 add_test(NAME OnyxDiagSink       COMMAND onyx_tests "--test-case=*DiagSink*")
 add_test(NAME OnyxJobs           COMMAND onyx_tests "--test-case=*JobQueue*,*Cancellation*,*Progress snapshots*,*throwing Work*")
+add_test(NAME OnyxEventBus       COMMAND onyx_tests "--test-case=*EventBus*,*Subscription*,*Distinct event types do not cross*,*Cross-thread Post is safe*")
 
 add_test(NAME MinimalViewer_SelfTest
     COMMAND MinimalViewer --selftest $<TARGET_FILE:MinimalViewer>)
