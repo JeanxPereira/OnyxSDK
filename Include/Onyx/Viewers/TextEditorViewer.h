@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <Onyx/Viewers/IDocumentContent.h>
 #include <TextEditor.h>
 #include <string>

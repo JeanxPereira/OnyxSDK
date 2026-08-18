@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <Onyx/Schema/AssetNode.h>
 #include <Onyx/Schema/DataTypes.h>
 #include <Onyx/Vfs/IFile.h>
@@ -8,9 +8,9 @@
 
 namespace Onyx::Schema {
 
-// â”€â”€ AssetReader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── AssetReader ────────────────────────────────────────────────────────────
 // Turns binary data + StructDefinition into a tree of AssetNodes.
-// Stateless â€” all methods are static.
+// Stateless — all methods are static.
 class AssetReader {
 public:
 
@@ -66,7 +66,7 @@ private:
                                                  size_t dataSize) {
         switch (f.type) {
 
-            // â”€â”€ Bool â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Bool ───────────────────────────────────────────────────
             case DataType::Bool: {
                 auto n = std::make_shared<BoolNode>();
                 n->name = f.name;
@@ -75,7 +75,7 @@ private:
                 return n;
             }
 
-            // â”€â”€ Integers & Floats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Integers & Floats ──────────────────────────────────────
             case DataType::UInt8:  return MakeNumber<uint8_t>(f, data);
             case DataType::Int8:   return MakeNumber<int8_t>(f, data);
             case DataType::UInt16: return MakeNumber<uint16_t>(f, data);
@@ -87,7 +87,7 @@ private:
             case DataType::Float:  return MakeNumber<float>(f, data);
             case DataType::Double: return MakeNumber<double>(f, data);
 
-            // â”€â”€ Key / Asset (displayed as hex uint32) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Key / Asset (displayed as hex uint32) ──────────────────
             case DataType::Key:
             case DataType::Asset: {
                 auto n = std::make_shared<NumberNode>();
@@ -99,7 +99,7 @@ private:
                 return n;
             }
 
-            // â”€â”€ Enum â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Enum ───────────────────────────────────────────────────
             case DataType::Enum: {
                 auto n = std::make_shared<EnumNode>();
                 n->name = f.name;
@@ -118,7 +118,7 @@ private:
                 return n;
             }
 
-            // â”€â”€ Vectors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Vectors ────────────────────────────────────────────────
             case DataType::Vec2: {
                 auto n = std::make_shared<VectorNode>();
                 n->name = f.name;
@@ -153,7 +153,7 @@ private:
                 return n;
             }
 
-            // â”€â”€ String â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── String ─────────────────────────────────────────────────
             case DataType::String: {
                 auto n = std::make_shared<StringNode>();
                 n->name = f.name;
@@ -168,7 +168,7 @@ private:
                 return n;
             }
 
-            // â”€â”€ Hex Dump â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Hex Dump ───────────────────────────────────────────────
             case DataType::HexDump: {
                 auto n = std::make_shared<HexNode>();
                 n->name = f.name;
@@ -186,7 +186,7 @@ private:
         }
     }
 
-    // â”€â”€ Numeric helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Numeric helper ─────────────────────────────────────────────────
     template<typename T>
     static std::shared_ptr<NumberNode> MakeNumber(const FieldDef& f, const uint8_t* data) {
         auto n = std::make_shared<NumberNode>();
@@ -198,7 +198,7 @@ private:
         return n;
     }
 
-    // â”€â”€ Raw read helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Raw read helper ────────────────────────────────────────────────
     template<typename T>
     static T Read(const uint8_t* data, uint32_t offset) {
         T val{};

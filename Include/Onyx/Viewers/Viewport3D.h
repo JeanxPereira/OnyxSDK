@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <Onyx/Viewers/IDocumentContent.h>
 #include <Onyx/Rendering/Camera.h>
 #include <Onyx/Rendering/GridRenderer.h>
@@ -66,7 +66,7 @@ private:
     Rendering::GridRenderer m_grid;
     Rendering::AxisGizmo m_axisGizmo;
 
-    // Unified scene renderer â€” all content goes through here
+    // Unified scene renderer — all content goes through here
     std::unique_ptr<Rendering::SceneRenderer> m_sceneRenderer;
 
     // Keep scene data around for animation access

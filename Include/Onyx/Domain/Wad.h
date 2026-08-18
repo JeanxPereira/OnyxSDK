@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 // `AssetContainer` aggregates everything an opened WAD exposes to the rest of
 // the toolkit: source filename, file handle, owning profile, and the
@@ -31,5 +31,5 @@ struct AssetContainer {
 
 } // namespace Onyx::Domain
 
-// Backwards-compat alias â€” keep existing call sites compiling at global scope.
+// Backwards-compat alias — keep existing call sites compiling at global scope.
 using AssetContainer = Onyx::Domain::AssetContainer;

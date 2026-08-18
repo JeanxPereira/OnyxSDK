@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <GLFW/glfw3.h>
 #include <vector>
@@ -34,28 +34,28 @@ public:
     bool isBorderless() const { return !m_config.nativeDecorations; }
 
 private:
-    // â”€â”€ Platform-specific (implemented per OS in window/platform/) â”€â”€
+    // ── Platform-specific (implemented per OS in window/platform/) ──
     void configureGLFW();
     void setupNativeWindow();
     void beginNativeWindowFrame();
     void endNativeWindowFrame();
 
-    // â”€â”€ Lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Lifecycle ────────────────────────────────────────────────────
     void initGLFW();
     void initImGui();
     void exitGLFW();
     void exitImGui();
 
-    // â”€â”€ Frame phases â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Frame phases ─────────────────────────────────────────────────
     void frameBegin();
     void frame();
     void frameEnd();
 
-    // â”€â”€ Optimizations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    bool shouldRender();   // vtx buffer diff â€” skip GPU when idle
+    // ── Optimizations ────────────────────────────────────────────────
+    bool shouldRender();   // vtx buffer diff — skip GPU when idle
     void unlockFrameRate();
 
-    // â”€â”€ Members â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Members ──────────────────────────────────────────────────────
     GLFWwindow*  m_window   = nullptr;
     App                         m_app;
     Onyx::Services::AppConfig   m_config;

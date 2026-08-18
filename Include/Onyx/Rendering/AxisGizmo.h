@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <Onyx/Rendering/Camera.h>
 #include <glm/glm.hpp>
 #include <imgui.h>
@@ -13,7 +13,7 @@ public:
     // Draw and hit-test in one call. Must be invoked after ImGui::Image()
     // (the FBO display) so the call has the image rect for placement.
     //
-    //   viewRot   : glm::mat3(view) â€” rotation portion of the camera's lookAt
+    //   viewRot   : glm::mat3(view) — rotation portion of the camera's lookAt
     //   imageMin  : top-left of the FBO Image rect (screen-space, ImGui units)
     //   imageMax  : bottom-right of the FBO Image rect
     //   outView   : on click, set to the requested canonical view

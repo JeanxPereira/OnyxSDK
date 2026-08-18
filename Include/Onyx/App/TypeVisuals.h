@@ -1,10 +1,10 @@
-﻿#pragma once
+#pragma once
 #include <Onyx/Types/TypeRegistry.h>
 #include <Onyx/Types/TypeCatalog.h>
 #include <Onyx/Fonts/SFSymbols.h>
 #include "imgui.h"
 
-// â”€â”€ TypeId â†’ name / color / icon â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── TypeId → name / color / icon ──────────────────────────────────────────
 // First try the registered handler (richer, per-handler metadata); otherwise
 // fall back to the runtime TypeCatalog (seeded from the game type table).
 
