@@ -23,11 +23,14 @@ using DocumentId = uint64_t;   // 0 = invalid
 using ModuleState = std::shared_ptr<void>;
 
 struct ContainerContext {
-    Vfs::IFile&            file;
-    Services::Settings&    settings;      // workspace-scope settings
-    Services::DiagSink&    diags;
-    Services::Progress&    progress;
-    ModuleState&           state;         // module writes what it wants kept
+    Vfs::IFile&               file;
+    const Services::Settings& settings;   // workspace-scope settings; read-only
+                                           // during parse (a thread-safe
+                                           // settings view is scheduled with
+                                           // the Shell wiring, M3b)
+    Services::DiagSink&       diags;
+    Services::Progress&       progress;
+    ModuleState&              state;      // module writes what it wants kept
     std::vector<Domain::AssetEntry>& roots;   // module fills the tree here
 };
 
@@ -91,9 +94,15 @@ private:
     // document created and no event posted, only when no module accepted
     // the file. `outModule` receives the resolved module whenever a
     // Document is returned.
-    Document* PrepareDocument(const std::filesystem::path& path,
-                               std::string_view moduleHint,
-                               IGameModule*& outModule);
+    //
+    // Returns shared_ptr<Document>, not a raw pointer: OpenAsync's Work
+    // lambda captures this shared_ptr by value, so a Close() racing an
+    // in-flight parse removes the document from m_documents (Get()
+    // returns null immediately) without freeing the object out from
+    // under the worker thread still running RunParse against it.
+    std::shared_ptr<Document> PrepareDocument(const std::filesystem::path& path,
+                                               std::string_view moduleHint,
+                                               IGameModule*& outModule);
 
     // The parse pipeline shared by Open (called inline, on the caller's
     // thread) and OpenAsync (called from a JobQueue worker, lane ==
@@ -113,18 +122,24 @@ private:
     // Destruction runs in reverse declaration order. m_jobs is declared
     // LAST so it is destroyed FIRST: ~JobQueue() joins every worker
     // thread, and a worker may still be mid-ParseContainer touching a
-    // Document (via a raw pointer captured by OpenAsync's Work lambda)
-    // and posting through m_events — so both m_documents and m_events
-    // (and m_settings, m_modules) must still be alive while that join
-    // happens, which reverse-declaration-order destruction guarantees
-    // since they are all declared before m_jobs. Only once every worker
-    // has been joined does m_documents get torn down, then m_events,
-    // then m_settings/m_modules/m_catalog.
+    // Document (via the shared_ptr<Document> captured by OpenAsync's Work
+    // lambda -- see PrepareDocument/OpenAsync) and posting through
+    // m_events -- so both m_documents and m_events (and m_settings,
+    // m_modules) must still be alive while that join happens, which
+    // reverse-declaration-order destruction guarantees since they are all
+    // declared before m_jobs. Only once every worker has been joined does
+    // m_documents get torn down, then m_events, then
+    // m_settings/m_modules/m_catalog. (m_documents holds shared_ptr, not
+    // unique_ptr, precisely so that erasing an entry from Close() while a
+    // worker's copy of that shared_ptr is still outstanding does not free
+    // the Document out from under the worker -- the worker's copy keeps
+    // it alive until RunParse returns and the Work lambda's captures are
+    // released.)
     Types::TypeCatalog& m_catalog;
     std::vector<std::unique_ptr<IGameModule>> m_modules;
     Services::Settings m_settings;
     Services::EventBus m_events;
-    std::vector<std::unique_ptr<Document>> m_documents;
+    std::vector<std::shared_ptr<Document>> m_documents;
     DocumentId m_nextId = 1;
     Services::JobQueue m_jobs;             // declared LAST -> destroyed FIRST
 };

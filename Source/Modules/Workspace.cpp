@@ -2,6 +2,7 @@
 #include <Onyx/Vfs/OsFile.h>
 
 #include <algorithm>
+#include <exception>
 
 namespace Onyx::Modules {
 
@@ -52,9 +53,9 @@ DocumentId Workspace::AllocateId() {
     return m_nextId++;
 }
 
-Document* Workspace::PrepareDocument(const std::filesystem::path& path,
-                                      std::string_view moduleHint,
-                                      IGameModule*& outModule) {
+std::shared_ptr<Document> Workspace::PrepareDocument(const std::filesystem::path& path,
+                                                      std::string_view moduleHint,
+                                                      IGameModule*& outModule) {
     IGameModule* module = nullptr;
     if (!moduleHint.empty()) {
         // Hint wins outright: no fallback to probing when it fails to
@@ -69,17 +70,16 @@ Document* Workspace::PrepareDocument(const std::filesystem::path& path,
     }
     outModule = module;
 
-    auto doc = std::make_unique<Document>();
+    auto doc = std::make_shared<Document>();
     doc->id = AllocateId();
     doc->path = path;
     doc->module = module;
     doc->file = std::make_shared<Vfs::OsFile>(path.string());
     doc->ready = false;
 
-    Document* raw = doc.get();
-    m_documents.push_back(std::move(doc));
-    m_events.Post(DocumentOpened{raw->id});
-    return raw;
+    m_documents.push_back(doc);
+    m_events.Post(DocumentOpened{doc->id});
+    return doc;
 }
 
 ParseResult Workspace::RunParse(Document& doc, IGameModule& module,
@@ -96,14 +96,28 @@ ParseResult Workspace::RunParse(Document& doc, IGameModule& module,
 
     ContainerContext ctx{*doc.file, m_settings, doc.diags, progress,
                           doc.state, doc.roots};
-    ParseResult result = module.ParseContainer(ctx);
+    ParseResult result;
+    try {
+        result = module.ParseContainer(ctx);
+    } catch (...) {
+        // No exceptions cross the module boundary (spec §7.1): a module
+        // that throws is treated exactly like one that reports an Error
+        // and returns ok=false -- the caller (Open, synchronously; or the
+        // JobQueue's own catch, for OpenAsync) must never see this throw.
+        doc.diags.Report(Services::Diag{
+            Services::Severity::Error,
+            module.Info().id + ".parse-threw",
+            "ParseContainer threw",
+            std::nullopt});
+        result = ParseResult{false};
+    }
     doc.ready = true;
     return result;
 }
 
 DocumentId Workspace::Open(const std::filesystem::path& path, std::string_view moduleHint) {
     IGameModule* module = nullptr;
-    Document* doc = PrepareDocument(path, moduleHint, module);
+    std::shared_ptr<Document> doc = PrepareDocument(path, moduleHint, module);
     if (!doc) return 0;
 
     Services::Progress progress;
@@ -114,7 +128,7 @@ DocumentId Workspace::Open(const std::filesystem::path& path, std::string_view m
 
 DocumentId Workspace::OpenAsync(const std::filesystem::path& path, std::string_view moduleHint) {
     IGameModule* module = nullptr;
-    Document* doc = PrepareDocument(path, moduleHint, module);
+    std::shared_ptr<Document> doc = PrepareDocument(path, moduleHint, module);
     if (!doc) return 0;
 
     DocumentId id = doc->id;
@@ -122,6 +136,12 @@ DocumentId Workspace::OpenAsync(const std::filesystem::path& path, std::string_v
 
     m_jobs.Submit(
         id,
+        // `doc` is captured BY VALUE (shared_ptr): this keeps the
+        // Document object alive for the duration of RunParse even if
+        // Close(id) erases Workspace's own entry from m_documents while
+        // this job is in flight -- Get(id) goes null immediately, but the
+        // worker's copy of the shared_ptr keeps the object itself alive
+        // until this lambda returns.
         [this, doc, module, ok](Services::Progress& progress) {
             ParseResult result = RunParse(*doc, *module, progress);
             *ok = result.ok;
@@ -147,7 +167,7 @@ Document* Workspace::Get(DocumentId id) {
 
 void Workspace::Close(DocumentId id) {
     auto it = std::find_if(m_documents.begin(), m_documents.end(),
-                            [id](const std::unique_ptr<Document>& d) { return d->id == id; });
+                            [id](const std::shared_ptr<Document>& d) { return d->id == id; });
     if (it == m_documents.end()) return;
     m_documents.erase(it);
     m_events.Post(DocumentClosed{id});
