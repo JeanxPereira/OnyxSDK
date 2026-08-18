@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <Onyx/Services/AssetDatabase.h>
 
 namespace Onyx::App {

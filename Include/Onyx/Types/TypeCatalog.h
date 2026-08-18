@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <Onyx/Types/TypeId.h>
 #include <Onyx/Domain/MediaKind.h>
 #include <string>

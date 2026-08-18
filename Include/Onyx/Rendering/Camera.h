@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <Onyx/Domain/BoundingBox.h>
@@ -43,7 +43,7 @@ public:
     glm::vec3 GetSceneMax()    const { return m_sceneMax; }
     float GetSceneRadius()     const { return m_sceneRadius; }
 
-    // â”€â”€ Tuning knobs (exposed to the in-viewport camera widget) â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Tuning knobs (exposed to the in-viewport camera widget) ────────
     float fov     = 55.0f;
     float nearPlane = 0.01f;   // hard lower bound for near (auto or manual)
     float farPlane  = 50000.0f;// hard upper bound for far  (auto or manual)

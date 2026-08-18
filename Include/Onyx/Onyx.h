@@ -2,6 +2,8 @@
 // Onyx SDK — umbrella public header. Apps may include this for the full
 // public surface, or include individual <Onyx/Subsystem/Header.h> directly.
 
+#include <Onyx/Version.h>
+
 // Core data
 #include <Onyx/Vfs/IFile.h>
 #include <Onyx/Vfs/IsoFileSystem.h>

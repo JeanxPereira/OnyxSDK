@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <Onyx/Domain/IAssetProfile.h>
 #include <vector>
 #include <memory>
@@ -15,7 +15,7 @@ public:
 
     void RegisterProfile(std::shared_ptr<Domain::IAssetProfile> profile);
 
-    // Tenta achar um perfil compatÃ­vel iterando sobre o Detect de todos
+    // Tenta achar um perfil compatível iterando sobre o Detect de todos
     std::shared_ptr<Domain::IAssetProfile> DetectProfileForFile(const std::filesystem::path& path) const;
 
     // Busca por hint de nome (ex: "gowr", "gow2")

@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <Onyx/Vfs/IFile.h>
 #include <memory>
 #include <stdexcept>
@@ -6,8 +6,8 @@
 
 namespace Onyx::Vfs {
 
-// Encapsula outro IFile garantindo que nÃ£o passemos do offset inicial + tamanho.
-// Essencial para ler WADs e entradas contÃ­guas numa ISO.
+// Encapsula outro IFile garantindo que não passemos do offset inicial + tamanho.
+// Essencial para ler WADs e entradas contíguas numa ISO.
 class SliceFile : public IFile {
 public:
     SliceFile(std::shared_ptr<IFile> parent, size_t startOffset, size_t size)

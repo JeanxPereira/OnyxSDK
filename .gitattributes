@@ -1,0 +1,11 @@
+# Normalise every text file to LF in the repository. Working trees on Windows
+# still get CRLF when core.autocrlf=true; this only stops the index from
+# holding a mix (a few files were committed with CRLF, most with LF).
+* text=auto eol=lf
+
+# Binary assets -- never touched by eol conversion or diffed as text.
+*.otf   binary
+*.ttf   binary
+*.png   binary
+*.jpg   binary
+*.zip   binary

@@ -1,4 +1,4 @@
-﻿#include <glad/glad.h>
+#include <glad/glad.h>
 #include <Onyx/Rendering/ShaderManager.h>
 #include <Onyx/Services/AppConfig.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -8,7 +8,7 @@
 
 namespace Onyx::Rendering {
 
-// â”€â”€ Shader uniform helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Shader uniform helpers ───────────────────────────────────────────────
 
 void Shader::Use() const { glUseProgram(id); }
 
@@ -34,11 +34,11 @@ void Shader::SetInt(const char* name, int val) const {
     glUniform1i(glGetUniformLocation(id, name), val);
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 // SHADER SOURCES
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 
-// â”€â”€ Unified Scene Shader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Unified Scene Shader ────────────────────────────────────────────────
 // Handles all shading modes: Solid (Blinn-Phong), Matcap, Textured (material preview).
 // Supports skeletal animation, multi-layer materials, vertex colors.
 
@@ -73,15 +73,15 @@ void main() {
     vec3 localNormal;
 
     if (uUseJoints == 1) {
-        // GOW2 skinning â€” porta exata do export_gltf.go:
-        //   Weight (flags & 0x7fff / 4096)  â†’ peso do jointIndexes[0] (boneIndices.x)
-        //   1 - Weight                       â†’ peso do jointIndexes[1] (boneIndices.y)
+        // GOW2 skinning — porta exata do export_gltf.go:
+        //   Weight (flags & 0x7fff / 4096)  → peso do jointIndexes[0] (boneIndices.x)
+        //   1 - Weight                       → peso do jointIndexes[1] (boneIndices.y)
         //
-        // Quando Weight == 0: 100% boneIndices.y (joint secundÃ¡rio Ã© o Ãºnico ativo)
-        // Quando Weight == 1: 100% boneIndices.x (joint primÃ¡rio Ã© o Ãºnico ativo)
-        // NUNCA usar uJoints[0] como fallback â€” isso colapsa tudo na raiz.
-        float w0 = aBoneWeights.x;  // Weight â†’ peso de boneIndices.x
-        float w1 = aBoneWeights.y;  // 1-Weight â†’ peso de boneIndices.y
+        // Quando Weight == 0: 100% boneIndices.y (joint secundário é o único ativo)
+        // Quando Weight == 1: 100% boneIndices.x (joint primário é o único ativo)
+        // NUNCA usar uJoints[0] como fallback — isso colapsa tudo na raiz.
+        float w0 = aBoneWeights.x;  // Weight → peso de boneIndices.x
+        float w1 = aBoneWeights.y;  // 1-Weight → peso de boneIndices.y
         if (w0 > 0.001 && w1 > 0.001) {
             // Blended: dois joints ativos
             mat4 skin = uJoints[aBoneIndices.x] * w0
@@ -167,11 +167,11 @@ void main() {
 
     vec3 N = normalize(vWorldNormal);
 
-    // â”€â”€ Matcap Mode â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Matcap Mode ──────────────────────────────────────────────────
     if (uShadingMode == 1) {
         vec3 N = normalize(vViewNormal);
         // Blender matcap_uv_compute: perspective-correct orthonormal basis
-        vec3 I = normalize(-vViewPos);  // view-space incident vector (cameraâ†’fragment)
+        vec3 I = normalize(-vViewPos);  // view-space incident vector (camera→fragment)
         float a = 1.0 / (1.0 + I.z);
         float b = -I.x * I.y * a;
         vec3 b1 = vec3(1.0 - I.x * I.x * a, b, -I.x);
@@ -182,14 +182,14 @@ void main() {
         return;
     }
 
-    // â”€â”€ Build base color â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Build base color ─────────────────────────────────────────────
     vec4 clr = vec4(1.0);
 
     if (uUseTexture == 1) {
         clr = texture(uTexture0, vUV);
     }
 
-    // Environment map blending (Go-style: lerp diffuseâ†’envmap by diffuse alpha)
+    // Environment map blending (Go-style: lerp diffuse→envmap by diffuse alpha)
     if (uUseEnvmap == 1) {
         vec3 envColor = texture(uEnvmap, vUV1).rgb;
         clr.rgb = clr.rgb * (1.0 - clr.a) + envColor * clr.a;
@@ -207,7 +207,7 @@ void main() {
     // Alpha test
     if (clr.a < 0.01) discard;
 
-    // â”€â”€ Textured Mode (material preview) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Textured Mode (material preview) ─────────────────────────────
     if (uShadingMode == 2) {
         float ndotl = max(dot(N, normalize(uLightDir)), 0.0);
         vec3 lighting = vec3(0.30) + vec3(0.70) * ndotl;
@@ -215,7 +215,7 @@ void main() {
         return;
     }
 
-    // â”€â”€ Solid Mode (Blinn-Phong with 3-point lighting) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Solid Mode (Blinn-Phong with 3-point lighting) ───────────────
     vec3 L = normalize(uLightDir);
     vec3 V = normalize(uViewPos - vWorldPos);
 
@@ -242,7 +242,7 @@ void main() {
 }
 )";
 
-// â”€â”€ Grid â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Grid ────────────────────────────────────────────────────────────────
 
 static const char* GRID_VERT = R"(
 #version 330 core
@@ -330,7 +330,7 @@ void main() {
 }
 )";
 
-// â”€â”€ Outline Mask Shader (renders selected mesh to texture mask) â”€â”€â”€â”€â”€â”€â”€
+// ── Outline Mask Shader (renders selected mesh to texture mask) ───────
 
 static const char* OUTLINE_MASK_VERT = R"(
 #version 330 core
@@ -391,7 +391,7 @@ void main() {
 }
 )";
 
-// â”€â”€ Outline Post-Process Shader (runs fullscreen edge-detection) â”€â”€â”€â”€â”€â”€
+// ── Outline Post-Process Shader (runs fullscreen edge-detection) ──────
 
 static const char* OUTLINE_POST_VERT = R"(
 #version 330 core
@@ -416,7 +416,7 @@ out vec4 FragColor;
 void main() {
     float center = texture(uMaskTex, vUV).r;
 
-    // Sample 4 cardinal neighbors (Blender style: Â±X, Â±Y)
+    // Sample 4 cardinal neighbors (Blender style: ±X, ±Y)
     float px = texture(uMaskTex, vUV + vec2( uTexelSize.x, 0.0)).r;
     float nx = texture(uMaskTex, vUV + vec2(-uTexelSize.x, 0.0)).r;
     float py = texture(uMaskTex, vUV + vec2(0.0,  uTexelSize.y)).r;
@@ -439,7 +439,7 @@ void main() {
     float edgeWeight = clamp(edge1 + edge2, 0.0, 1.0);
 
     if (edgeWeight < 0.01 && center < 0.5) {
-        discard;  // No outline, no fill â†’ skip
+        discard;  // No outline, no fill → skip
     }
 
     vec4 color = vec4(0.0);
@@ -459,8 +459,8 @@ void main() {
 }
 )";
 
-// â”€â”€ Background Gradient â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Fullscreen triangle â€” no VBO needed, uses gl_VertexID.
+// ── Background Gradient ────────────────────────────────────────────────
+// Fullscreen triangle — no VBO needed, uses gl_VertexID.
 
 static const char* BG_VERT = R"(
 #version 330 core
@@ -488,9 +488,9 @@ void main() {
 }
 )";
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 // ShaderManager Implementation
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ═══════════════════════════════════════════════════════════════════════════
 
 ShaderManager& ShaderManager::Get() {
     static ShaderManager instance;

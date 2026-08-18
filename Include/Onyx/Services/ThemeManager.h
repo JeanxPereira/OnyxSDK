@@ -81,6 +81,12 @@ ImVec4 ToolbarButtonHover();
 ImVec4 ToolbarButtonActive();
 ImVec4 ToolbarButtonText();
 
+// Builds the full accent-derived palette into `out` (ImGuiCol_COUNT entries).
+// Pure: no ImGui context, no globals, no side effects -- it is the colour half
+// of Appearance::Resolve, and is what makes that function testable. `mode` must
+// be Dark or Light; System is the caller's to resolve.
+void BuildPalette(ImVec4* out, const ImVec4& accent, ThemeMode mode);
+
 // ── Per-color editor support (ImHex-style) ────────────────────────────────
 
 // Returns the list of color groups for the UI editor
