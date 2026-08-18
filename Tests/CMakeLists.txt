@@ -26,6 +26,7 @@ add_executable(onyx_tests
     diagnostics_test.cpp
     jobs_test.cpp
     eventbus_test.cpp
+    probe_test.cpp
 )
 target_link_libraries(onyx_tests PRIVATE Onyx::Onyx doctest::doctest imgui_lib)
 if(MSVC)
@@ -43,6 +44,7 @@ add_test(NAME OnyxChunkSchema COMMAND onyx_tests "--test-case=*ChunkSchema*")
 add_test(NAME OnyxChunkTree COMMAND onyx_tests "--test-case=*BuildChunkTree*")
 add_test(NAME OnyxAppConfig COMMAND onyx_tests "--test-case=*AppConfig*")
 add_test(NAME OnyxSettings COMMAND onyx_tests "--test-case=*Settings*")
+add_test(NAME OnyxProbe           COMMAND onyx_tests "--test-case=*RankProbes*")
 add_test(NAME OnyxTypeRegistry    COMMAND onyx_tests "--test-case=*TypeCatalog*,*TypeRegistry*,*TypeRegistrar*")
 add_test(NAME OnyxRecentFiles     COMMAND onyx_tests "--test-case=*RecentFiles*")
 add_test(NAME OnyxAssetVisibility COMMAND onyx_tests "--test-case=*AssetVisibility*")
