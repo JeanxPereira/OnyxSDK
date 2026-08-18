@@ -89,7 +89,9 @@ const State&       Get();
 const Environment& Env();
 
 // Edit the desired state. Cheap: only marks it dirty, applies nothing.
-void Mutate(const std::function<void(State&)>& fn);
+// animateColors requests the ease-out palette transition for this change --
+// right for a preset button, wrong for a live colour-picker drag.
+void Mutate(const std::function<void(State&)>& fn, bool animateColors = false);
 void Set(const State& state);
 
 // Update measured values (DPI change, OS theme change, font list ready).
