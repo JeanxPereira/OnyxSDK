@@ -186,7 +186,7 @@ void Window::initImGui() {
     io.IniSavingRate = 2.0f;
 
     // Apply centralized accent-derived theme (replaces StyleColorsDark + applyAccent)
-    Onyx::Theme::ApplyTheme(m_config.getAccent(),
+    Onyx::Theme::ApplyTheme(ImVec4(m_config.accentR, m_config.accentG, m_config.accentB, m_config.accentA),
                            (Onyx::Theme::ThemeMode)m_config.themeMode);
 
 

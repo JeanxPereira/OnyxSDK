@@ -1,4 +1,5 @@
 #include <Onyx/Services/AppConfig.h>
+#include <Onyx/Services/Appearance.h>
 #include <Onyx/Services/AssetVisibility.h>
 #include <toml++/toml.hpp>
 #include <cstdint>
@@ -16,7 +17,7 @@ Onyx::Appearance::State AppConfig::appearanceState() const {
     s.fontPath   = fontPath;
     s.fontSizePt = fontSize;
     s.userScale  = uiScale;
-    s.accent     = getAccent();
+    s.accent     = ImVec4(accentR, accentG, accentB, accentA);
     s.mode       = static_cast<Onyx::Theme::ThemeMode>(themeMode);
     for (const auto &o : colorOverrides)
         s.overrides.push_back({int(o.slot), ImVec4(o.r, o.g, o.b, o.a)});

@@ -1,9 +1,12 @@
 #pragma once
-#include <Onyx/Services/Appearance.h>
-#include "imgui.h"
+// No UI includes here: this header is consumed by Render (camera prefs,
+// overlay colours), which must stay imgui-free. Appearance::State is only
+// named in signatures, so a forward declaration carries it.
 #include <filesystem>
 #include <string>
 #include <vector>
+
+namespace Onyx::Appearance { struct State; }
 
 namespace Onyx::Services {
 
@@ -88,9 +91,6 @@ struct AppConfig {
   // Global Config Access
   static AppConfig* Get();
   static void SetInstance(AppConfig* cfg);
-
-  // Get accent color as ImVec4 (theme application is handled by ThemeManager)
-  ImVec4 getAccent() const { return ImVec4(accentR, accentG, accentB, accentA); }
 
   // Per-slot colour overrides from the theme editor. Persisted so a tuned
   // palette survives a restart, like every other appearance input.

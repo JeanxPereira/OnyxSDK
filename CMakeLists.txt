@@ -361,8 +361,13 @@ add_library(Onyx::Core ALIAS Onyx_Core)
 onyx_apply_common(Onyx_Core)
 target_link_libraries(Onyx_Core PUBLIC glm::glm lz4_lib)
 
+# ── Onyx::Render — draws domain data; Core + GL loader only ──────────────
+add_library(Onyx_Render STATIC ${ONYX_RENDER_SOURCES})
+add_library(Onyx::Render ALIAS Onyx_Render)
+onyx_apply_common(Onyx_Render)
+target_link_libraries(Onyx_Render PUBLIC Onyx_Core glad)
+
 add_library(Onyx STATIC
-    ${ONYX_RENDER_SOURCES}
     ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES}
     "${ONYX_ICON_TABLE}")
 add_library(Onyx::Onyx ALIAS Onyx)
@@ -378,11 +383,11 @@ target_compile_features(Onyx PUBLIC cxx_std_20)
 
 target_link_libraries(Onyx PUBLIC
     Onyx_Core
+    Onyx_Render
     imgui_lib
     implot_lib
     imgui_color_text_edit
     glfw
-    glad
     miniaudio
     ffmpeg_lib
 )

@@ -85,7 +85,7 @@ void SettingsWindow::Draw() {
         config->accentG = m_accentTargetColor.y;
         config->accentB = m_accentTargetColor.z;
         config->accentA = m_accentTargetColor.w;
-        Onyx::Theme::ApplyTheme(config->getAccent(),
+        Onyx::Theme::ApplyTheme(ImVec4(config->accentR, config->accentG, config->accentB, config->accentA),
                                (Onyx::Theme::ThemeMode)config->themeMode,
                                /*animate=*/false);
       }
@@ -104,7 +104,7 @@ void SettingsWindow::Draw() {
       config->accentG = m_accentTargetColor.y;
       config->accentB = m_accentTargetColor.z;
       config->accentA = m_accentTargetColor.w;
-      Onyx::Theme::ApplyTheme(config->getAccent(),
+      Onyx::Theme::ApplyTheme(ImVec4(config->accentR, config->accentG, config->accentB, config->accentA),
                              (Onyx::Theme::ThemeMode)config->themeMode,
                              /*animate=*/false);
     } else {
@@ -114,7 +114,7 @@ void SettingsWindow::Draw() {
       config->accentG = m_accentStartColor.y + (m_accentTargetColor.y - m_accentStartColor.y) * ease;
       config->accentB = m_accentStartColor.z + (m_accentTargetColor.z - m_accentStartColor.z) * ease;
       config->accentA = m_accentStartColor.w + (m_accentTargetColor.w - m_accentStartColor.w) * ease;
-      Onyx::Theme::ApplyTheme(config->getAccent(),
+      Onyx::Theme::ApplyTheme(ImVec4(config->accentR, config->accentG, config->accentB, config->accentA),
                              (Onyx::Theme::ThemeMode)config->themeMode,
                              /*animate=*/false);
     }
@@ -373,7 +373,7 @@ void SettingsWindow::DrawAppearanceCategory() {
       }
       if (changed) {
         config->themeMode = (uint8_t)mode;
-        Onyx::Theme::ApplyTheme(config->getAccent(),
+        Onyx::Theme::ApplyTheme(ImVec4(config->accentR, config->accentG, config->accentB, config->accentA),
                                (Onyx::Theme::ThemeMode)config->themeMode,
                                /*animate=*/true);
       }
@@ -410,7 +410,7 @@ void SettingsWindow::DrawAppearanceCategory() {
         config->accentG = accent.y;
         config->accentB = accent.z;
         config->accentA = accent.w;
-        Onyx::Theme::ApplyTheme(config->getAccent(),
+        Onyx::Theme::ApplyTheme(ImVec4(config->accentR, config->accentG, config->accentB, config->accentA),
                                (Onyx::Theme::ThemeMode)config->themeMode,
                                /*animate=*/false);
       }
@@ -670,7 +670,7 @@ void SettingsWindow::DrawThemeEditorCategory() {
         if (ImGui::IsItemClicked(ImGuiMouseButton_Right) &&
             Onyx::Theme::HasOverride(entry.imguiColIdx)) {
           Onyx::Theme::ClearColorOverride(entry.imguiColIdx);
-          Onyx::Theme::ApplyTheme(config->getAccent());
+          Onyx::Theme::ApplyTheme(ImVec4(config->accentR, config->accentG, config->accentB, config->accentA));
         }
 
         // ── Flash highlight on hover (ImHex-style) ──────────────────
@@ -713,7 +713,7 @@ void SettingsWindow::DrawThemeEditorCategory() {
   ImGui::Separator();
   if (Onyx::App::Widgets::Button(ICON_SF_ARROW_COUNTERCLOCKWISE " Reset All Colors")) {
     Onyx::Theme::ClearAllOverrides();
-    Onyx::Theme::ApplyTheme(config->getAccent());
+    Onyx::Theme::ApplyTheme(ImVec4(config->accentR, config->accentG, config->accentB, config->accentA));
   }
   if (ImGui::IsItemHovered())
     ImGui::SetTooltip("Discard all individual color overrides and revert to accent-derived palette");
