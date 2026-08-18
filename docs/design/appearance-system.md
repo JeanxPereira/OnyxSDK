@@ -205,10 +205,40 @@ Both halves of the fix fall out of the design rather than being patched: one
 writer (Commit is the only caller of BuildAtlas), and panels rendering
 `Get()` instead of caching inputs.
 
-## Still to move
+## Colour
 
-Colour overrides live in `State` but ThemeManager still owns the live map and
-the ease-out transition; `Commit` calls `ApplyTheme` for the colour half. Moving
-the transition into Appearance would make `Commit` the only writer of
-`style.Colors` too, and let overrides persist through the same round-trip the
-other inputs already have.
+Colour followed the same path. `Palette` is a value type and the transition is
+`Lerp(from, to, EaseOut(t))` -- pure, so both are tested without a window.
+`Commit` is the only writer of `style.Colors`; `Tick` advances the ease-out and
+asks `Onyx::Frame` for the frames it needs. Overrides are inputs on `State`,
+folded into the target by `Resolve`, so they animate with the rest and persist
+like every other input.
+
+Two details that only show up in use:
+
+- `from` is captured from what is **on screen**, not from the last resolved
+  palette. Interrupting a transition half way continues from what the user is
+  looking at; starting from the resolved palette makes a second click snap back.
+- `ApplyTheme` now records intent and the palette lands on the next `Commit`
+  rather than inside the call. In the running app that is the same frame's end.
+
+## Frame pacing
+
+An animation is only as good as the frames it gets, and the window loop decided
+whether to sleep by inferring activity from input state -- invisible to anything
+driven by time. `Onyx::Frame` is the missing channel: `RequestAnimation(seconds)`
+and `RequestRedraw()`, consumed once per iteration by `BeginFrame()`. Requests
+are deadlines, so re-asking each frame holds one open, and they expire on their
+own.
+
+Measured across the same colour transition:
+
+| | idle | during a 0.25s transition |
+| --- | --- | --- |
+| before | ~82 fps (p50 5.6ms) | ~4 frames |
+| after | 13.1 fps | 45 frames (184 fps) |
+
+The idle figure improved because the same commit dropped "any window is a
+separate OS viewport" from the activity test: that clause pinned the loop at
+full speed forever once a panel was undocked, which is why the stutter appeared
+to vanish whenever a floating window was open.
