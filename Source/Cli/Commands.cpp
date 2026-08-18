@@ -8,6 +8,8 @@
 #include <Onyx/Types/TypeCatalog.h>
 #include <Onyx/Vfs/IFile.h>
 
+#include <array>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>       // SEEK_SET
 #include <filesystem>
@@ -119,16 +121,40 @@ void WriteDiagJson(std::ostream& out, const Diag& d) {
         << "\"message\":\"" << JsonEscape(d.message) << "\"}";
 }
 
+// Windows reserves these device names as path components regardless of
+// case, and regardless of any extension appended to them -- "NUL.txt"
+// still resolves to the NUL device, not a file named "NUL.txt". Matched
+// against the portion of the name before the first '.'.
+bool IsWindowsReservedName(std::string_view name) {
+    std::string stem(name.substr(0, name.find('.')));
+    for (char& c : stem) {
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    }
+
+    static constexpr std::array<std::string_view, 22> kReserved = {
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    };
+    for (std::string_view r : kReserved) {
+        if (stem == r) return true;
+    }
+    return false;
+}
+
 // Entry names come from attacker-controlled container bytes, and get joined
 // straight to outDir. A name must be a single plain path component -- empty,
 // ".", "..", or containing a separator ('/' or '\\') or a drive-letter colon
 // (Windows) would let a hostile container write (or overwrite) files outside
-// outDir. Reject anything that isn't a bare filename.
+// outDir. A Windows reserved device name (NUL, CON, COM1, ... with or
+// without an extension) is also rejected: writing to one doesn't create a
+// file at all, it opens the device.
 bool IsSafeEntryName(std::string_view name) {
     if (name.empty() || name == "." || name == "..") return false;
     for (char c : name) {
         if (c == '/' || c == '\\' || c == ':') return false;
     }
+    if (IsWindowsReservedName(name)) return false;
     return true;
 }
 

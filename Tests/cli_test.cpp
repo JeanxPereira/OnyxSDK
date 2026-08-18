@@ -13,6 +13,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Local onyxbox fixtures (adapted from Tests/onyxbox_test.cpp's
@@ -83,42 +84,40 @@ std::filesystem::path WriteSampleBox() {
     return path;
 }
 
-// Three entries, all with valid in-bounds payload ranges (so ParseContainer
-// never flags any of them Failed), but two carry hostile names: "../evil.txt"
-// (parent-directory escape) and "a/b.txt" (nested path). CmdExtract must
-// refuse to write either -- only "good.txt" is a safe bare filename.
+// Five entries, all with valid in-bounds payload ranges (so ParseContainer
+// never flags any of them Failed), but four carry hostile names:
+// "../evil.txt" (parent-directory escape), "a/b.txt" (nested path), "NUL"
+// and "con.txt" (Windows reserved device names, bare and with an
+// extension -- both still resolve to the device, not a file). CmdExtract
+// must refuse to write any of the four -- only "good.txt" is a safe bare
+// filename.
 std::filesystem::path WriteUnsafeNamesBox() {
-    const std::string safeText = "safe data";
-    const std::string evilText = "evil data";
-    const std::string nestedText = "nested data";
+    const std::vector<std::pair<std::string, std::string>> entries = {
+        {"good.txt", "safe data"},
+        {"../evil.txt", "evil data"},
+        {"a/b.txt", "nested data"},
+        {"NUL", "device data"},
+        {"con.txt", "device ext data"},
+    };
 
-    const std::string goodName = "good.txt";
-    const std::string evilName = "../evil.txt";
-    const std::string nestedName = "a/b.txt";
-
-    // magic(4) + count(4) + 3 * (nameLen(2) + name + kind(1) + offset(4) + size(4))
-    const uint32_t headerSize =
-        4 + 4 + uint32_t(3 * (2 + 1 + 4 + 4)) +
-        uint32_t(goodName.size() + evilName.size() + nestedName.size());
-
-    const uint32_t safeOffset = headerSize;
-    const uint32_t safeSize = uint32_t(safeText.size());
-    const uint32_t evilOffset = safeOffset + safeSize;
-    const uint32_t evilSize = uint32_t(evilText.size());
-    const uint32_t nestedOffset = evilOffset + evilSize;
-    const uint32_t nestedSize = uint32_t(nestedText.size());
+    // magic(4) + count(4) + N * (nameLen(2) + name + kind(1) + offset(4) + size(4))
+    uint32_t headerSize = 4 + 4;
+    for (const auto& [name, text] : entries) {
+        headerSize += uint32_t(2 + name.size() + 1 + 4 + 4);
+    }
 
     std::vector<uint8_t> buf;
     buf.insert(buf.end(), {uint8_t('O'), uint8_t('B'), uint8_t('X'), uint8_t('1')});
-    PutU32LE(buf, 3);
+    PutU32LE(buf, uint32_t(entries.size()));
 
-    PutTocHeader(buf, goodName, 2, safeOffset, safeSize);
-    PutTocHeader(buf, evilName, 2, evilOffset, evilSize);
-    PutTocHeader(buf, nestedName, 2, nestedOffset, nestedSize);
-
-    buf.insert(buf.end(), safeText.begin(), safeText.end());
-    buf.insert(buf.end(), evilText.begin(), evilText.end());
-    buf.insert(buf.end(), nestedText.begin(), nestedText.end());
+    uint32_t offset = headerSize;
+    for (const auto& [name, text] : entries) {
+        PutTocHeader(buf, name, 2, offset, uint32_t(text.size()));
+        offset += uint32_t(text.size());
+    }
+    for (const auto& [name, text] : entries) {
+        buf.insert(buf.end(), text.begin(), text.end());
+    }
 
     auto path = std::filesystem::temp_directory_path() / "onyx_cli_unsafe_names.obx";
     std::ofstream f(path, std::ios::binary);
@@ -235,14 +234,18 @@ TEST_CASE("cli extract skips unsafe entry names and writes nothing outside outDi
     const std::string text = out.str();
     CHECK(text.find("skipped '../evil.txt': unsafe name") != std::string::npos);
     CHECK(text.find("skipped 'a/b.txt': unsafe name") != std::string::npos);
+    CHECK(text.find("skipped 'NUL': unsafe name") != std::string::npos);
+    CHECK(text.find("skipped 'con.txt': unsafe name") != std::string::npos);
 
     REQUIRE(std::filesystem::exists(outDir / "good.txt"));
 
     // Nothing escaped outDir: no evil.txt beside it, no nested "a" directory
-    // or loose "b.txt" anywhere under it.
+    // or loose "b.txt" anywhere under it, and neither reserved-device name
+    // was ever opened for writing.
     CHECK_FALSE(std::filesystem::exists(outDir.parent_path() / "evil.txt"));
     CHECK_FALSE(std::filesystem::exists(outDir / "a"));
     CHECK_FALSE(std::filesystem::exists(outDir / "b.txt"));
+    CHECK_FALSE(std::filesystem::exists(outDir / "con.txt"));
 
     // Only the one safe entry made it to disk.
     size_t count = 0;
