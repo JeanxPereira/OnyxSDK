@@ -367,21 +367,17 @@ add_library(Onyx::Render ALIAS Onyx_Render)
 onyx_apply_common(Onyx_Render)
 target_link_libraries(Onyx_Render PUBLIC Onyx_Core glad)
 
-add_library(Onyx STATIC
-    ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES}
+# ── Onyx::Shell — the ImGui application framework ────────────────────────
+# Carries MEDIA sources until Task 5 gives the FFmpeg edge its own target.
+add_library(Onyx_Shell STATIC
+    ${ONYX_SHELL_SOURCES} ${ONYX_MEDIA_SOURCES}
     "${ONYX_ICON_TABLE}")
-add_library(Onyx::Onyx ALIAS Onyx)
-
-target_include_directories(Onyx
-    PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/Include
-            ${CMAKE_CURRENT_BINARY_DIR}/generated   # Onyx/Version.h
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source
-            ${tomlplusplus_SOURCE_DIR}/include
-)
-
-target_compile_features(Onyx PUBLIC cxx_std_20)
-
-target_link_libraries(Onyx PUBLIC
+add_library(Onyx::Shell ALIAS Onyx_Shell)
+onyx_apply_common(Onyx_Shell)
+target_compile_definitions(Onyx_Shell PUBLIC
+    $<$<PLATFORM_ID:Windows>:GLFW_EXPOSE_NATIVE_WIN32>
+    $<$<PLATFORM_ID:Darwin>:GLFW_EXPOSE_NATIVE_COCOA>)
+target_link_libraries(Onyx_Shell PUBLIC
     Onyx_Core
     Onyx_Render
     imgui_lib
@@ -389,35 +385,30 @@ target_link_libraries(Onyx PUBLIC
     imgui_color_text_edit
     glfw
     miniaudio
-    ffmpeg_lib
-)
+    ffmpeg_lib)
 
-if(MSVC)
-    target_compile_options(Onyx PUBLIC /utf-8)
-endif()
+# ── Onyx::Onyx — the aggregate consumers link ─────────────────────────────
+# Tests/ and GoWToolkit keep linking one name; the split stays invisible to
+# them until they opt into a thinner slice (e.g. Core+Render for a CLI).
+add_library(Onyx INTERFACE)
+add_library(Onyx::Onyx ALIAS Onyx)
+target_link_libraries(Onyx INTERFACE Onyx_Core Onyx_Render Onyx_Shell)
 
-target_compile_definitions(Onyx PUBLIC
-    $<$<PLATFORM_ID:Windows>:GLFW_EXPOSE_NATIVE_WIN32>
-    $<$<PLATFORM_ID:Darwin>:GLFW_EXPOSE_NATIVE_COCOA>
-    $<$<PLATFORM_ID:Windows>:ONYX_OS_WINDOWS>
-    $<$<PLATFORM_ID:Darwin>:ONYX_OS_MACOS>
-    $<$<PLATFORM_ID:Linux>:ONYX_OS_LINUX>
-    $<$<PLATFORM_ID:Windows>:NOMINMAX>
-)
-
+# ── Platform libraries, homed on the layer that needs each ───────────────
 if(WIN32)
-    target_link_libraries(Onyx PUBLIC opengl32 comdlg32 dwmapi)
+    target_link_libraries(Onyx_Render PUBLIC opengl32)
+    target_link_libraries(Onyx_Shell  PUBLIC comdlg32 dwmapi)
 elseif(APPLE)
-    target_link_libraries(Onyx PUBLIC
-        "-framework OpenGL"
+    target_link_libraries(Onyx_Render PUBLIC "-framework OpenGL")
+    target_link_libraries(Onyx_Shell  PUBLIC
         "-framework AudioToolbox"
         "-framework CoreAudio"
         "-framework Cocoa"
         "-framework IOKit"
-        "-framework CoreFoundation"
-    )
+        "-framework CoreFoundation")
 else()
-    target_link_libraries(Onyx PUBLIC GL dl pthread m)
+    target_link_libraries(Onyx_Core   PUBLIC dl pthread m)
+    target_link_libraries(Onyx_Render PUBLIC GL)
 endif()
 
 # Provide the engine's runtime font dir to consumers
