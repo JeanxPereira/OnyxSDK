@@ -29,6 +29,7 @@ public:
 
     TypeId            Find(std::string_view key) const;   // {} if absent
     const TypeInfo&   Info(TypeId id) const;              // Unknown info if absent
+    std::string_view  KeyOf(TypeId id) const;             // "" for invalid/unknown
     Onyx::Domain::MediaKind         Media(TypeId id) const { return Info(id).media; }
     const char*       Label(TypeId id) const { return Info(id).label.c_str(); }
     const char*       Icon(TypeId id) const;              // default if none

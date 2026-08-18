@@ -21,6 +21,7 @@ add_executable(onyx_tests
     appearance_test.cpp
     framescheduler_test.cpp
     sessionlog_test.cpp
+    typeregistrar_test.cpp
 )
 target_link_libraries(onyx_tests PRIVATE Onyx::Onyx doctest::doctest imgui_lib)
 if(MSVC)
@@ -37,7 +38,7 @@ add_test(NAME OnyxChunkReader COMMAND onyx_tests "--test-case=*ChunkReader*")
 add_test(NAME OnyxChunkSchema COMMAND onyx_tests "--test-case=*ChunkSchema*")
 add_test(NAME OnyxChunkTree COMMAND onyx_tests "--test-case=*BuildChunkTree*")
 add_test(NAME OnyxAppConfig COMMAND onyx_tests "--test-case=*AppConfig*")
-add_test(NAME OnyxTypeRegistry    COMMAND onyx_tests "--test-case=*TypeCatalog*,*TypeRegistry*")
+add_test(NAME OnyxTypeRegistry    COMMAND onyx_tests "--test-case=*TypeCatalog*,*TypeRegistry*,*TypeRegistrar*")
 add_test(NAME OnyxRecentFiles     COMMAND onyx_tests "--test-case=*RecentFiles*")
 add_test(NAME OnyxAssetVisibility COMMAND onyx_tests "--test-case=*AssetVisibility*")
 add_test(NAME OnyxProfileManager  COMMAND onyx_tests "--test-case=*ProfileManager*")

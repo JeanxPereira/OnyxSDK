@@ -31,6 +31,10 @@ const TypeInfo& TypeCatalog::Info(TypeId id) const {
     return (id.value < m_infos.size()) ? m_infos[id.value] : m_unknown;
 }
 
+std::string_view TypeCatalog::KeyOf(TypeId id) const {
+    return (id.value < m_infos.size()) ? std::string_view(m_infos[id.value].key) : std::string_view("");
+}
+
 const char* TypeCatalog::Icon(TypeId id) const {
     const char* ic = Info(id).icon;
     return ic ? ic : ICON_SF_DOCUMENT;

@@ -252,6 +252,7 @@ set(ONYX_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/TaskManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Threading.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Types/TypeCatalog.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Types/TypeRegistrar.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Types/TypeRegistry.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Vfs/IsoFile.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Vfs/IsoFileSystem.cpp
