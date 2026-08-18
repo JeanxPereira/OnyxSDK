@@ -58,3 +58,21 @@ TEST_CASE("ResolveRoleIndices: sparse map resolves only the roles present") {
         CHECK(roles[i] == -1);
     }
 }
+
+TEST_CASE("ResolveRoleIndices: an out-of-range TextureRole is ignored, not written OOB") {
+    MaterialDesc mat;
+    mat.textures[TextureRole::Diffuse] = 1;
+    mat.textures[static_cast<TextureRole>(42)] = 99;  // bogus role from corrupt/hostile data
+    mat.textures[TextureRole::EnvMap] = 8;
+
+    auto roles = SceneRenderer::ResolveRoleIndices(mat);
+
+    // The 9 valid slots are unaffected; no crash / OOB write happened.
+    CHECK(roles[(size_t)TextureRole::Diffuse] == 1);
+    CHECK(roles[(size_t)TextureRole::EnvMap]  == 8);
+    for (size_t i = 0; i < roles.size(); ++i) {
+        if (i == (size_t)TextureRole::Diffuse || i == (size_t)TextureRole::EnvMap)
+            continue;
+        CHECK(roles[i] == -1);
+    }
+}
