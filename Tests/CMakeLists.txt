@@ -28,6 +28,7 @@ add_executable(onyx_tests
     eventbus_test.cpp
     probe_test.cpp
     workspace_test.cpp
+    selection_test.cpp
     decoderregistry_test.cpp
     onyxbox_test.cpp
     materialdesc_test.cpp
@@ -62,6 +63,7 @@ add_test(NAME OnyxDiagSink       COMMAND onyx_tests "--test-case=*DiagSink*")
 add_test(NAME OnyxJobs           COMMAND onyx_tests "--test-case=*JobQueue*,*Cancellation*,*Progress snapshots*,*throwing Work*")
 add_test(NAME OnyxEventBus       COMMAND onyx_tests "--test-case=*EventBus*,*Subscription*,*Distinct event types do not cross*,*Cross-thread Post is safe*")
 add_test(NAME OnyxWorkspace       COMMAND onyx_tests "--test-case=*Workspace opens a document*,*No module accepts the file*,*OpenAsync delivers TreeReady*,*Close posts DocumentClosed*,*FindModule resolves by id then hint*,*A single registered module skips the probe floor*,*Close during an in-flight OpenAsync parse*,*A throwing ParseContainer is contained*,*AddModule rejects a duplicate module id*,*CancelOpen cancels a blocked async parse*,*SetWorkspaceSettingsPath swaps in Settings*")
+add_test(NAME OnyxSelection       COMMAND onyx_tests "--test-case=*Selection:*")
 add_test(NAME OnyxDecoders        COMMAND onyx_tests "--test-case=*DecoderRegistry*")
 add_test(NAME OnyxBox            COMMAND onyx_tests "--test-case=*onyxbox end to end*,*onyxbox types are minted*,*onyxbox clamps a lying TOC count*,*onyxbox rejects an image whose payloadSize*")
 add_test(NAME OnyxMaterialDesc    COMMAND onyx_tests "--test-case=*ResolveRoleIndices*")

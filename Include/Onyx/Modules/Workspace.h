@@ -97,6 +97,11 @@ public:
     Document*   Get(DocumentId);
     void        Close(DocumentId);        // posts DocumentClosed
 
+    // Every currently-open document, insertion order. Read-only view for
+    // callers that need to iterate the whole set (e.g. the Shell's generic
+    // document browser, M3b Task 3) rather than look one up by id.
+    const std::vector<std::shared_ptr<Document>>& Documents() const;
+
     // Cooperative cancel of a document's in-flight async parse: calls
     // parseJob.Cancel() (a fire-and-forget flag; the module's
     // ParseContainer must poll it via Progress::CancelRequested() and

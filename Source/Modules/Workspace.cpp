@@ -185,6 +185,10 @@ Document* Workspace::Get(DocumentId id) {
     return nullptr;
 }
 
+const std::vector<std::shared_ptr<Document>>& Workspace::Documents() const {
+    return m_documents;
+}
+
 void Workspace::Close(DocumentId id) {
     auto it = std::find_if(m_documents.begin(), m_documents.end(),
                             [id](const std::shared_ptr<Document>& d) { return d->id == id; });

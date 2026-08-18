@@ -242,6 +242,7 @@ set(ONYX_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Domain/MediaKind.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Modules/DecoderRegistry.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Modules/Probe.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Modules/Selection.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Modules/Workspace.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Schema/NodeInstance.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Schema/StructDef.cpp
