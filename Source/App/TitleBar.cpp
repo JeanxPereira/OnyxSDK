@@ -9,6 +9,11 @@
 
 namespace Onyx::App {
 
+// Glyph height for the minimise / maximise / close controls, as a fraction of
+// the title bar. Windows sits near 0.30; a little more reads better against the
+// heavier SF Symbols strokes without the icons dominating the bar.
+static constexpr float kControlGlyphRatio = 0.42f;
+
 // ── TitleBarButton ──────────────────────────────────────────────────────────
 // Réplica exacta do ImGuiExt::TitleBarButton do ImHex
 bool TitleBarButton(const char *label, ImVec2 size_arg) {
@@ -174,6 +179,15 @@ bool draw(GLFWwindow *window, const std::string &title, bool borderless) {
   const ImVec2 buttonSize(titleBarHeight * 1.5f, titleBarHeight - 1.0f);
   const ImVec2 windowSize = ImGui::GetWindowSize();
 
+  // Window controls are drawn at a fraction of the bar height rather than at
+  // the UI font size. An SF Symbol fills its em box, so at text size the glyph
+  // ink came out ~80% of the bar (measured 16px in a 19px bar) -- far heavier
+  // than the ~30% the OS uses for the same three controls. Sizing off the bar
+  // means it tracks the UI scale without a second knob, and ImGui rasterises
+  // the smaller size on demand, so it stays sharp.
+  const float controlGlyphPx = ImMax(titleBarHeight * kControlGlyphRatio, 8.0f);
+  ImGui::PushFont(nullptr, controlGlyphPx);
+
   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
   ImGui::PushStyleColor(ImGuiCol_Button,
                         ImGui::GetColorU32(ImGuiCol_MenuBarBg));
@@ -210,6 +224,7 @@ bool draw(GLFWwindow *window, const std::string &title, bool borderless) {
 
   ImGui::PopStyleColor(3);
   ImGui::PopStyleVar();
+  ImGui::PopFont();
 
   // 1:1 ImHex: centered title at Y=0 (CursorPos = searchBoxPos where Y=0)
   {
