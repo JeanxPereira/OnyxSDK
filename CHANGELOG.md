@@ -1,8 +1,13 @@
 # Changelog
 
-## v0.6.0 - 2026-08-17
+## v0.6.0 - 2026-08-18
 
 ### Added
+- **`Onyx::Frame`** (`Onyx/Services/FrameScheduler.h`) -- explicit frame
+  scheduling. `RequestAnimation(seconds)` / `RequestRedraw()` let anything
+  driven by time keep the window loop awake; the loop used to infer activity
+  from input state alone, which no animation can satisfy. Requests are
+  self-expiring deadlines.
 - **`Onyx::Appearance`** (`Onyx/Services/Appearance.h`) -- one owner for how the
   UI looks, replacing scaling/font/theme state spread across four modules.
   Inputs (`State`), measurements (`Environment`) and derived values (`Resolved`)
@@ -38,6 +43,15 @@
   style and normalising line endings.
 
 ### Fixed
+- Colour and theme changes stepped visibly. The window slept at ~15 fps unless
+  input said otherwise, so a 0.25s ease-out landed in about four frames; and
+  "any window is a separate OS viewport" in the same test pinned the loop at
+  full speed forever once a panel was undocked (~82 fps with nothing moving),
+  which is why the stutter seemed to vanish with a floating window open.
+  Measured after: 13.1 fps idle, 45 frames through the transition.
+- Window controls (minimise/maximise/close) were drawn at the UI font size, and
+  an SF Symbol fills its em box -- ~16px of ink in a ~19px title bar. They are
+  now a fraction of the bar height, and track the UI scale.
 - The font size crept upward on its own (14 -> 15 -> 17 over a session, each step
   x the UI scale). `SettingsWindow::Init` baked the atlas outside the owner,
   re-seeding `style.FontSizeBase` -- which ImGui keeps as a live mirror of the
@@ -85,6 +99,14 @@
   BOMs stripped and line endings normalised to LF.
 
 ### Changed
+- Colour joined the appearance owner: the palette is a value type, the ease-out
+  is a pure `Lerp(from, to, EaseOut(t))`, `Commit` is the only writer of
+  `style.Colors`, and per-slot overrides are inputs on `State` that persist to
+  `onyx.toml`. `ThemeManager` keeps its colour maths and becomes a facade, so
+  consumers keep compiling. One semantic change: `ApplyTheme` records intent and
+  the palette lands on the next `Commit` rather than inside the call.
+- Factory defaults are the values settled on in the UI Gallery: 1.0 scale, 15px
+  text, bundled SF Mono, and the project accent.
 - Onyx's house style sizes (window padding 10, frame/tab rounding 5, grab
   rounding 4, 1px frame border) now live in `Theme::ApplyStyleDefaults()` and
   are applied before `Scale::Init()` snapshots the base style. Previously the
