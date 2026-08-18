@@ -3,6 +3,13 @@
 ## v0.6.0 - 2026-08-17
 
 ### Added
+- **`Onyx::Appearance`** (`Onyx/Services/Appearance.h`) -- one owner for how the
+  UI looks, replacing scaling/font/theme state spread across four modules.
+  Inputs (`State`), measurements (`Environment`) and derived values (`Resolved`)
+  are separate types; `Resolve()` and `HouseStyle()` are pure, so the whole
+  derivation is unit-tested with no window or GL context. Panels call
+  `Mutate()`; `Commit()` applies everything once per frame, outside the ImGui
+  frame. Design and rationale: `docs/design/appearance-system.md`.
 - **UI Gallery panel** (`Onyx::App::UiGallery`, `Onyx/App/Panels/UiGallery.h`) -- a
   UI test mode registered by `App` and hidden by default. Six pages: widget
   wrappers beside their plain ImGui counterparts in each state, a live theme
@@ -31,6 +38,13 @@
   style and normalising line endings.
 
 ### Fixed
+- The font size crept upward on its own (14 -> 15 -> 17 over a session, each step
+  x the UI scale). `SettingsWindow::Init` baked the atlas outside the owner,
+  re-seeding `style.FontSizeBase` -- which ImGui keeps as a live mirror of the
+  font stack, not as a setting -- so a panel's cached copy of the size could read
+  the drawn value back and submit it as the base. `Appearance::Commit` is now the
+  only caller of `Fonts::BuildAtlas`, and the panels render the state instead of
+  caching it.
 - **UI scale only scaled the widgets, not the text.** `ScaleAllSizes` moves
   padding/rounding/border metrics; since ImGui 1.92 the drawn text size is
   `FontSizeBase * FontScaleMain * FontScaleDpi` and nothing was driving those,
