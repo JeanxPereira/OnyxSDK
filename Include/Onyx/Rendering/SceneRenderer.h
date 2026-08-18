@@ -3,6 +3,7 @@
 #include <Onyx/Rendering/ShaderManager.h>
 #include <Onyx/Rendering/AnimationPlayer.h>
 #include <Onyx/Rendering/GpuMesh.h>
+#include <array>
 #include <vector>
 #include <memory>
 #include <string>
@@ -55,6 +56,11 @@ public:
     SceneRenderer& operator=(const SceneRenderer&) = delete;
     SceneRenderer(SceneRenderer&&) = default;
     SceneRenderer& operator=(SceneRenderer&&) = default;
+
+    /// Resolve a MaterialDesc's sparse role -> texture-pool-index map onto a
+    /// fixed array in TextureRole enum order (-1 = role absent). Pure — no GL
+    /// calls — so it is unit-testable without a GL context.
+    static std::array<int, 9> ResolveRoleIndices(const Parsers::MaterialDesc& mat);
 
     /// Build GPU resources from parsed Parsers::SceneData
     void Build(const Parsers::SceneData& scene);

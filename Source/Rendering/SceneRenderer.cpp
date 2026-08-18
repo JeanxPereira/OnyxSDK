@@ -12,6 +12,19 @@
 
 namespace Onyx::Rendering {
 
+// ── Material role resolution ─────────────────────────────────────────────────
+// Pure — no GL calls — so this is exercised directly in
+// Tests/materialdesc_test.cpp without a GL context.
+
+std::array<int, 9> SceneRenderer::ResolveRoleIndices(const Parsers::MaterialDesc& mat) {
+    std::array<int, 9> roles;
+    roles.fill(-1);
+    for (const auto& [role, texIndex] : mat.textures) {
+        roles[(size_t)role] = texIndex;
+    }
+    return roles;
+}
+
 // ── Texture upload ──────────────────────────────────────────────────────────
 
 GLuint SceneRenderer::UploadTexture(const Parsers::TextureData& tex) {
@@ -42,17 +55,15 @@ void SceneRenderer::Build(const Parsers::SceneData& scene) {
         ? glm::scale(scene.instanceTransform, glm::vec3(1.0f, 1.0f, -1.0f))
         : scene.instanceTransform;
 
-    // Upload textures from Parsers::SceneData (indexed by materialId, then layer)
-    std::vector<std::vector<GLuint>> textureIds(scene.textures.size());
+    // Upload the flat texture pool once. Index-aligned with scene.textures so
+    // a MaterialDesc's role -> pool-index map (resolved via
+    // ResolveRoleIndices) can be used directly against this vector.
+    std::vector<GLuint> textureIds(scene.textures.size(), 0);
     for (size_t i = 0; i < scene.textures.size(); ++i) {
-        textureIds[i].reserve(scene.textures[i].size());
-        for (size_t j = 0; j < scene.textures[i].size(); ++j) {
-            GLuint texId = 0;
-            if (scene.textures[i][j] && scene.textures[i][j]->IsValid()) {
-                texId = UploadTexture(*scene.textures[i][j]);
-                m_ownedTextures.push_back(texId);
-            }
-            textureIds[i].push_back(texId);
+        if (scene.textures[i] && scene.textures[i]->IsValid()) {
+            GLuint texId = UploadTexture(*scene.textures[i]);
+            textureIds[i] = texId;
+            m_ownedTextures.push_back(texId);
         }
     }
 
@@ -88,44 +99,32 @@ void SceneRenderer::Build(const Parsers::SceneData& scene) {
             boundsMax = glm::max(boundsMax, tp);
         }
 
-        // Resolve material
+        // Resolve material — roles are unconditional now, no positional layer
+        // lookup and no pbrLayers gate. GOW2 fills one or two roles; GOWR
+        // fills seven; the renderer never knows which game filled them.
         if (part.materialId < scene.materials.size()) {
             const auto& mat = scene.materials[part.materialId];
             std::memcpy(batch.materialColor, mat.baseColor, sizeof(float) * 4);
+            std::memcpy(batch.layerColor, mat.blendColor, sizeof(float) * 4);
+            batch.blendMode = mat.blendMode;
+            batch.uvOffset[0] = mat.uvOffset[0];
+            batch.uvOffset[1] = mat.uvOffset[1];
 
-            if (part.textureLayer < mat.layers.size()) {
-                const auto& layerConf = mat.layers[part.textureLayer];
-                std::memcpy(batch.layerColor, layerConf.blendColor, sizeof(float) * 4);
-                batch.blendMode = layerConf.blendMode;
-                batch.uvOffset[0] = layerConf.uvOffset[0];
-                batch.uvOffset[1] = layerConf.uvOffset[1];
-            } else if (!mat.layers.empty()) {
-                const auto& layer0 = mat.layers[0];
-                std::memcpy(batch.layerColor, layer0.blendColor, sizeof(float) * 4);
-                batch.blendMode = layer0.blendMode;
-                batch.uvOffset[0] = layer0.uvOffset[0];
-                batch.uvOffset[1] = layer0.uvOffset[1];
-            }
-        }
+            auto at = [&textureIds](int idx) -> GLuint {
+                return (idx >= 0 && (size_t)idx < textureIds.size()) ? textureIds[idx] : 0;
+            };
 
-        // Resolve diffuse texture using textureLayer
-        if (part.materialId < textureIds.size()) {
-            if (part.textureLayer < textureIds[part.materialId].size() && textureIds[part.materialId][part.textureLayer] != 0) {
-                batch.texture0 = textureIds[part.materialId][part.textureLayer];
-                batch.hasTexture = true;
-            }
-
-            // The remaining layers are PBR roles only when the loader says so.
-            if (scene.pbrLayers) {
-                const auto& layers = textureIds[part.materialId];
-                auto at = [&layers](size_t i) -> GLuint {
-                    return i < layers.size() ? layers[i] : 0;
-                };
-                batch.texNormal  = at(1);
-                batch.texAO      = at(2);
-                batch.texGloss   = at(3);
-                batch.texScatter = at(5);
-            }
+            std::array<int, 9> roles = ResolveRoleIndices(mat);
+            batch.texture0 = at(roles[(size_t)Parsers::TextureRole::Diffuse]);
+            batch.hasTexture = batch.texture0 != 0;
+            batch.texture1 = at(roles[(size_t)Parsers::TextureRole::EnvMap]);
+            batch.hasEnvmap = batch.texture1 != 0;
+            batch.texNormal  = at(roles[(size_t)Parsers::TextureRole::Normal]);
+            batch.texAO      = at(roles[(size_t)Parsers::TextureRole::Occlusion]);
+            batch.texGloss   = at(roles[(size_t)Parsers::TextureRole::Gloss]);
+            batch.texScatter = at(roles[(size_t)Parsers::TextureRole::Scatter]);
+            // Height/Detail/Emissive are resolved but unbound — the shader
+            // work for these roles lands with the Vulkan renderer (M4).
         }
 
         m_batches.push_back(std::move(batch));

@@ -1,6 +1,7 @@
 #pragma once
 #include <glm/glm.hpp>
 #include <vector>
+#include <map>
 #include <memory>
 #include <string>
 #include <cstdint>
@@ -20,19 +21,22 @@ enum class BlendMode : uint8_t {
     EnvMap        // Environment map blend (strange blended in Go)
 };
 
-/// Material info resolved from the WAD, ready to render.
-/// Does NOT own the GL texture — that's created by the renderer.
-struct MaterialInfo {
-    float       baseColor[4] = {1, 1, 1, 1};      // from mat header
+/// Explicit texture role a material can bind (spec §8.1). Replaces the old
+/// positional layer index — a role identifies WHAT a texture is for, not
+/// WHERE it happened to land in a per-game layer ordering.
+enum class TextureRole : uint8_t {
+    Diffuse, Normal, Occlusion, Gloss, Height, Scatter, Detail, Emissive, EnvMap
+};
 
-    struct Layer {
-        std::string textureName;                    // resolved TXR name
-        float       blendColor[4] = {1, 1, 1, 1};  // per-layer tint
-        BlendMode   blendMode = BlendMode::Normal;
-        bool        hasTexture = false;
-        float       uvOffset[2] = {0, 0};           // UV scroll offset
-    };
-    std::vector<Layer> layers;
+/// Material resolved from the WAD, ready to render. Does NOT own the GL
+/// texture — that's created by the renderer.
+struct MaterialDesc {
+    float       baseColor[4]  = {1, 1, 1, 1};      // from mat header
+    float       blendColor[4] = {1, 1, 1, 1};      // tint
+    BlendMode   blendMode     = BlendMode::Normal;
+    float       uvOffset[2]   = {0, 0};            // UV scroll offset
+    // role -> index into SceneData::textures; absent role = no map.
+    std::map<TextureRole, int> textures;
 };
 
 /// Complete render-ready scene built from Instance → Object → Model chain.
@@ -54,21 +58,19 @@ struct SceneData {
     // Animation clips from ANM child (shared to allow player to reference)
     std::shared_ptr<AnimationData>              animations;
 
-    // Geometry from Mesh (multiple parts, each with materialId + jointMap)
+    // Geometry from Mesh (multiple parts, each with materialId + jointMap).
+    // GOW2 per-part appearance variants become per-variant MaterialDescs at
+    // load time; MeshPart::textureLayer survives only as a blend-ordering
+    // hint (see the additive-batch heuristic in SceneRenderer::Build) — it no
+    // longer indexes into a material's texture layers.
     std::vector<MeshPart>                       meshParts;
 
     // Materials from Model's child Material nodes (index = materialId)
-    std::vector<MaterialInfo>                   materials;
+    std::vector<MaterialDesc>                   materials;
 
-    // Decoded textures ready for GPU upload (index = materialId, then layerId)
-    std::vector<std::vector<std::unique_ptr<TextureData>>>   textures;
-
-    // Whether the layer axis of `textures` carries PBR roles (0 diffuse,
-    // 1 normal, 2 occlusion, 3 gloss, 4 height, 5 scatter, 6 detail) rather
-    // than GOW2's alternative blend layers. Only the GOWR loader sets it, and
-    // the renderer refuses to sample a normal map without it - GOW2's layer 1
-    // is a second diffuse, and binding it as a normal map would wreck it.
-    bool                                        pbrLayers = false;
+    // Decoded textures ready for GPU upload — a FLAT pool. A MaterialDesc
+    // resolves its per-role texture by indexing into this vector.
+    std::vector<std::unique_ptr<TextureData>>   textures;
 
     bool HasSkeleton() const {
         return skeleton && skeleton->HasSkeleton();
