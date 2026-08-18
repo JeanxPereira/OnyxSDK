@@ -51,7 +51,7 @@ one name. Move and cut includes only; **zero behavior change**.
   (the split touches `Tests/CMakeLists.txt` and `Source/Services/` lists).
 - **Plan:** `2026-08-18-onyx-v1-m1-target-split.md` (written).
 
-## M2 — Identity & state (spec W2)
+## M2 — Identity & state (spec W2) — ✅ DONE 2026-08-18 (branch feat/onyx-v1-m2)
 
 The persisted-state break: string type keys, TOML settings, diagnostics and
 jobs plumbing in Core.
@@ -59,7 +59,7 @@ jobs plumbing in Core.
 - **Deliverables:** `TypeKey`/`TypeSpec`/`TypeRegistrar` with namespaced
   minting; persistence writes string keys everywhere (visibility, layouts);
   TOML settings store with the three scopes (app / module / workspace) and
-  a **one-way GTKC→TOML importer**; `Diag`/`DiagSink` with salvage policy;
+  ~~a **one-way GTKC→TOML importer**~~ (obsolete — found already-TOML on 2026-08-18: AppConfig shipped the clean break in v0.6.0); `Diag`/`DiagSink` with salvage policy;
   `Progress` + cooperative cancel; `EventBus` (Workspace-owned, RAII
   subscriptions, id-only payloads).
 - **Gate:** real GTKC configs from both machines import losslessly; SDK +

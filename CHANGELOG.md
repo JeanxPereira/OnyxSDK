@@ -3,6 +3,28 @@
 ## Unreleased
 
 ### Added
+- **M2 identity & state services** (v1 spec §4, §7) — five new Core services,
+  all UI-free and unit-tested:
+  - `Types::TypeRegistrar` — module-namespaced type minting ("gowr.mesh");
+    cross-module key collisions are impossible by construction.
+    `TypeCatalog::KeyOf(TypeId)` provides the reverse lookup.
+  - `Services::DiagSink` — diagnostics as data (`Diag{severity, code,
+    message, byte ref}`), thread-safe collect/drain; the salvage policy's
+    backbone.
+  - `Services::JobQueue` — lane-serialized worker pool with cooperative
+    cancel; Done callbacks fire only in `Pump()`; a throwing job is contained
+    and cannot wedge its lane.
+  - `Services::EventBus` — workspace-ownable typed pub/sub; RAII
+    `Subscription`; FIFO dispatch on `Pump()`; documented lifetime contract.
+  - `Services::Settings` — scoped TOML settings with exact-typed reads
+    (a mismatched key reads as absent, never coerces).
+
+### Changed
+- Visibility overrides persist by **type key string**, not numeric id
+  (`AssetVisibility::SaveOverrides`/`LoadOverrides`; `AppConfig`'s
+  `[visibility]` block migrated — old numeric entries are dropped silently,
+  the accepted one-time reset).
+
 - **`Onyx::Services::SessionLog`** (`Onyx/Services/SessionLog.h`) -- every run
   writes its own log file. `Install()` creates `logs/` next to the executable,
   prunes older sessions down to `kDefaultKeep` (10), and opens
