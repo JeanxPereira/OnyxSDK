@@ -14,6 +14,7 @@
 #include <Onyx/Services/TaskManager.h>
 #include <Onyx/Services/ThemeManager.h>
 #include <Onyx/Services/Appearance.h>
+#include <Onyx/Services/FrameScheduler.h>
 #include "Services/ScaleManager.h"
 #include "Fonts/FontManager.h"
 #include <Onyx/Services/Events.h>
@@ -251,24 +252,35 @@ void Window::loop() {
     while (!glfwWindowShouldClose(m_window)) {
         // Smart event handling: poll aggressively when active, idle otherwise
         if (m_firstFrame) {
+            Onyx::Frame::BeginFrame(glfwGetTime());
             glfwPollEvents();
             m_firstFrame = false;
         } else {
-            bool active = ImGui::IsMouseDown(ImGuiMouseButton_Left)
+            // Time-driven work (colour transitions, progress, playback) has
+            // no input to infer activity from, so it asks explicitly.
+            const bool animating = Onyx::Frame::BeginFrame(glfwGetTime());
+            // Input keeps the loop hot while the user is actually doing
+            // something; everything else now comes through the scheduler.
+            //
+            // Note what is NOT here any more: "any window is a separate OS
+            // viewport". That pinned the app at full speed forever the moment a
+            // panel was undocked -- measured at ~180 fps with nothing on screen
+            // moving. Dragging a floating window is already covered by the
+            // mouse tests, and viewports are rendered every frame regardless.
+            const bool active = animating
+                       || ImGui::IsMouseDown(ImGuiMouseButton_Left)
                        || ImGui::IsMouseDown(ImGuiMouseButton_Right)
                        || ImGui::IsMouseDown(ImGuiMouseButton_Middle)
                        || ImGui::IsAnyItemActive()
-                       || ImGui::IsKeyDown(ImGuiMod_Ctrl)
-                       || m_shouldUnlockFrameRate
-                       || (ImGui::GetPlatformIO().Viewports.Size > 1);
+                       || ImGui::IsKeyDown(ImGuiMod_Ctrl);
 
 #if defined(__APPLE__)
-            active = active || NativeWindow::macosIsWindowBeingResized(m_window);
+            if (NativeWindow::macosIsWindowBeingResized(m_window))
+                Onyx::Frame::RequestRedraw();
 #endif
 
             if (active) {
                 glfwPollEvents();
-                m_shouldUnlockFrameRate = false;
             } else {
                 glfwWaitEventsTimeout(1.0 / 15.0); // ~15 FPS idle (down from 30)
             }
@@ -336,9 +348,9 @@ void Window::frameEnd() {
 
     ImGui::Render();
 
-    // Always render: shouldRender() only diffs ImGui vertex buffers, which doesn't
-    // detect FBO texture content changes (same texture ID, new pixels). Always
-    // presenting is safe because the event-wait system already limits idle FPS.
+    // Always present. The old vertex-buffer diff could not see an FBO whose
+    // pixels changed behind an unchanged texture id, and the event wait already
+    // caps the idle rate -- Onyx::Frame decides when that cap lifts.
     {
         ImDrawData* drawData = ImGui::GetDrawData();
         if (drawData) {
@@ -352,11 +364,9 @@ void Window::frameEnd() {
         }
     }
 
-    // Viewport windows (external OS windows) must ALWAYS be updated and
-    // rendered, independent of the main window's shouldRender() result.
-    // Otherwise dragging/interacting with a floating window causes flickering
-    // because the external viewport is not redrawn when the main vtx buffer
-    // hasn't changed.
+    // Viewport windows (external OS windows) are always updated and rendered:
+    // dragging one flickers otherwise, since its content changes without the
+    // main window's own draw data changing.
     if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
         GLFWwindow* backup = glfwGetCurrentContext();
         ImGui::UpdatePlatformWindows();
@@ -379,100 +389,5 @@ void Window::frameEnd() {
     m_app.frameEnd();
 }
 
-// -- shouldRender -- vtx buffer diff (zero GPU idle) --------------------------
-
-bool Window::shouldRender() {
-    ImDrawData* drawData = ImGui::GetDrawData();
-    if (!drawData) return true;
-
-    size_t totalSize = 0;
-    for (int n = 0; n < drawData->CmdListsCount; n++)
-        totalSize += drawData->CmdLists[n]->VtxBuffer.Size * sizeof(ImDrawVert);
-
-    // Also check multi-viewport data
-    if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-        for (int i = 1; i < ImGui::GetPlatformIO().Viewports.Size; i++) {
-            ImGuiViewport* vp = ImGui::GetPlatformIO().Viewports[i];
-            if (vp->DrawData) {
-                for (int n = 0; n < vp->DrawData->CmdListsCount; n++)
-                    totalSize += vp->DrawData->CmdLists[n]->VtxBuffer.Size * sizeof(ImDrawVert);
-            }
-        }
-    }
-
-    if (totalSize != m_previousVtxDataSize) {
-        m_previousVtxDataSize = totalSize;
-        m_previousVtxData.resize(totalSize);
-        // Copy all current data
-        size_t offset = 0;
-        for (int n = 0; n < drawData->CmdListsCount; n++) {
-            const auto& buf = drawData->CmdLists[n]->VtxBuffer;
-            size_t sz = buf.Size * sizeof(ImDrawVert);
-            std::memcpy(m_previousVtxData.data() + offset, buf.Data, sz);
-            offset += sz;
-        }
-        if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-            for (int i = 1; i < ImGui::GetPlatformIO().Viewports.Size; i++) {
-                ImGuiViewport* vp = ImGui::GetPlatformIO().Viewports[i];
-                if (vp->DrawData) {
-                    for (int n = 0; n < vp->DrawData->CmdListsCount; n++) {
-                        const auto& buf = vp->DrawData->CmdLists[n]->VtxBuffer;
-                        size_t sz = buf.Size * sizeof(ImDrawVert);
-                        std::memcpy(m_previousVtxData.data() + offset, buf.Data, sz);
-                        offset += sz;
-                    }
-                }
-            }
-        }
-        return true;
-    }
-
-    // Compare buffers
-    size_t offset = 0;
-    for (int n = 0; n < drawData->CmdListsCount; n++) {
-        const auto& buf = drawData->CmdLists[n]->VtxBuffer;
-        size_t sz = buf.Size * sizeof(ImDrawVert);
-        if (std::memcmp(m_previousVtxData.data() + offset, buf.Data, sz) != 0) {
-            std::memcpy(m_previousVtxData.data() + offset, buf.Data, sz);
-            // Copy the rest too for consistency
-            offset += sz;
-            for (int m = n + 1; m < drawData->CmdListsCount; m++) {
-                const auto& b2 = drawData->CmdLists[m]->VtxBuffer;
-                size_t s2 = b2.Size * sizeof(ImDrawVert);
-                std::memcpy(m_previousVtxData.data() + offset, b2.Data, s2);
-                offset += s2;
-            }
-            return true;
-        }
-        offset += sz;
-    }
-
-    // Check multi-viewport buffers
-    if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-        for (int i = 1; i < ImGui::GetPlatformIO().Viewports.Size; i++) {
-            ImGuiViewport* vp = ImGui::GetPlatformIO().Viewports[i];
-            if (vp->DrawData) {
-                for (int n = 0; n < vp->DrawData->CmdListsCount; n++) {
-                    const auto& buf = vp->DrawData->CmdLists[n]->VtxBuffer;
-                    size_t sz = buf.Size * sizeof(ImDrawVert);
-                    if (std::memcmp(m_previousVtxData.data() + offset, buf.Data, sz) != 0) {
-                        std::memcpy(m_previousVtxData.data() + offset, buf.Data, sz);
-                        return true;
-                    }
-                    offset += sz;
-                }
-            }
-        }
-    }
-
-    return false;
-}
-
-// -- unlockFrameRate ----------------------------------------------------------
-
-void Window::unlockFrameRate() {
-    glfwPostEmptyEvent();
-    m_shouldUnlockFrameRate = true;
-}
 
 } // namespace Onyx::App
