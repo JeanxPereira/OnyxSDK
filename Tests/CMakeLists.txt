@@ -22,6 +22,7 @@ add_executable(onyx_tests
     framescheduler_test.cpp
     sessionlog_test.cpp
     typeregistrar_test.cpp
+    diagnostics_test.cpp
 )
 target_link_libraries(onyx_tests PRIVATE Onyx::Onyx doctest::doctest imgui_lib)
 if(MSVC)
@@ -46,6 +47,7 @@ add_test(NAME OnyxPathUtils       COMMAND onyx_tests "--test-case=*PathUtils*")
 add_test(NAME OnyxAppearance      COMMAND onyx_tests "--test-case=*Appearance*")
 add_test(NAME OnyxFrameScheduler COMMAND onyx_tests "--test-case=*FrameScheduler*")
 add_test(NAME OnyxSessionLog     COMMAND onyx_tests "--test-case=*SessionLog*")
+add_test(NAME OnyxDiagSink       COMMAND onyx_tests "--test-case=*DiagSink*")
 
 add_test(NAME MinimalViewer_SelfTest
     COMMAND MinimalViewer --selftest $<TARGET_FILE:MinimalViewer>)
