@@ -4,6 +4,7 @@
 #include <Onyx/App/Widgets.h>
 #include <Onyx/Fonts/IconTable.h>
 #include <Onyx/Fonts/SFSymbols.h>
+#include <Onyx/Services/Appearance.h>
 #include <Onyx/Services/ThemeManager.h>
 
 #include "App/FontDebuggerWindow.h"
@@ -183,7 +184,9 @@ void UiGallery::Draw() {
 // the tab bar instead of being buried inside Typography.
 
 void UiGallery::DrawGlobalBar() {
-    float uiScale = Scale::GetUserScale();   // read live: Settings can move it too
+    // Read the *desired* state, not the applied one: the change lands at frame
+    // end, and a slider that only moved after the next Commit would feel stuck.
+    float uiScale = Appearance::Get().userScale;
 
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted("UI scale");
@@ -205,11 +208,8 @@ void UiGallery::DrawGlobalBar() {
         ImGui::PopID();
     }
 
-    if (changed) {
-        Scale::SetUserScale(uiScale);
-        Scale::ApplyStyleScale(uiScale);
-        Theme::ApplyTheme(Theme::GetAccent());  // the style reset drops colours
-    }
+    if (changed)
+        Appearance::Mutate([uiScale](Appearance::State& st) { st.userScale = uiScale; });
 
     ImGui::SameLine();
     ImGui::TextDisabled("| text %.1f px", double(ImGui::GetFontSize()));
@@ -402,16 +402,19 @@ void UiGallery::DrawThemePage() {
     ImGui::Spacing();
 
     if (BeginSection("Accent and mode")) {
-        ImVec4 accent = Theme::GetAccent();
+        ImVec4 accent = Appearance::Get().accent;
         ImGui::PushItemWidth(200.0f);
+        // A live drag must not animate -- the ease-out would lag the pointer.
         if (ImGui::ColorEdit3("Accent", &accent.x, ImGuiColorEditFlags_NoInputs))
-            Theme::ApplyTheme(accent, /*animate=*/false);
+            Appearance::Mutate([accent](Appearance::State& st) { st.accent = accent; });
 
         ImGui::SameLine();
         const char* modes[] = {"Dark", "Light", "System"};
-        int mode = int(Theme::GetMode());
+        int mode = int(Appearance::Get().mode);
         if (ImGui::Combo("Mode", &mode, modes, IM_ARRAYSIZE(modes)))
-            Theme::ApplyTheme(accent, Theme::ThemeMode(mode), /*animate=*/true);
+            Appearance::Mutate([mode](Appearance::State& st) {
+                st.mode = Theme::ThemeMode(mode);
+            }, /*animateColors=*/true);
         ImGui::PopItemWidth();
 
         ImGui::SameLine();
@@ -432,8 +435,11 @@ void UiGallery::DrawThemePage() {
         for (const Preset& p : presets) {
             ImGui::PushID(p.name);
             if (ImGui::ColorButton("##swatch", p.color, ImGuiColorEditFlags_NoTooltip,
-                                   ImVec2(20, 20)))
-                Theme::ApplyTheme(p.color, /*animate=*/true);
+                                   ImVec2(20, 20))) {
+                const ImVec4 preset = p.color;
+                Appearance::Mutate([preset](Appearance::State& st) { st.accent = preset; },
+                                   /*animateColors=*/true);
+            }
             ImGui::PopID();
             ImGui::SameLine();
             ImGui::AlignTextToFramePadding();
@@ -572,7 +578,8 @@ void UiGallery::DrawTypographyPage() {
                 if (ImGui::Selectable(fonts[i].label.c_str(), i == m_fontIndex) &&
                     i != m_fontIndex) {
                     m_fontIndex = i;
-                    Fonts::BuildAtlas(m_fontIndex, m_fontSize);
+                    const std::string path = fonts[i].path;
+                    Appearance::Mutate([&path](Appearance::State& st) { st.fontPath = path; });
                 }
             }
             ImGui::EndCombo();
@@ -584,7 +591,8 @@ void UiGallery::DrawTypographyPage() {
             m_fontSizeDirty = true;
         if (m_fontSizeDirty && ImGui::IsItemDeactivatedAfterEdit()) {
             m_fontSizeDirty = false;
-            Fonts::BuildAtlas(m_fontIndex, m_fontSize);
+            const float size = m_fontSize;
+            Appearance::Mutate([size](Appearance::State& st) { st.fontSizePt = size; });
         }
 
         ImGui::PopItemWidth();
@@ -797,10 +805,8 @@ void UiGallery::DrawStylePage() {
             ImGui::SetClipboardText(buf);
         }
         ImGui::SameLine();
-        if (Widgets::Button("Reset to scaled defaults")) {
-            Scale::ApplyStyleScale(Scale::GetUserScale());
-            Theme::ApplyTheme(Theme::GetAccent());
-        }
+        if (Widgets::Button("Reset to scaled defaults"))
+            Appearance::Invalidate();   // next Commit rebuilds from HouseStyle
     }
     EndSection();
 }

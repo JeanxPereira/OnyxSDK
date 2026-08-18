@@ -18,6 +18,7 @@ public:
     Onyx::Services::AppConfig* config = nullptr;
 
     void Init();
+    void ApplyFontChoice(int fontIndex, float sizePt);
     void Draw() override;
     std::string_view getName() const override { return "Settings"; }
 
