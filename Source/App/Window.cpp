@@ -47,6 +47,13 @@ Window::Window()
 {
     s_windowInstance = this;
 
+    // First thing in the process: every run writes its own dated file under
+    // logs/, so the boot below is on record even if it is what goes wrong.
+    // The global floor drops to Debug to feed the file; the on-screen panel
+    // keeps its own Info floor and is unaffected.
+    Onyx::Services::Log::SetMinLevel(Onyx::Services::Log::Level::Debug);
+    m_sessionLog = Onyx::Services::SessionLog::Install();
+
     m_config = Onyx::Services::AppConfig::load(m_configPath);
     Onyx::Services::AppConfig::SetInstance(&m_config);
 
@@ -103,6 +110,9 @@ Window::~Window() {
     exitGLFW();
 
     s_windowInstance = nullptr;
+
+    // Last thing out: everything above still reached the file.
+    Onyx::Services::SessionLog::Uninstall(m_sessionLog);
 }
 
 // -- initGLFW -----------------------------------------------------------------

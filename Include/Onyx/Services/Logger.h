@@ -70,10 +70,19 @@ using SinkToken = uint64_t;
 void  SetMinLevel(Level lvl);
 Level GetMinLevel();
 
-// Returns a token usable with `RemoveSink`.
-SinkToken AddSink(SinkFn sink);
+// Returns a token usable with `RemoveSink`. `minLevel` is the sink's own
+// floor: records below it never reach this sink even when the global
+// `SetMinLevel` floor lets them through. That is what lets the session
+// file capture Debug while the on-screen panel stays at Info.
+SinkToken AddSink(SinkFn sink, Level minLevel = Level::Trace);
 void      RemoveSink(SinkToken token);
 void      ClearSinks();
+
+// Minimum level kept in the in-memory ring that backs
+// `Logger::GetEntries()` (i.e. what the UI shows). Default: `Level::Info`.
+// Independent of `SetMinLevel`, which is the global capture floor.
+void  SetMemoryMinLevel(Level lvl);
+Level GetMemoryMinLevel();
 
 // Convenience installers for the built-in sinks. They are not installed
 // automatically except for the in-memory sink, which is always present

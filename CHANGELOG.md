@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **`Onyx::Services::SessionLog`** (`Onyx/Services/SessionLog.h`) -- every run
+  writes its own log file. `Install()` creates `logs/` next to the executable,
+  prunes older sessions down to `kDefaultKeep` (10), and opens
+  `onyx-YYYY-MM-DD_HH-MM-SS.log`. The names are zero padded, so sorting them
+  sorts the sessions chronologically, and carry no `:`, so they are valid on
+  Windows. `Window` installs it as the first thing in the process and detaches
+  it as the last, which puts the whole boot and shutdown on record.
+  The sink holds its handle open and flushes every line: a hard-killed process
+  keeps everything logged up to the kill.
+  Lines are the canonical `[LEVEL][category] message` prefixed with
+  `HH:MM:SS.mmm`.
+- `SessionLog::InstallAt(path)` -- the same sink at a caller-chosen path, for
+  tools told where to write (a CLI's `--log run.log`) instead of wanting a
+  dated name.
+- `Log::AddSink(fn, minLevel)` -- sinks carry their own floor, and
+  `Log::SetMemoryMinLevel` / `GetMemoryMinLevel` give the in-memory ring behind
+  `Logger::GetEntries()` (what the UI shows) a floor of its own, default `Info`.
+  Together they let the session file capture `Debug` while the on-screen panel
+  stays quiet; the global `SetMinLevel` is now the capture floor beneath both.
+  The one-argument `AddSink` is unchanged for existing callers.
+
 ## v0.6.0 - 2026-08-18
 
 ### Added

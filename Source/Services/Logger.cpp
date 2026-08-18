@@ -26,10 +26,19 @@ namespace Onyx::Services {
 // ── Shared state for the new structured surface ──────────────────────────
 namespace {
 
+// A sink plus the floor it asked for. Records below `minLevel` never reach
+// `fn`, which is how the session file can capture Debug while the on-screen
+// panel stays at Info.
+struct SinkEntry {
+    Log::SinkFn fn;
+    Log::Level  minLevel{Log::Level::Trace};
+};
+
 struct LogState {
     std::mutex                              mutex;
     std::atomic<Log::Level>                 minLevel{Log::Level::Info};
-    std::map<Log::SinkToken, Log::SinkFn>   sinks;
+    std::atomic<Log::Level>                 memoryMinLevel{Log::Level::Info};
+    std::map<Log::SinkToken, SinkEntry>     sinks;
     Log::SinkToken                          nextToken{1};
 
     // Always-installed in-memory ring backing Logger::GetEntries().
@@ -79,6 +88,7 @@ std::string CurrentTimeHHMMSS() {
 
 void AppendMemoryEntry(Log::Level lvl, std::string_view message) {
     LogState& st = state();
+    if (lvl < st.memoryMinLevel.load(std::memory_order_relaxed)) return;
     // Already locked when this is called from LogString.
     LogEntry entry{ ToLegacyLevel(lvl), CurrentTimeHHMMSS(), std::string(message) };
     st.memoryEntries.push_back(std::move(entry));
@@ -134,13 +144,16 @@ const char* LevelName(Level lvl) {
 void  SetMinLevel(Level lvl) { state().minLevel.store(lvl, std::memory_order_relaxed); }
 Level GetMinLevel()          { return state().minLevel.load(std::memory_order_relaxed); }
 
-SinkToken AddSink(SinkFn sink) {
+SinkToken AddSink(SinkFn sink, Level minLevel) {
     LogState& st = state();
     std::lock_guard<std::mutex> lock(st.mutex);
     SinkToken tok = st.nextToken++;
-    st.sinks.emplace(tok, std::move(sink));
+    st.sinks.emplace(tok, SinkEntry{ std::move(sink), minLevel });
     return tok;
 }
+
+void  SetMemoryMinLevel(Level lvl) { state().memoryMinLevel.store(lvl, std::memory_order_relaxed); }
+Level GetMemoryMinLevel()          { return state().memoryMinLevel.load(std::memory_order_relaxed); }
 
 void RemoveSink(SinkToken token) {
     LogState& st = state();
@@ -171,7 +184,10 @@ void LogString(Level lvl, std::string_view category, std::string_view message) {
     {
         std::lock_guard<std::mutex> lock(st.mutex);
         active.reserve(st.sinks.size());
-        for (auto& [_, sink] : st.sinks) active.push_back(sink);
+        for (auto& [_, entry] : st.sinks) {
+            if (lvl < entry.minLevel) continue;
+            active.push_back(entry.fn);
+        }
         AppendMemoryEntry(lvl, message);
     }
 

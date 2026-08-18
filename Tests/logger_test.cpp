@@ -33,14 +33,19 @@ struct CaptureBuffer {
 // into one another.
 struct IsolatedLog {
     L::Level previousMin;
+    L::Level previousMemoryMin;
 
-    IsolatedLog() : previousMin(L::GetMinLevel()) {
+    IsolatedLog()
+        : previousMin(L::GetMinLevel()),
+          previousMemoryMin(L::GetMemoryMinLevel()) {
         L::ClearSinks();
         L::SetMinLevel(L::Level::Trace);
+        L::SetMemoryMinLevel(L::Level::Trace);
     }
     ~IsolatedLog() {
         L::ClearSinks();
         L::SetMinLevel(previousMin);
+        L::SetMemoryMinLevel(previousMemoryMin);
     }
 };
 
@@ -147,4 +152,41 @@ TEST_CASE("[Logger] Memory ring backs Logger::GetEntries for the UI") {
 
     Onyx::Services::Logger::Get().Clear();
     CHECK(Onyx::Services::Logger::Get().GetEntries().empty());
+}
+
+TEST_CASE("[Logger] AddSink honours a per-sink minimum level") {
+    IsolatedLog iso; // global capture floor is Trace
+
+    CaptureBuffer verbose, quiet;
+    L::AddSink(verbose.AsSink(), L::Level::Debug);
+    L::AddSink(quiet.AsSink(),   L::Level::Warn);
+
+    GOW_LOG_TRACE("cat", "below both");
+    GOW_LOG_DEBUG("cat", "fine grained");
+    GOW_LOG_ERROR("cat", "boom");
+
+    // The verbose sink sees Debug and Error; Trace is below its own floor.
+    REQUIRE(verbose.lines.size() == 2);
+    CHECK(verbose.lines[0].message == "fine grained");
+    CHECK(verbose.lines[1].message == "boom");
+
+    // The quiet sink only ever sees the error.
+    REQUIRE(quiet.lines.size() == 1);
+    CHECK(quiet.lines[0].message == "boom");
+}
+
+TEST_CASE("[Logger] The memory ring keeps a minimum level of its own") {
+    IsolatedLog iso;
+    L::SetMemoryMinLevel(L::Level::Info);
+
+    Onyx::Services::Logger::Get().Clear();
+    GOW_LOG_DEBUG("ui", "too noisy for the panel");
+    GOW_LOG_INFO("ui",  "belongs on screen");
+
+    // A file sink capturing Debug must not drag Debug onto the UI.
+    auto entries = Onyx::Services::Logger::Get().GetEntries();
+    REQUIRE(entries.size() == 1);
+    CHECK(entries[0].message == "belongs on screen");
+
+    Onyx::Services::Logger::Get().Clear();
 }

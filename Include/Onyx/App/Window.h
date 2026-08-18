@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <Onyx/App/App.h>
 #include <Onyx/Services/AppConfig.h>
+#include <Onyx/Services/SessionLog.h>
 
 namespace Onyx::App {
 
@@ -71,6 +72,10 @@ private:
 
     // Backing storage for io.IniFilename — must outlive the ImGui context.
     std::string m_imguiIniPath;
+
+    // This run's log file, opened before anything else so the whole boot
+    // lands in it. Detached last, on the way out.
+    Onyx::Services::SessionLog::Session m_sessionLog;
 };
 
 } // namespace Onyx::App
