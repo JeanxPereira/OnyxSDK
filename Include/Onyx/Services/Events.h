@@ -8,9 +8,6 @@
 
 // Forward declarations
 #include <memory>
-namespace Onyx::Domain { struct AssetContainer; struct AssetEntry; }
-using AssetContainer = Onyx::Domain::AssetContainer;
-using AssetEntry     = Onyx::Domain::AssetEntry;
 namespace Onyx::Viewers { class IDocumentContent; }
 namespace Onyx::Parsers { struct AnimationData; }
 namespace Onyx::Services { struct AppConfig; }
@@ -23,33 +20,15 @@ EVENT_DEF(EventStartupFinished);
 /// Fired when the application is about to close.
 EVENT_DEF(EventShutdown);
 
-// ── WAD / ISO Events ──────────────────────────────────────────────────────
-
-/// Fired after a WAD file has been loaded and parsed.
-/// @param AssetContainer* pointer to the newly opened WAD (valid for the WAD's lifetime)
-EVENT_DEF(EventWadOpened, AssetContainer*);
-
-/// Fired when a WAD file is about to be closed.
-/// @param size_t index of the WAD being closed in AssetDatabase::wads
-EVENT_DEF(EventWadClosed, size_t);
-
-/// Fired after an ISO PAK has been loaded.
-/// @param AssetContainer* pointer to the newly opened PAK
-EVENT_DEF(EventPakOpened, AssetContainer*);
-
-/// Fired when all WADs and PAKs are closed.
-EVENT_DEF(EventAllClosed);
-
-// ── Asset Selection & Loading ─────────────────────────────────────────────
-
-/// Fired when the user selects an asset in any browser panel.
-/// @param AssetEntry* the selected entry (can be nullptr for deselection)
-/// @param AssetContainer*     the parent WAD/PAK containing the entry
-EVENT_DEF(EventAssetSelected, AssetEntry*, AssetContainer*);
-
-/// Fired after an asset's node data has been loaded via EnsureNodeData.
-/// @param AssetEntry* the entry whose data is now available
-EVENT_DEF(EventAssetLoaded, AssetEntry*);
+// ── Document / Animation Events ───────────────────────────────────────────
+// The profile-era WAD/ISO/asset-selection events (EventWadOpened,
+// EventWadClosed, EventPakOpened, EventAllClosed, EventAssetSelected,
+// EventAssetLoaded) were retired in M3b Task 6 along with IAssetProfile,
+// ProfileManager, and AssetDatabase -- documents open through GameModules
+// and the Workspace's own EventBus (DocumentOpened/TreeReady/DocumentClosed/
+// SelectionChanged, see Include/Onyx/Modules/Workspace.h and Selection.h)
+// now. The two events below are the viewer-tab flow, not the asset model,
+// and stay.
 
 /// Fired when a new document/viewer tab is opened.
 /// @param IDocumentContent* the opened document

@@ -1,5 +1,4 @@
 #include <Onyx/App/UIHelpers.h>
-#include <Onyx/Domain/IAssetProfile.h>
 #include <cstdlib>
 #include <string>
 #include <vector>
@@ -17,7 +16,7 @@ extern "C" {
 }
 #endif
 
-std::string SystemOpenFileDialog(const std::vector<Onyx::Domain::OpenFilter>& filters) {
+std::string SystemOpenFileDialog(const std::vector<Onyx::Modules::OpenFilter>& filters) {
 #ifdef _WIN32
     // Collect union of all extensions
     std::vector<std::string> allExts;
@@ -46,7 +45,7 @@ std::string SystemOpenFileDialog(const std::vector<Onyx::Domain::OpenFilter>& fi
     if (!allExts.empty())
         group("All Supported Files", allExts);
     for (auto& f : filters)
-        if (f.valid())
+        if (!f.extensions.empty())
             group(f.label, f.extensions);
     group("All Files (*.*)", {"*"});
     buf.push_back('\0'); // double-null terminator

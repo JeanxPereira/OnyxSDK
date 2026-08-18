@@ -13,7 +13,6 @@
 #include <vector>
 
 #include <Onyx/Domain/MediaKind.h>
-#include <Onyx/Domain/ProfileTag.h>
 #include <Onyx/Schema/AssetNode.h>
 #include <Onyx/Types/TypeId.h>
 
@@ -44,7 +43,6 @@ struct AssetEntry {
     std::shared_ptr<Onyx::Schema::AssetNode> assetNode;
 
     MediaKind kind       = MediaKind::Unknown;
-    ProfileTag profileTag;
     std::string   displayName;   // human-friendly name (falls back to name if empty)
     NodeFlags     flags = NodeFlags::None;
 };

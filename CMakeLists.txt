@@ -246,7 +246,6 @@ set(ONYX_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Modules/Workspace.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Schema/NodeInstance.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Schema/StructDef.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/AssetDatabase.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/AssetVisibility.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Diagnostics.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/EventBus.cpp
@@ -254,7 +253,6 @@ set(ONYX_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Jobs.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Logger.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Metrics.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/ProfileManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/RecentFiles.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/SessionLog.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Settings.cpp
@@ -296,8 +294,7 @@ set(ONYX_SHELL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/CameraPanel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/DocumentBrowser.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/Dopesheet.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/IsoBrowser.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/PakBrowser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/InspectorPanel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/UiGallery.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/WadStatsView.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Platform/NativeWindow_linux.cpp

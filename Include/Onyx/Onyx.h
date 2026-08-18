@@ -16,11 +16,8 @@
 #include <Onyx/Domain/MediaKind.h>
 #include <Onyx/Domain/Entry.h>
 #include <Onyx/Domain/Wad.h>
-#include <Onyx/Domain/IAssetProfile.h>
 
 // Services
-#include <Onyx/Services/AssetDatabase.h>
-#include <Onyx/Services/ProfileManager.h>
 #include <Onyx/Services/AppConfig.h>
 #include <Onyx/Services/Logger.h>
 #include <Onyx/Services/Threading.h>

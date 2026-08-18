@@ -5,7 +5,6 @@
 #include <Onyx/App/WindowDecorator.h>
 #include <Onyx/Viewers/DocumentWindow.h>
 #include <Onyx/App/ViewerRegistry.h>
-#include <Onyx/Services/AssetDatabase.h>
 #include <Onyx/Services/AppConfig.h>
 #include <Onyx/Services/RecentFiles.h>
 #include <Onyx/Modules/Workspace.h>
@@ -63,7 +62,6 @@ public:
     bool wantClose() const { return m_wantClose; }
 
     // UI Component Getters (for external access)
-    Onyx::Services::AssetDatabase& getDatabase() { return m_db; }
     Onyx::Services::AppConfig*     getConfig() { return m_config; }
     Onyx::Viewers::DocumentWindow& getDocumentWindow() { return m_documentWindow; }
     ViewerRegistry& getViewerRegistry() { return m_viewerRegistry; }
@@ -77,7 +75,6 @@ private:
     void openRecentFile(Onyx::Services::RecentEntry entry);
     std::string getRecentsPath() const;
 
-    Onyx::Services::AssetDatabase   m_db;
     PanelRegistry         m_panels;
     Onyx::Viewers::DocumentWindow   m_documentWindow;
     ViewerRegistry                  m_viewerRegistry;

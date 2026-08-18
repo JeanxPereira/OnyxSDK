@@ -2,7 +2,6 @@
 #include <Onyx/App/UIHelpers.h>
 #include <Onyx/App/InfoTabFilter.h>
 #include "imgui.h"
-#include "App/AssetNodeRenderer.h"
 #include <string>
 #include <sstream>
 #include <iomanip>
@@ -35,16 +34,11 @@ static std::string FormatFloat(float v) {
 
 namespace Onyx::App {
 
-// InfoTab has no call site in this tree as of M3b Task 5 (verified by
-// searching the repo before this task started): the legacy Draw(db, e)
-// overload below is never invoked, and nothing yet constructs an InfoTab
-// to reach the new Draw() either. Both legs are implemented and kept
-// coexisting anyway so a future host panel (an Inspector-style dock, or a
-// downstream app's own info surface) can wire into whichever model it is
-// showing without another rewrite. Wiring InfoTab into App's own panel
-// registry is out of this task's scope -- the task's file list is
-// InfoTab.cpp/.h only -- and Task 6 is where the legacy leg's fate gets
-// decided for real, once the profile-era layer it reads is deleted.
+// M3b Task 6: InfoTab is now hosted by InspectorPanel (Include/Onyx/App/
+// Panels/InspectorPanel.h), registered alongside DocumentBrowser in
+// App::registerPanels(). The profile-era Draw(AssetDatabase&, AssetEntry*)
+// overload that used to coexist here (see prior revisions) is gone along
+// with AssetDatabase itself -- it never had a caller in this tree.
 InfoTab::InfoTab(Onyx::Modules::Workspace& workspace)
     : m_workspace(workspace),
       m_selectionSub(workspace.Events().On<Onyx::Modules::SelectionChanged>(
@@ -125,40 +119,6 @@ void InfoTab::Draw() {
                                                                                : "[info] ";
         ImGui::TextWrapped("%s%s", sevTag, d.message.c_str());
     }
-}
-
-void InfoTab::Draw(Onyx::Services::AssetDatabase& db, AssetEntry* e) {
-    if (!e) return;
-
-    // Basic metadata table (always shown, read-only)
-    if (ImGui::BeginTable("##props", 2,
-        ImGuiTableFlags_SizingFixedFit |
-        ImGuiTableFlags_RowBg |
-        ImGuiTableFlags_BordersInnerH))
-    {
-        ImGui::TableSetupColumn("Key",   ImGuiTableColumnFlags_WidthFixed, 100);
-        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
-
-        PropRow("Name",     e->name);
-        PropRow("Type",     TypeName(e->typeId));
-        PropRow("WAD",      e->wadName);
-        PropRow("Size",     FormatBytes(e->size));
-        PropRow("Offset",   FormatHex32(e->offset));
-        if (e->hash != 0)
-            PropRow("Hash", HashHex(e->hash));
-
-        ImGui::EndTable();
-    }
-
-    // If there's a loaded AssetNode tree, render it automatically
-    if (!e->assetNode) return;
-
-    ImGui::Spacing();
-    ImGui::SeparatorText("Properties");
-    ImGui::Spacing();
-
-    // Render the tree using the auto-renderer
-    Onyx::App::RenderAssetNode(*e->assetNode);
 }
 
 } // namespace Onyx::App

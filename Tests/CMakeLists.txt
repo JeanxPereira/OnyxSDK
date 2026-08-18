@@ -17,7 +17,6 @@ add_executable(onyx_tests
     types_registry_test.cpp
     recentfiles_test.cpp
     assetvisibility_test.cpp
-    profilemanager_test.cpp
     pathutils_test.cpp
     appearance_test.cpp
     framescheduler_test.cpp
@@ -57,7 +56,6 @@ add_test(NAME OnyxProbe           COMMAND onyx_tests "--test-case=*picks the hig
 add_test(NAME OnyxTypeRegistry    COMMAND onyx_tests "--test-case=*TypeCatalog*,*TypeRegistry*,*TypeRegistrar*")
 add_test(NAME OnyxRecentFiles     COMMAND onyx_tests "--test-case=*RecentFiles*")
 add_test(NAME OnyxAssetVisibility COMMAND onyx_tests "--test-case=*AssetVisibility*")
-add_test(NAME OnyxProfileManager  COMMAND onyx_tests "--test-case=*ProfileManager*")
 add_test(NAME OnyxPathUtils       COMMAND onyx_tests "--test-case=*PathUtils*")
 add_test(NAME OnyxAppearance      COMMAND onyx_tests "--test-case=*Appearance*")
 add_test(NAME OnyxFrameScheduler COMMAND onyx_tests "--test-case=*FrameScheduler*")
