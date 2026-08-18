@@ -83,6 +83,50 @@ std::filesystem::path WriteSampleBox() {
     return path;
 }
 
+// Three entries, all with valid in-bounds payload ranges (so ParseContainer
+// never flags any of them Failed), but two carry hostile names: "../evil.txt"
+// (parent-directory escape) and "a/b.txt" (nested path). CmdExtract must
+// refuse to write either -- only "good.txt" is a safe bare filename.
+std::filesystem::path WriteUnsafeNamesBox() {
+    const std::string safeText = "safe data";
+    const std::string evilText = "evil data";
+    const std::string nestedText = "nested data";
+
+    const std::string goodName = "good.txt";
+    const std::string evilName = "../evil.txt";
+    const std::string nestedName = "a/b.txt";
+
+    // magic(4) + count(4) + 3 * (nameLen(2) + name + kind(1) + offset(4) + size(4))
+    const uint32_t headerSize =
+        4 + 4 + uint32_t(3 * (2 + 1 + 4 + 4)) +
+        uint32_t(goodName.size() + evilName.size() + nestedName.size());
+
+    const uint32_t safeOffset = headerSize;
+    const uint32_t safeSize = uint32_t(safeText.size());
+    const uint32_t evilOffset = safeOffset + safeSize;
+    const uint32_t evilSize = uint32_t(evilText.size());
+    const uint32_t nestedOffset = evilOffset + evilSize;
+    const uint32_t nestedSize = uint32_t(nestedText.size());
+
+    std::vector<uint8_t> buf;
+    buf.insert(buf.end(), {uint8_t('O'), uint8_t('B'), uint8_t('X'), uint8_t('1')});
+    PutU32LE(buf, 3);
+
+    PutTocHeader(buf, goodName, 2, safeOffset, safeSize);
+    PutTocHeader(buf, evilName, 2, evilOffset, evilSize);
+    PutTocHeader(buf, nestedName, 2, nestedOffset, nestedSize);
+
+    buf.insert(buf.end(), safeText.begin(), safeText.end());
+    buf.insert(buf.end(), evilText.begin(), evilText.end());
+    buf.insert(buf.end(), nestedText.begin(), nestedText.end());
+
+    auto path = std::filesystem::temp_directory_path() / "onyx_cli_unsafe_names.obx";
+    std::ofstream f(path, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
+    f.close();
+    return path;
+}
+
 // A file with neither the OBX1 magic nor the .obx extension -- no module
 // registered in these tests has any evidence to claim it.
 std::filesystem::path WriteGarbageFile() {
@@ -153,6 +197,41 @@ TEST_CASE("cli extract writes payloadSize bytes per good entry and skips failed 
     // image payload = 2(width) + 2(height) + 8*8*4(pixels) = 260 bytes
     CHECK(std::filesystem::file_size(outDir / "img") == 260);
     CHECK(std::filesystem::file_size(outDir / "txt") == std::string("hello box").size());
+
+    std::filesystem::remove_all(outDir);
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("cli extract skips unsafe entry names and writes nothing outside outDir") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+    auto path = WriteUnsafeNamesBox();
+    auto outDir = std::filesystem::temp_directory_path() / "onyx_cli_unsafe_extract_out";
+    std::filesystem::remove_all(outDir);
+
+    std::ostringstream out;
+    int rc = Onyx::Cli::CmdExtract(ws, path, outDir, out);
+    CHECK(rc == Onyx::Cli::kOk);
+
+    const std::string text = out.str();
+    CHECK(text.find("skipped '../evil.txt': unsafe name") != std::string::npos);
+    CHECK(text.find("skipped 'a/b.txt': unsafe name") != std::string::npos);
+
+    REQUIRE(std::filesystem::exists(outDir / "good.txt"));
+
+    // Nothing escaped outDir: no evil.txt beside it, no nested "a" directory
+    // or loose "b.txt" anywhere under it.
+    CHECK_FALSE(std::filesystem::exists(outDir.parent_path() / "evil.txt"));
+    CHECK_FALSE(std::filesystem::exists(outDir / "a"));
+    CHECK_FALSE(std::filesystem::exists(outDir / "b.txt"));
+
+    // Only the one safe entry made it to disk.
+    size_t count = 0;
+    for (const auto& _ : std::filesystem::directory_iterator(outDir)) {
+        (void)_;
+        ++count;
+    }
+    CHECK(count == 1);
 
     std::filesystem::remove_all(outDir);
     std::filesystem::remove(path);

@@ -119,6 +119,19 @@ void WriteDiagJson(std::ostream& out, const Diag& d) {
         << "\"message\":\"" << JsonEscape(d.message) << "\"}";
 }
 
+// Entry names come from attacker-controlled container bytes, and get joined
+// straight to outDir. A name must be a single plain path component -- empty,
+// ".", "..", or containing a separator ('/' or '\\') or a drive-letter colon
+// (Windows) would let a hostile container write (or overwrite) files outside
+// outDir. Reject anything that isn't a bare filename.
+bool IsSafeEntryName(std::string_view name) {
+    if (name.empty() || name == "." || name == "..") return false;
+    for (char c : name) {
+        if (c == '/' || c == '\\' || c == ':') return false;
+    }
+    return true;
+}
+
 // Writes every non-Failed leaf entry's payload bytes to outDir/<entry-name>.
 // A "leaf" is an entry with no children -- container/branch nodes carry no
 // payload of their own to copy. Failed entries are skipped: their declared
@@ -132,16 +145,36 @@ void ExtractEntries(std::ostream& out, const std::vector<Domain::AssetEntry>& en
         }
         if (e.flags == Domain::NodeFlags::Failed) continue;
 
-        std::vector<uint8_t> buf(e.size);
-        if (e.size > 0) {
-            file.Seek(int64_t(e.offset), SEEK_SET);
-            file.Read(buf.data(), e.size);
+        if (!IsSafeEntryName(e.name)) {
+            out << "skipped '" << e.name << "': unsafe name\n";
+            continue;
         }
 
-        std::ofstream ofs(outDir / e.name, std::ios::binary);
-        if (!buf.empty()) {
-            ofs.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
+        std::vector<uint8_t> buf(e.size);
+        size_t got = 0;
+        if (e.size > 0) {
+            file.Seek(int64_t(e.offset), SEEK_SET);
+            got = file.Read(buf.data(), e.size);
         }
+
+        const std::filesystem::path outPath = outDir / e.name;
+        {
+            std::ofstream ofs(outPath, std::ios::binary);
+            if (!buf.empty()) {
+                ofs.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
+            }
+        }
+
+        if (got != e.size) {
+            // A short/failed read means the bytes on disk are truncated or
+            // garbage -- never leave a zero-padded file behind for the
+            // caller to mistake for a real payload.
+            std::error_code ec;
+            std::filesystem::remove(outPath, ec);
+            out << "error '" << e.name << "': short read\n";
+            continue;
+        }
+
         out << "extracted " << e.name << " (" << e.size << " bytes)\n";
     }
 }
