@@ -3,6 +3,7 @@
 #include <Onyx/Services/EventBus.h>
 
 #include <atomic>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -67,4 +68,24 @@ TEST_CASE("Subscription outliving its EventBus is a safe no-op") {
     }
     // `bus` is gone now; destroying `sub` below must not touch it.
     CHECK(calls == 1);
+}
+
+TEST_CASE("EventBus Pump stops a handler unsubscribed by an earlier handler in the same batch") {
+    Onyx::Services::EventBus bus;
+    int aCalls = 0, bCalls = 0;
+    std::optional<Onyx::Services::Subscription> subB;
+
+    // Registration order matters: A must run before B for this test to
+    // exercise the same-batch-unsubscribe path.
+    auto subA = bus.On<EvA>([&](const EvA&) {
+        ++aCalls;
+        subB.reset(); // destroys B's Subscription mid-dispatch
+    });
+    subB = bus.On<EvA>([&](const EvA&) { ++bCalls; });
+
+    bus.Post(EvA{1});
+    bus.Pump();
+
+    CHECK(aCalls == 1);
+    CHECK(bCalls == 0);   // B must never fire, even for this same-batch event
 }

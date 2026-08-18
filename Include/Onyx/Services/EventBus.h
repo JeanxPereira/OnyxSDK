@@ -153,13 +153,14 @@ public:
 
     // Dispatches every event queued as of the moment Pump() is called, in
     // FIFO order, on the calling thread. See the file header for the
-    // re-entrant-Post note. The handler list for each queued event is
-    // snapshotted individually, right before that event is dispatched:
-    // if a handler unsubscribes another handler mid-batch, that removal
-    // takes effect from the next queued event onward — the event already
-    // snapshotted (the one whose handlers are currently being invoked)
-    // still reaches the handler being removed. Defined out-of-line in
-    // EventBus.cpp (it is not a template).
+    // re-entrant-Post note. For each queued event, the currently-registered
+    // handler ids are snapshotted, then each handler is looked up by id and
+    // copied individually, immediately before it is invoked: an
+    // unsubscribed handler stops immediately, including for events already
+    // queued in this same batch — if handler A unsubscribes handler B, B is
+    // skipped from that point on, even for the very event A is currently
+    // being invoked for. Defined out-of-line in EventBus.cpp (it is not a
+    // template).
     void Pump();
 
     // Number of events queued and not yet drained by a Pump() call.

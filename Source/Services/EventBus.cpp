@@ -41,20 +41,43 @@ void EventBus::Pump() {
     }
 
     for (auto& queued : queue) {
-        // Copy the handler list for this tag under the lock, then invoke
-        // the copies unlocked — no handler ever runs while m_mutex is
-        // held, and a handler is free to subscribe/unsubscribe without
-        // deadlocking.
-        std::vector<Detail::EventHandlerEntry> handlers;
+        // Snapshot only the *ids* registered for this tag right now — not
+        // the handlers themselves. Each handler is re-looked-up by id and
+        // copied individually, right before it is invoked, with the lock
+        // held only for that lookup+copy. This way, if an earlier handler
+        // in this loop unsubscribes a later one, the later id no longer
+        // resolves and is skipped — even though both belong to the event
+        // currently being dispatched. Copying one std::function at a time
+        // (instead of the whole vector up front) is what makes that
+        // possible: the vector holding a stale copy of an unsubscribed
+        // handler was exactly the bug this replaces.
+        std::vector<uint64_t> ids;
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             auto it = m_handlers.find(queued.tag);
-            if (it != m_handlers.end())
-                handlers = it->second;
+            if (it != m_handlers.end()) {
+                ids.reserve(it->second.size());
+                for (const auto& h : it->second)
+                    ids.push_back(h.id);
+            }
         }
 
-        for (auto& handler : handlers)
-            handler.invoke(queued.data.get());
+        for (uint64_t id : ids) {
+            std::function<void(const void*)> invoke;
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                auto it = m_handlers.find(queued.tag);
+                if (it == m_handlers.end())
+                    break; // whole tag was removed; nothing left to run
+                auto hit = std::find_if(it->second.begin(), it->second.end(),
+                                         [id](const Detail::EventHandlerEntry& e) { return e.id == id; });
+                if (hit == it->second.end())
+                    continue; // unsubscribed since the id snapshot above
+                invoke = hit->invoke;
+            }
+
+            invoke(queued.data.get());
+        }
     }
 }
 
