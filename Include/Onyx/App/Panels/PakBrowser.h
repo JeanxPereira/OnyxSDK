@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <Onyx/Domain/Wad.h>
 #include <Onyx/Types/TypeId.h>
 #include <Onyx/App/IPanel.h>

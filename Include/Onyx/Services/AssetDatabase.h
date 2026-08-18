@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <string>
 #include <vector>
 #include <memory>
@@ -43,7 +43,7 @@ public:
     bool LoadIso(const fs::path& path);
     void CloseIso(size_t idx);
 
-    // â”€â”€ Asynchronous Loading (via TaskManager) â”€â”€
+    // ── Asynchronous Loading (via TaskManager) ──
 
     // Non-blocking wrapper for LoadWad (creates a TaskManager task)
     void LoadWadAsync(const fs::path& path, const std::string& gameHint = "");
@@ -53,7 +53,7 @@ public:
     // Returns true if any foreground load task is currently running.
     bool IsLoading() const;
 
-    // â”€â”€ Data â”€â”€
+    // ── Data ──
     std::vector<AssetContainer> paks;  // TOC entries (arquivos dentro de ISOs/PAKs)
     std::vector<AssetContainer> wads;  // WAD internals (tags parseadas de um .WAD)
     std::vector<std::shared_ptr<Onyx::Vfs::IsoFileSystem>> isos;

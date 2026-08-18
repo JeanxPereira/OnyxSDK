@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 // Domain types describing a single entry inside an opened WAD.
 //
@@ -19,7 +19,7 @@
 
 namespace Onyx::Domain {
 
-// â”€â”€ AssetEntry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── AssetEntry ────────────────────────────────────────────────────────────
 // One node in the parsed WAD tree. Profiles populate this; the inspector
 // UI and the test snapshot harness both read it.
 struct AssetEntry {
@@ -45,5 +45,5 @@ struct AssetEntry {
 
 } // namespace Onyx::Domain
 
-// Backwards-compat alias â€” keep existing call sites compiling at global scope.
+// Backwards-compat alias — keep existing call sites compiling at global scope.
 using AssetEntry    = Onyx::Domain::AssetEntry;

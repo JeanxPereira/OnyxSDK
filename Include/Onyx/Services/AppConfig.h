@@ -40,7 +40,7 @@ struct AppConfig {
   std::vector<CustomPreset> customPresets;
 
   // UI scale + font size in pixels (synced with SettingsWindow)
-  float uiScale = 1.0f;
+  float uiScale = 1.1f;   // house default: 1.0 reads a touch cramped
   float fontSize = 14.0f;  // actual font pixel size (was fontScale in v5)
   std::string fontPath = "";
 

@@ -1,6 +1,6 @@
-﻿#pragma once
+#pragma once
 
-// EventManager â€” Type-safe Pub/Sub event system
+// EventManager — Type-safe Pub/Sub event system
 // Adapted from ImHex's EventManager (WerWolv, LGPLv2.1)
 // Simplified for Onyx: no plugin DLL support, no localization
 
@@ -16,7 +16,7 @@
 
 #include <Onyx/Services/Logger.h>
 
-// â”€â”€ Event definition macros â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Event definition macros ────────────────────────────────────────────────
 // Usage:
 //   EVENT_DEF(EventWadOpened, AssetContainer*);
 //   EventWadOpened::subscribe([](AssetContainer* wad) { ... });
@@ -117,7 +117,7 @@ namespace Onyx::Services {
 
 
     /// Thread-safe global event bus (Pub/Sub).
-    /// Adapted from ImHex's EventManager â€” see hex/api/event_manager.hpp
+    /// Adapted from ImHex's EventManager — see hex/api/event_manager.hpp
     class EventManager {
     public:
         using EventList = std::multimap<impl::EventId, std::unique_ptr<impl::EventBase>>;

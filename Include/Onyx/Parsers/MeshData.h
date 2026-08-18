@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <vector>
 #include <cstdint>
 #include <string>
@@ -14,7 +14,7 @@ struct MeshPart {
     std::vector<uint32_t>  indices;
     uint32_t materialId = 0;
     uint32_t textureLayer = 0;            // which DMA instance/layer this came from
-    std::vector<uint16_t> jointMap;       // local joint index â†’ global skeleton joint
+    std::vector<uint16_t> jointMap;       // local joint index → global skeleton joint
     bool useBindToJoint = true;           // true = use inverse bind pose (skinned)
     bool isSky = false;                   // true = this part should be rendered without writing depth
     bool isRigid = false;                 // GOWR: submesh has no BoneIdx/BoneWgt semantics; rigid-bound to jointMap[0]

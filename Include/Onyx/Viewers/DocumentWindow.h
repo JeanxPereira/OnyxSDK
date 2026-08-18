@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <Onyx/Viewers/IDocumentContent.h>
 #include <vector>
 #include <memory>
@@ -26,7 +26,7 @@ private:
     // the middle of the ImGui frame: ImGui::Image() may already have queued
     // the viewer's FBO texture ID into the current draw list. If the dtor
     // runs now (Viewport3D ~ glDeleteTextures), the bound GL texture is freed
-    // before ImGui::Render submits it â€” the GPU then samples whatever is
+    // before ImGui::Render submits it — the GPU then samples whatever is
     // still bound (typically the font atlas), producing a one-frame flash of
     // stretched glyphs. We carry the strong references for one extra frame
     // so the draw call completes before the resources go away.

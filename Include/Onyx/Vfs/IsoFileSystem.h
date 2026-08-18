@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <Onyx/Vfs/IVirtualFileSystem.h>
 #include <map>
 #include <string>

@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <Onyx/Viewers/IDocumentContent.h>
 #include <Onyx/Parsers/TextureData.h>
 #include <imgui.h>

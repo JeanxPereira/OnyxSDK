@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <Onyx/Parsers/SceneNode.h>
 #include <Onyx/Rendering/ShaderManager.h>
 #include <Onyx/Rendering/AnimationPlayer.h>
@@ -63,7 +63,7 @@ public:
     /// Call this BEFORE Render() for the main scene.
     void RenderSky(const glm::mat4& view, const glm::mat4& proj, ShadingMode mode);
 
-    /// Render gradient background (static â€” no instance state needed)
+    /// Render gradient background (static — no instance state needed)
     static void RenderBackground(const glm::vec3& topColor, const glm::vec3& bottomColor);
 
     /// Render debug skeleton lines
@@ -83,7 +83,7 @@ public:
     bool GetDebugDisableSkin() const { return m_debugDisableSkin; }
     void SetDebugDisableSkin(bool v) { m_debugDisableSkin = v; }
 
-    // â”€â”€ Animation API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Animation API ──────────────────────────────────────────────────
     bool HasAnimations() const { return m_animData != nullptr; }
     const Parsers::AnimationData* GetAnimationData() const { return m_animData.get(); }
     AnimationPlayer* GetAnimPlayer() { return m_animPlayer.get(); }

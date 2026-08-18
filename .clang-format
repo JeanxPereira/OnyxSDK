@@ -1,0 +1,23 @@
+# Onyx house style: the 4-space / attached-brace shape ~90% of the tree already
+# uses. Added as a contract for new code and editor "format selection" -- the
+# existing tree is deliberately NOT mass-reformatted, so `git blame` stays useful.
+Language:        Cpp
+BasedOnStyle:    LLVM
+
+IndentWidth:     4
+TabWidth:        4
+UseTab:          Never
+ColumnLimit:     100
+
+AccessModifierOffset: -4
+AlignAfterOpenBracket: Align
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: WithoutElse
+BreakBeforeBraces: Attach
+NamespaceIndentation: None
+CompactNamespaces: false
+FixNamespaceComments: true
+PointerAlignment: Left
+SortIncludes: false
+SpaceAfterCStyleCast: false
+IndentCaseLabels: true
