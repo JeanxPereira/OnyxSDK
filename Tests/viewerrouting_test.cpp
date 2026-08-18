@@ -51,7 +51,8 @@ std::filesystem::path write_temp_file(const std::string& name, const std::string
 struct RoutingFake : Onyx::Modules::IGameModule {
     Onyx::Types::TypeId textType;
     Onyx::Types::TypeId imageType;
-    Onyx::Types::TypeId blobType; // deliberately no decoder registered
+    Onyx::Types::TypeId blobType;    // deliberately no decoder registered
+    Onyx::Types::TypeId corruptType; // has a Text decoder, but it salvage-fails
 
     ModuleInfo Info() const override { return ModuleInfo{"routingfake", "RoutingFake", {}, {}}; }
 
@@ -75,12 +76,21 @@ struct RoutingFake : Onyx::Modules::IGameModule {
         blob.key = "blob";
         blob.label = "Blob";
         blobType = r.Add(blob);
+
+        Onyx::Types::TypeInfo corrupt;
+        corrupt.key = "corrupt";
+        corrupt.label = "Corrupt";
+        corruptType = r.Add(corrupt);
     }
 
     void RegisterDecoders(DecoderRegistry& reg) override {
         reg.Text(textType, [](DecodeContext&) { return std::make_optional(TextOut{"hello box", ""}); });
         reg.Image(imageType, [](DecodeContext&) { return std::make_unique<FakeTexture>(); });
         // blobType intentionally left with no decoder.
+        // corruptType HAS a Text decoder, but it always salvage-fails
+        // (returns nullopt) -- the "capability exists, decode still
+        // fails" case, distinct from blobType's "no capability at all".
+        reg.Text(corruptType, [](DecodeContext&) { return std::nullopt; });
     }
 
     ParseResult ParseContainer(ContainerContext& ctx) override {
@@ -106,6 +116,11 @@ struct RoutingFake : Onyx::Modules::IGameModule {
         ctx.diags.Report(Onyx::Services::Diag{
             Onyx::Services::Severity::Error, "routingfake.entry.bad", "entry 3 corrupt", std::nullopt});
         ctx.roots.push_back(failedEntry); // roots[3]
+
+        Onyx::Domain::AssetEntry corruptEntry;
+        corruptEntry.name = "corrupt.txt";
+        corruptEntry.typeId = corruptType;
+        ctx.roots.push_back(corruptEntry); // roots[4] -- capability exists, Decode* salvage-fails
 
         return ParseResult{true};
     }
@@ -181,7 +196,7 @@ TEST_CASE("ViewerOpening: Text entry decodes and invokes openText") {
         id = ws.Open(tmp);
         REQUIRE(id != 0);
         REQUIRE(ws.Get(id));
-        REQUIRE(ws.Get(id)->roots.size() == 4);
+        REQUIRE(ws.Get(id)->roots.size() == 5);
 
         bool opened = false;
         std::string openedName, openedText;
@@ -248,6 +263,19 @@ TEST_CASE("ViewerOpening: entry with no decoder capability routes to None, opene
         opener.openScene = [&](std::string, std::unique_ptr<SceneData>) { anyOpened = true; };
 
         ViewerKind kind = OpenSelection(ws, SelectionChanged{id, NodePath{{2}}}, opener);
+
+        CHECK(kind == ViewerKind::None);
+        CHECK_FALSE(anyOpened);
+
+        // roots[4] is the opposite miss: corruptType DOES have a Text
+        // decoder registered (RoutingFake::RegisterDecoders), but that
+        // decoder always salvage-fails (returns nullopt) -- distinct
+        // from roots[2]'s "no capability at all" above. OpenSelection
+        // must still route to None and never call the opener (it used
+        // to do so silently; it now also logs via LOG_WARN, which this
+        // seam-level test has no cheap way to capture/assert).
+        anyOpened = false;
+        kind = OpenSelection(ws, SelectionChanged{id, NodePath{{4}}}, opener);
 
         CHECK(kind == ViewerKind::None);
         CHECK_FALSE(anyOpened);

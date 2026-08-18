@@ -37,19 +37,31 @@ ViewerKind OpenSelection(Workspace& ws, const SelectionChanged& sel, const Viewe
     switch (kind) {
     case ViewerKind::Scene: {
         auto scene = decoders.DecodeScene(ctx);
-        if (!scene) return ViewerKind::None;
+        if (!scene) {
+            LOG_WARN("[Viewer] decode failed for '%s' (%s) - see diagnostics", entry->name.c_str(),
+                      std::string(ws.Catalog().KeyOf(entry->typeId)).c_str());
+            return ViewerKind::None;
+        }
         if (opener.openScene) opener.openScene(entry->name, std::move(scene));
         return ViewerKind::Scene;
     }
     case ViewerKind::Image: {
         auto texture = decoders.DecodeImage(ctx);
-        if (!texture) return ViewerKind::None;
+        if (!texture) {
+            LOG_WARN("[Viewer] decode failed for '%s' (%s) - see diagnostics", entry->name.c_str(),
+                      std::string(ws.Catalog().KeyOf(entry->typeId)).c_str());
+            return ViewerKind::None;
+        }
         if (opener.openImage) opener.openImage(entry->name, std::move(texture));
         return ViewerKind::Image;
     }
     case ViewerKind::Text: {
         auto text = decoders.DecodeText(ctx);
-        if (!text) return ViewerKind::None;
+        if (!text) {
+            LOG_WARN("[Viewer] decode failed for '%s' (%s) - see diagnostics", entry->name.c_str(),
+                      std::string(ws.Catalog().KeyOf(entry->typeId)).c_str());
+            return ViewerKind::None;
+        }
         if (opener.openText) opener.openText(entry->name, std::move(*text));
         return ViewerKind::Text;
     }

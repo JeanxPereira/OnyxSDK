@@ -141,6 +141,10 @@ void DocumentBrowser::DrawEntry(Onyx::Modules::Document& doc, const Onyx::Domain
         ImGui::EndTooltip();
     }
 
+    // IsItemClicked() also fires on the first click of a double-click
+    // (ImGui doesn't suppress it), so a double-click intentionally posts
+    // SelectionChanged here too, on top of opening a viewer below -- not
+    // a bug to "optimize away".
     if (ImGui::IsItemClicked()) {
         m_workspace.Events().Post(Onyx::Modules::SelectionChanged{doc.id, path});
     }
