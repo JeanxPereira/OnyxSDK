@@ -55,9 +55,13 @@ void App::registerPanels() {
 
 App::App() {}
 
-void App::init(GLFWwindow *window, Onyx::Services::AppConfig *config) {
+void App::init(GLFWwindow *window, Onyx::Services::AppConfig *config,
+                Onyx::Modules::Workspace *workspace) {
   m_window = window;
   m_config = config;
+  // Set first: registerPanels() below runs the app's registrar, which is
+  // the usual place a consumer calls AddModule()/GetWorkspace().
+  m_workspace = workspace;
 
   // Initialize core subsystems
   Onyx::Api::InitParams params;
@@ -111,7 +115,24 @@ void App::init(GLFWwindow *window, Onyx::Services::AppConfig *config) {
 
   // Signal startup complete
   EventStartupFinished::post();
+
+  // AddModule is refused from here on (pre-init only).
+  m_initDone = true;
 }
+
+void App::AddModule(std::unique_ptr<Modules::IGameModule> module) {
+  if (m_initDone) {
+    LOG_ERR("[App] AddModule called after init(); module dropped (pre-init only)");
+    return;
+  }
+  if (!m_workspace) {
+    LOG_ERR("[App] AddModule called before the Workspace exists; module dropped");
+    return;
+  }
+  m_workspace->AddModule(std::move(module));
+}
+
+Modules::Workspace &App::GetWorkspace() { return *m_workspace; }
 
 // ── Frame Phases ────────────────────────────────────────────────────────────
 
@@ -231,6 +252,17 @@ void App::handleOpenFileRequest() {
 
   std::string path = SystemOpenFileDialog(filters);
   if (path.empty()) return;
+
+  // Workspace path (M3b): if a registered module claims this file, open it
+  // through the new pipeline and stop here -- the legacy AssetDatabase path
+  // below is untouched and stays alive until Task 6 retires it.
+  if (m_workspace) {
+    auto rank = m_workspace->Probe(path);
+    if (rank.winner) {
+      m_workspace->OpenAsync(path);
+      return;
+    }
+  }
 
   // Detect the profile up front (cheap) so we can surface an "unsupported"
   // message and label the recent entry, then load asynchronously — large ISOs

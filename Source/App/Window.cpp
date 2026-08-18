@@ -18,6 +18,7 @@
 #include "Services/ScaleManager.h"
 #include "Fonts/FontManager.h"
 #include <Onyx/Services/Events.h>
+#include <Onyx/Services/Logger.h>
 #include "App/NativeWindow.h"
 
 namespace Onyx::App {
@@ -57,6 +58,21 @@ Window::Window()
     m_config = Onyx::Services::AppConfig::load(m_configPath);
     Onyx::Services::AppConfig::SetInstance(&m_config);
 
+    // Smoke wiring (Task 2, M3b): subscribe once, for the life of the
+    // Window, to prove the Workspace's EventBus actually reaches this
+    // process end to end. Temporary-but-committed log lines -- superseded
+    // once panels consume these events directly.
+    m_onDocumentOpened = m_workspace.Events().On<Onyx::Modules::DocumentOpened>(
+        [](const Onyx::Modules::DocumentOpened& ev) {
+            LOG_INFO("[Workspace] document opened id=%llu",
+                     (unsigned long long)ev.id);
+        });
+    m_onTreeReady = m_workspace.Events().On<Onyx::Modules::TreeReady>(
+        [](const Onyx::Modules::TreeReady& ev) {
+            LOG_INFO("[Workspace] tree ready id=%llu ok=%d",
+                     (unsigned long long)ev.id, ev.ok ? 1 : 0);
+        });
+
     initGLFW();
     initImGui();
     setupNativeWindow();
@@ -71,7 +87,7 @@ Window::Window()
 // invokes the registrar -- runs.
 
 void Window::run() {
-    m_app.init(m_window, &m_config);
+    m_app.init(m_window, &m_config, &m_workspace);
 
     // 1:1 ImHex: live resize via OS refresh callback
     glfwSetWindowRefreshCallback(m_window, [](GLFWwindow*) {
@@ -349,6 +365,14 @@ void Window::frameBegin() {
 // -- frame --------------------------------------------------------------------
 
 void Window::frame() {
+    // Shell pumps the Workspace once per frame, main thread only (Task 2,
+    // M3b). Jobs() runs any finished async parse's Done callback (which
+    // flips Document::ready and posts through Events()); pumping Jobs
+    // first means a job that finished this frame gets its event dispatched
+    // this same frame instead of one frame late.
+    m_workspace.Jobs().Pump();
+    m_workspace.Events().Pump();
+
     m_app.frame();
 }
 
