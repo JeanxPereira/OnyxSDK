@@ -1,7 +1,7 @@
 # Appearance system — design
 
-Status: **proposal**, not implemented.
-Written 2026-08-18, after a run of scaling/font defects that all shared one shape.
+Status: **implemented** (2026-08-18), in five commits, one per migration step.
+Written after a run of scaling/font defects that all shared one shape.
 
 ## Why
 
@@ -185,5 +185,30 @@ Incremental; the tree stays green and consumers keep building at every step.
 5. Delete `ScaleManager`'s snapshot and `Theme::ApplyStyleDefaults` (folded into
    `HouseStyle`), then deprecate the old entry points in one release.
 
-Steps 1–2 already remove the snapshot class of defect; 4 removes the
+Steps 1-2 already remove the snapshot class of defect; 4 removes the
 forgot-to-call-ApplyTheme class.
+
+## What the migration caught
+
+Step 5 turned up a live defect the design predicted but nobody had reported as
+such: the font size climbed on its own, 14 -> 15 -> 17 over a session, each step
+being the previous value times the 1.10 UI scale, rounded.
+
+`SettingsWindow::Init` baked the atlas outside the owner, which re-seeded
+`style.FontSizeBase`. That field is not a setting -- ImGui's
+`UpdateCurrentFontSize` keeps it as a live mirror of the current font stack -- so
+a panel holding a cached copy of "the font size" could read back the *drawn*
+size and hand it in as the *base*. It also showed up as a slider reading 17px
+next to a resolved base of 20px.
+
+Both halves of the fix fall out of the design rather than being patched: one
+writer (Commit is the only caller of BuildAtlas), and panels rendering
+`Get()` instead of caching inputs.
+
+## Still to move
+
+Colour overrides live in `State` but ThemeManager still owns the live map and
+the ease-out transition; `Commit` calls `ApplyTheme` for the colour half. Moving
+the transition into Appearance would make `Commit` the only writer of
+`style.Colors` too, and let overrides persist through the same round-trip the
+other inputs already have.
