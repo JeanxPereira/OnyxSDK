@@ -18,6 +18,23 @@ TEST_CASE("DiagSink collects, counts and drains") {
     CHECK(sink.Count() == 0);
 }
 
+TEST_CASE("DiagSink Snapshot copies without clearing") {
+    Onyx::Services::DiagSink sink;
+    sink.Report({Onyx::Services::Severity::Warning, "t.w", "warn about foo", {}});
+    sink.Report({Onyx::Services::Severity::Error,   "t.e", "err about bar", {}});
+
+    auto first = sink.Snapshot();
+    REQUIRE(first.size() == 2);
+    CHECK(first[0].message == "warn about foo");
+
+    // Unlike Drain(), a Snapshot() must leave the sink untouched: a second
+    // Snapshot() (or a Count()/HasErrors() from an unrelated reader) still
+    // sees everything.
+    CHECK(sink.Count() == 2);
+    auto second = sink.Snapshot();
+    CHECK(second.size() == 2);
+}
+
 TEST_CASE("DiagSink is safe under concurrent producers") {
     Onyx::Services::DiagSink sink;
     std::vector<std::thread> ts;

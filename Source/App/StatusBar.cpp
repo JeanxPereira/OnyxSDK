@@ -1,45 +1,75 @@
 #include "App/StatusBar.h"
 
 #include <Onyx/Services/Logger.h>
-#include <Onyx/Services/AssetDatabase.h>
 #include <Onyx/Services/TaskManager.h>
-#include <Onyx/Services/Events.h>
-#include <Onyx/Domain/Wad.h>
+#include <Onyx/App/StatusBarFormat.h>
 #include "imgui.h"
 
 #include <cmath>
+#include <vector>
 
 namespace Onyx::App {
 
-StatusBar::StatusBar() {
-    EventWadOpened::subscribe(this, [this](AssetContainer* wad) {
-        if (wad) {
-            std::string msg = "Loaded: " + wad->filename;
-            SetMessage(msg.c_str());
-        }
-    });
+namespace {
 
-    EventPakOpened::subscribe(this, [this](AssetContainer* pak) {
-        if (pak) {
-            std::string msg = "Loaded PAK: " + pak->filename;
-            SetMessage(msg.c_str());
-        }
-    });
-
-    EventAllClosed::subscribe(this, [this]() {
-        SetMessage("All files closed.");
-    });
+size_t CountEntries(const std::vector<Onyx::Domain::AssetEntry>& entries) {
+    size_t n = entries.size();
+    for (const auto& e : entries) n += CountEntries(e.children);
+    return n;
 }
 
-StatusBar::~StatusBar() {
-    EventWadOpened::unsubscribe(this);
-    EventPakOpened::unsubscribe(this);
-    EventAllClosed::unsubscribe(this);
+} // namespace
+
+StatusBar::StatusBar(Onyx::Modules::Workspace& workspace)
+    : m_workspace(workspace) {}
+
+void StatusBar::DrawWorkspaceStatus() {
+    const auto& docs = m_workspace.Documents();
+    if (docs.empty()) return;
+
+    bool anyLoading = false;
+    for (const auto& docPtr : docs) {
+        const Onyx::Modules::Document& doc = *docPtr;
+        // Thread rule (Workspace.h): `ready` is the one field of a
+        // possibly-still-parsing Document safe to poll here; parseJob is a
+        // JobHandle, designed for exactly this cross-thread Peek().
+        if (doc.ready.load()) continue;
+        anyLoading = true;
+
+        std::string filename = doc.path.filename().string();
+        if (filename.empty()) filename = doc.path.string();
+
+        Onyx::Services::Progress::Snapshot snap = doc.parseJob.Peek();
+        // Committed, not throwaway (M3b Task 5 precedent: Window.cpp's
+        // DocumentOpened/TreeReady lines) -- proof this branch actually
+        // ran on a slow open, since a fast one can finish between two
+        // polls and never be observed any other way.
+        LOG_INFO("[StatusBar] progress id=%llu frac=%.2f label=%s",
+                 (unsigned long long)doc.id, snap.fraction, snap.label.c_str());
+        ImGui::TextUnformatted(FormatOpeningLine(filename, snap.fraction, snap.label).c_str());
+    }
+
+    if (!anyLoading) {
+        // Every document is ready here (the loop above found none that
+        // weren't) -- roots/diags are safe to read on all of them.
+        size_t entryCount = 0;
+        size_t errorCount = 0;
+        for (const auto& docPtr : docs) {
+            const Onyx::Modules::Document& doc = *docPtr;
+            entryCount += CountEntries(doc.roots);
+            errorCount += doc.diags.Count(Onyx::Services::Severity::Error);
+        }
+        ImGui::TextUnformatted(FormatSummaryLine(docs.size(), entryCount, errorCount).c_str());
+    }
+
+    ImGui::Separator();
 }
 
 void StatusBar::Draw() {
     if (!visible) return;
     ImGui::Begin("Log", &visible);
+
+    DrawWorkspaceStatus();
 
     // ── TaskManager Progress (new system) ────────────────────────────────────
     auto& tasks = Onyx::Services::TaskManager::getRunningTasks();

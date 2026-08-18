@@ -36,15 +36,17 @@ void App::registerPanels() {
   // Other generic panels (Iso/Pak Browser, Camera, Anim Curves, Dopesheet,
   // WAD Stats) are now public + opt-in: apps add the ones they want in their
   // registrar (see Onyx/App/Panels/*.h).
-  m_panels.add(std::make_unique<StatusBar>());
+  // StatusBar now reads the Workspace directly (M3b Task 5), same as
+  // DocumentBrowser below -- m_workspace is set at the top of init(),
+  // before this runs, so it is only ever null if some future call site
+  // invokes registerPanels() before that assignment; guarded defensively.
+  if (m_workspace)
+    m_panels.add(std::make_unique<StatusBar>(*m_workspace));
   m_panels.add(std::make_unique<SettingsWindow>());
   // UI test mode. Hidden by default (the panel's ctor clears `visible`); the
   // View menu picks it up automatically because it iterates the registry.
   m_panels.add(std::make_unique<UiGallery>());
-  // Generic Workspace document tree (M3b). m_workspace is set at the top
-  // of init(), before this runs -- see the member comment on m_workspace --
-  // so it is only ever null if some future call site invokes
-  // registerPanels() before that assignment; guarded defensively anyway.
+  // Generic Workspace document tree (M3b).
   if (m_workspace)
     m_panels.add(std::make_unique<DocumentBrowser>(*m_workspace));
 

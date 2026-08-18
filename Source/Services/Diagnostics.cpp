@@ -14,6 +14,11 @@ std::vector<Diag> DiagSink::Drain() {
     return out;
 }
 
+std::vector<Diag> DiagSink::Snapshot() const {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_diags;
+}
+
 size_t DiagSink::Count(Severity atLeast) const {
     std::lock_guard<std::mutex> lock(m_mutex);
     size_t count = 0;

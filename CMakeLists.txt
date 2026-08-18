@@ -290,6 +290,7 @@ set(ONYX_SHELL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/AssetNodeRenderer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/FontDebuggerWindow.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/InfoTab.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/InfoTabFilter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/NativeMenuBar.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/AnimCurveView.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/CameraPanel.cpp
@@ -306,6 +307,7 @@ set(ONYX_SHELL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Platform/Window_windows.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/SettingsWindow.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/StatusBar.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/StatusBarFormat.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/TitleBar.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/ViewerOpening.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/ViewerRegistry.cpp
