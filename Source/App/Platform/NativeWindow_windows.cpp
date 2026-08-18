@@ -13,6 +13,11 @@
 
 #pragma comment(lib, "dwmapi.lib")
 
+// Fallback for older Windows SDKs
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
+
 namespace Onyx::App::NativeWindow {
 
 static LONG_PTR  s_oldWndProc    = 0;
