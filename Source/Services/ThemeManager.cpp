@@ -1,4 +1,5 @@
 #include <Onyx/Services/ThemeManager.h>
+#include <Onyx/Services/FrameScheduler.h>
 #include <Onyx/Platform/SystemTheme.h>
 #include <Onyx/Services/Logger.h>
 #include "imgui.h"
@@ -394,6 +395,9 @@ void ApplyTheme(const ImVec4 &accent, ThemeMode mode, bool animate) {
     }
     s_transitioning = true;
     s_transitionStart = (float)ImGui::GetTime();
+    // Without this the window sleeps at the idle rate and a 0.25s ease-out
+    // lands in about four frames.
+    Onyx::Frame::RequestAnimation(kTransitionDuration);
   } else {
     // Instant apply (live color picker drag, or first frame)
     for (int i = 0; i < ImGuiCol_COUNT; i++)
@@ -430,6 +434,10 @@ void UpdateTransition() {
     float ease = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
     for (int i = 0; i < ImGuiCol_COUNT; i++)
       s.Colors[i] = Lerp4(s_oldColors[i], s_newColors[i], ease);
+
+    // Keep asking: the request is a deadline, so re-asking each frame simply
+    // holds it open until the transition finishes.
+    Onyx::Frame::RequestAnimation(double(kTransitionDuration - elapsed));
   }
 }
 

@@ -5,6 +5,7 @@
 #include <Onyx/Fonts/IconTable.h>
 #include <Onyx/Fonts/SFSymbols.h>
 #include <Onyx/Services/Appearance.h>
+#include <Onyx/Services/FrameScheduler.h>
 #include <Onyx/Services/ThemeManager.h>
 
 #include "App/FontDebuggerWindow.h"
@@ -823,6 +824,22 @@ void UiGallery::DrawDiagnosticsPage() {
         ImGui::Text("%d vertices   %d indices   %d windows rendered",
                     io.MetricsRenderVertices, io.MetricsRenderIndices, io.MetricsRenderWindows);
         ImGui::Text("%d active windows", io.MetricsActiveWindows);
+        // Whether the loop is sleeping or running flat out, and why. Before the
+        // scheduler existed this was invisible: the window guessed activity
+        // from input, so an animation could run at the idle rate while an
+        // undocked panel could pin it at full speed indefinitely.
+        if (Frame::WantsContinuous()) {
+            const double left = Frame::RemainingAnimation();
+            if (left > 0.0)
+                ImGui::TextColored(ImVec4(0.45f, 0.90f, 0.55f, 1.0f),
+                                   "frame pacing: continuous (%.2fs of animation left)", left);
+            else
+                ImGui::TextColored(ImVec4(0.45f, 0.90f, 0.55f, 1.0f),
+                                   "frame pacing: continuous (redraw requested)");
+        } else {
+            ImGui::TextDisabled("frame pacing: idle -- waiting on events");
+        }
+
         ImGui::Text("display %.0f x %.0f   framebuffer scale %.2f x %.2f",
                     double(io.DisplaySize.x), double(io.DisplaySize.y),
                     double(io.DisplayFramebufferScale.x), double(io.DisplayFramebufferScale.y));

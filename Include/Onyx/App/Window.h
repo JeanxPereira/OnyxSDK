@@ -52,8 +52,8 @@ private:
     void frameEnd();
 
     // ── Optimizations ────────────────────────────────────────────────
-    bool shouldRender();   // vtx buffer diff — skip GPU when idle
-    void unlockFrameRate();
+    // Frame pacing lives in Onyx::Frame now: clients that animate say so, rather
+    // than the window guessing from vertex-buffer diffs and input state.
 
     // ── Members ──────────────────────────────────────────────────────
     GLFWwindow*  m_window   = nullptr;
@@ -61,13 +61,10 @@ private:
     Onyx::Services::AppConfig   m_config;
 
     // Frame rate control
-    bool   m_shouldUnlockFrameRate = false;
     double m_fpsUnlockedEndTime    = 0.0;
     bool   m_firstFrame            = true;
 
     // Vtx buffer diff
-    std::vector<uint8_t> m_previousVtxData;
-    size_t               m_previousVtxDataSize = 0;
 
     // Config path
     std::string m_configPath;
