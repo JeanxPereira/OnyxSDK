@@ -216,11 +216,12 @@ int CmdProbe(Workspace& ws, const std::filesystem::path& path, std::ostream& out
             << row.result.reason << "\n";
     }
     out << "winner: " << (rank.winner ? rank.winner->Info().id : "none") << "\n";
-    return kOk;
+    return rank.winner ? kOk : kNoModule;
 }
 
-int CmdList(Workspace& ws, const std::filesystem::path& path, bool json, std::ostream& out) {
-    DocumentId id = ws.Open(path);
+int CmdList(Workspace& ws, const std::filesystem::path& path, bool json, std::ostream& out,
+            std::string_view moduleHint) {
+    DocumentId id = ws.Open(path, moduleHint);
     if (id == 0) {
         out << "no module accepts " << path.string() << "\n";
         return kNoModule;
@@ -255,8 +256,9 @@ int CmdList(Workspace& ws, const std::filesystem::path& path, bool json, std::os
 }
 
 int CmdExtract(Workspace& ws, const std::filesystem::path& path,
-               const std::filesystem::path& outDir, std::ostream& out) {
-    DocumentId id = ws.Open(path);
+               const std::filesystem::path& outDir, std::ostream& out,
+               std::string_view moduleHint) {
+    DocumentId id = ws.Open(path, moduleHint);
     if (id == 0) {
         out << "no module accepts " << path.string() << "\n";
         return kNoModule;
@@ -279,8 +281,8 @@ int CmdExtract(Workspace& ws, const std::filesystem::path& path,
 }
 
 int CmdDecode(Workspace& ws, const std::filesystem::path& path, std::string_view entryName,
-              bool strict, std::ostream& out) {
-    DocumentId id = ws.Open(path);
+              bool strict, std::ostream& out, std::string_view moduleHint) {
+    DocumentId id = ws.Open(path, moduleHint);
     if (id == 0) {
         out << "no module accepts " << path.string() << "\n";
         return kNoModule;
@@ -298,7 +300,6 @@ int CmdDecode(Workspace& ws, const std::filesystem::path& path, std::string_view
 
     DecoderRegistry& reg = ws.Decoders();
     Progress progress;
-    bool decoded = false;
     bool hadCapability = false;
 
     if (reg.HasImage(entry->typeId)) {
@@ -308,7 +309,6 @@ int CmdDecode(Workspace& ws, const std::filesystem::path& path, std::string_view
         if (img) {
             out << "image " << entry->name << " " << img->width << "x" << img->height
                 << " (" << img->pixels.size() << " bytes)\n";
-            decoded = true;
         }
     } else if (reg.HasText(entry->typeId)) {
         hadCapability = true;
@@ -316,7 +316,6 @@ int CmdDecode(Workspace& ws, const std::filesystem::path& path, std::string_view
         auto txt = reg.DecodeText(ctx);
         if (txt) {
             out << txt->text << "\n";
-            decoded = true;
         }
     }
 
@@ -334,8 +333,11 @@ int CmdDecode(Workspace& ws, const std::filesystem::path& path, std::string_view
 
     ws.Close(id);
 
-    if (strictFail) return kStrictErrors;
-    return decoded ? kOk : kUsage;
+    // A capability existed for this entry's type, so this is not a usage
+    // error even when the decoder itself returned null -- that is a
+    // salvage failure the diags above already explain (e.g. a lying
+    // declared size). --strict still overrides on an Error diag.
+    return strictFail ? kStrictErrors : kOk;
 }
 
 int Run(Workspace& ws, int argc, char** argv, std::ostream& out, std::ostream& err) {
@@ -348,12 +350,20 @@ int Run(Workspace& ws, int argc, char** argv, std::ostream& out, std::ostream& e
     std::vector<std::string> args;
     bool json = false;
     bool strict = false;
+    std::string gameHint;
     for (int i = 2; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--json") {
             json = true;
         } else if (a == "--strict") {
             strict = true;
+        } else if (a == "--game") {
+            // Any position after the subcommand; consumes the next argv
+            // as the hint. A trailing "--game" with nothing after it is
+            // silently ignored (hint stays empty -- ranking applies).
+            if (i + 1 < argc) {
+                gameHint = argv[++i];
+            }
         } else {
             args.push_back(a);
         }
@@ -368,24 +378,24 @@ int Run(Workspace& ws, int argc, char** argv, std::ostream& out, std::ostream& e
     }
     if (cmd == "list") {
         if (args.empty()) {
-            err << "usage: list <file> [--json]\n";
+            err << "usage: list <file> [--json] [--game <hint>]\n";
             return kUsage;
         }
-        return CmdList(ws, args[0], json, out);
+        return CmdList(ws, args[0], json, out, gameHint);
     }
     if (cmd == "extract") {
         if (args.size() < 2) {
-            err << "usage: extract <file> <outDir>\n";
+            err << "usage: extract <file> <outDir> [--game <hint>]\n";
             return kUsage;
         }
-        return CmdExtract(ws, args[0], args[1], out);
+        return CmdExtract(ws, args[0], args[1], out, gameHint);
     }
     if (cmd == "decode") {
         if (args.size() < 2) {
-            err << "usage: decode <file> <entryName> [--strict]\n";
+            err << "usage: decode <file> <entryName> [--strict] [--game <hint>]\n";
             return kUsage;
         }
-        return CmdDecode(ws, args[0], args[1], strict, out);
+        return CmdDecode(ws, args[0], args[1], strict, out, gameHint);
     }
 
     err << "unknown command: " << cmd << "\n";

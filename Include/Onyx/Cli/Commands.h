@@ -22,22 +22,38 @@
 namespace Onyx::Cli {
 
 // Exit codes, shared by every command:
-//   0 ok · 1 bad usage/file/entry not found · 2 no module accepted
+//   0 ok · 1 bad usage / entry not found / no decode capability ·
+//   2 no module accepted the file (CmdList/CmdExtract/CmdDecode's Open
+//   failed; also CmdProbe when the ranking has no winner) ·
 //   3 --strict and the document has Error diags
+//
+// CmdDecode returns kOk whenever a decode capability existed for the
+// entry, whether or not the decoder itself produced a value: a decoder
+// returning null is a salvage failure the diags already explain (e.g. a
+// lying declared size), not a usage error. kUsage is reserved for the
+// two cases where the caller asked for something that doesn't exist:
+// the entry itself, or any decode capability for its type.
 inline constexpr int kOk = 0, kUsage = 1, kNoModule = 2, kStrictErrors = 3;
 
 int CmdProbe (Modules::Workspace&, const std::filesystem::path&,
-              std::ostream& out);                    // score/reason table
+              std::ostream& out);                    // score/reason table;
+              // kNoModule when the ranking has no winner
 int CmdList  (Modules::Workspace&, const std::filesystem::path&,
-              bool json, std::ostream& out);         // tree; json = one object
+              bool json, std::ostream& out,
+              std::string_view moduleHint = {});     // tree; json = one object
 int CmdExtract(Modules::Workspace&, const std::filesystem::path&,
-              const std::filesystem::path& outDir, std::ostream& out);
+              const std::filesystem::path& outDir, std::ostream& out,
+              std::string_view moduleHint = {});
 int CmdDecode(Modules::Workspace&, const std::filesystem::path&,
-              std::string_view entryName, bool strict, std::ostream& out);
+              std::string_view entryName, bool strict, std::ostream& out,
+              std::string_view moduleHint = {});
               // decodes by capability (image->PNG-less summary: type,
               // dimensions, byte count; text->prints it); emits diags
 
-// argv dispatcher used by example/consumer mains:
+// argv dispatcher used by example/consumer mains. Accepts "--game <hint>"
+// anywhere after the subcommand (any position); the hint is forwarded as
+// moduleHint to Workspace::Open for list/extract/decode, where it wins
+// outright over probe ranking (see Workspace::PrepareDocument).
 int Run(Modules::Workspace&, int argc, char** argv,
         std::ostream& out, std::ostream& err);
 

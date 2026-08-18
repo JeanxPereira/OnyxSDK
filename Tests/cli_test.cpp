@@ -137,6 +137,47 @@ std::filesystem::path WriteGarbageFile() {
     return path;
 }
 
+// One entry ("liar", kind=1/image) whose payload fits within the file
+// (so ParseContainer never flags it Failed) but whose embedded
+// width/height header claims more pixels than its declared payloadSize
+// can hold -- adapted from Tests/onyxbox_test.cpp's "onyxbox rejects an
+// image whose payloadSize doesn't match the declared WxH" fixture, using
+// a distinct temp filename so it never races that file. DecodeImage
+// rejects this with an Error diag ("obx.image.size-mismatch") and
+// returns nullptr even though reg.HasImage() is true for its type --
+// exactly the "capability exists, decoder returns null" salvage-failure
+// shape CmdDecode must report as kOk (diags explain), not kUsage.
+std::filesystem::path WriteLyingImageBox() {
+    const std::string safeText = "SAFE_TEXT";
+
+    // magic(4) + count(4) + 2 * (nameLen(2) + name(4) + kind(1) + offset(4) + size(4))
+    const uint32_t headerSize = 4 + 4 + 2 * (2 + 4 + 1 + 4 + 4);
+    const uint32_t liarOffset = headerSize;
+    const uint32_t liarSize = 10;  // claims 8x8 (needs 260) but only gets 10
+    const uint32_t safeOffset = liarOffset + liarSize;
+    const uint32_t safeSize = uint32_t(safeText.size());
+    const uint32_t padding = 512;
+
+    std::vector<uint8_t> buf;
+    buf.insert(buf.end(), {uint8_t('O'), uint8_t('B'), uint8_t('X'), uint8_t('1')});
+    PutU32LE(buf, 2);
+    PutTocHeader(buf, "liar", 1, liarOffset, liarSize);
+    PutTocHeader(buf, "safe", 2, safeOffset, safeSize);
+
+    PutU16LE(buf, 8);  // width  -- claims 8x8 ...
+    PutU16LE(buf, 8);  // height -- ... which needs 260 bytes, not 10
+    for (int i = 0; i < 6; ++i) buf.push_back(uint8_t(0xAA));  // fills out liarSize
+
+    buf.insert(buf.end(), safeText.begin(), safeText.end());
+    for (uint32_t i = 0; i < padding; ++i) buf.push_back(uint8_t(0xEE));
+
+    auto path = std::filesystem::temp_directory_path() / "onyx_cli_lying_image.obx";
+    std::ofstream f(path, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
+    f.close();
+    return path;
+}
+
 std::unique_ptr<OnyxBox::OnyxBoxModule> MakeModule() {
     return std::make_unique<OnyxBox::OnyxBoxModule>();
 }
@@ -157,6 +198,26 @@ struct NeverMatchModule : Onyx::Modules::IGameModule {
     void RegisterDecoders(Onyx::Modules::DecoderRegistry&) override {}
     Onyx::Modules::ParseResult ParseContainer(Onyx::Modules::ContainerContext&) override {
         return Onyx::Modules::ParseResult{false};
+    }
+};
+
+// Always outranks the real OnyxBox module (99 > obx's 95 for a genuine
+// OBX1 file), but its ParseContainer leaves the tree empty (ok=true, zero
+// roots) -- proof that Run's "--game <hint>" forces the real module
+// through Workspace::Open's hint-wins-outright path, bypassing ranking
+// entirely. Without the hint, this decoy would win the probe and the
+// caller would get its empty parse instead of the real tree.
+struct DecoyModule : Onyx::Modules::IGameModule {
+    Onyx::Modules::ModuleInfo Info() const override {
+        return Onyx::Modules::ModuleInfo{"decoy", "Decoy", {"decoy"}, {}};
+    }
+    Onyx::Modules::ProbeResult Probe(const Onyx::Modules::ProbeInput&) const override {
+        return Onyx::Modules::ProbeResult{99, "always outranks obx"};
+    }
+    void RegisterTypes(Onyx::Types::TypeRegistrar&) override {}
+    void RegisterDecoders(Onyx::Modules::DecoderRegistry&) override {}
+    Onyx::Modules::ParseResult ParseContainer(Onyx::Modules::ContainerContext&) override {
+        return Onyx::Modules::ParseResult{true};   // ok, but roots stays empty
     }
 };
 
@@ -312,6 +373,35 @@ TEST_CASE("cli list returns kNoModule for a file no module accepts") {
     std::filesystem::remove(path);
 }
 
+TEST_CASE("cli probe returns kNoModule when the ranking has no winner") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+    ws.AddModule(std::make_unique<NeverMatchModule>());
+    auto path = WriteGarbageFile();
+
+    std::ostringstream out;
+    int rc = Onyx::Cli::CmdProbe(ws, path, out);
+    CHECK(rc == Onyx::Cli::kNoModule);
+    CHECK(out.str().find("winner: none") != std::string::npos);
+
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("cli decode returns kOk when a capability exists but the decoder salvage-fails") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+    auto path = WriteLyingImageBox();
+
+    std::ostringstream out;
+    int rc = Onyx::Cli::CmdDecode(ws, path, "liar", /*strict=*/false, out);
+    CHECK(rc == Onyx::Cli::kOk);
+    CHECK(out.str().find("obx.image.size-mismatch") != std::string::npos);
+    // No "image ..." summary line: the decoder returned null.
+    CHECK(out.str().find("image liar") == std::string::npos);
+
+    std::filesystem::remove(path);
+}
+
 TEST_CASE("cli Run dispatches probe list extract and decode by name") {
     Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
     ws.AddModule(MakeModule());
@@ -351,6 +441,52 @@ TEST_CASE("cli Run dispatches probe list extract and decode by name") {
         char* argv[] = {argv0, argv1, argv2.data(), argv3};
         int rc = Onyx::Cli::Run(ws, 4, argv, out, err);
         CHECK(rc == Onyx::Cli::kOk);
+        CHECK(out.str().find("\"type\":\"obx.image\"") != std::string::npos);
+    }
+
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("cli Run --game hint overrides ranking to pick the correct module") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    // DecoyModule registered FIRST -- registration order must not be what
+    // decides this; only the hint should.
+    ws.AddModule(std::make_unique<DecoyModule>());
+    ws.AddModule(MakeModule());
+    auto path = WriteSampleBox();
+    const std::string pathStr = path.string();
+
+    {
+        // Without --game: the decoy outranks the real obx module
+        // (99 > 95), so list picks the decoy's empty parse.
+        std::ostringstream out, err;
+        char argv0[] = "onyxbox-cli";
+        char argv1[] = "list";
+        std::vector<char> argv2(pathStr.begin(), pathStr.end());
+        argv2.push_back('\0');
+        char argv3[] = "--json";
+        char* argv[] = {argv0, argv1, argv2.data(), argv3};
+        int rc = Onyx::Cli::Run(ws, 4, argv, out, err);
+        CHECK(rc == Onyx::Cli::kOk);
+        CHECK(out.str().find("\"module\":\"decoy\"") != std::string::npos);
+        CHECK(out.str().find("\"entries\":[]") != std::string::npos);
+    }
+    {
+        // With --game obx: the hint wins outright over ranking (see
+        // Workspace::PrepareDocument), forcing the real OnyxBox module --
+        // its full tree comes back instead of the decoy's empty one.
+        std::ostringstream out, err;
+        char argv0[] = "onyxbox-cli";
+        char argv1[] = "list";
+        std::vector<char> argv2(pathStr.begin(), pathStr.end());
+        argv2.push_back('\0');
+        char argv3[] = "--json";
+        char argv4[] = "--game";
+        char argv5[] = "obx";
+        char* argv[] = {argv0, argv1, argv2.data(), argv3, argv4, argv5};
+        int rc = Onyx::Cli::Run(ws, 6, argv, out, err);
+        CHECK(rc == Onyx::Cli::kOk);
+        CHECK(out.str().find("\"module\":\"obx\"") != std::string::npos);
         CHECK(out.str().find("\"type\":\"obx.image\"") != std::string::npos);
     }
 
