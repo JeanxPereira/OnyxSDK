@@ -444,5 +444,37 @@ if(ONYX_BUILD_TESTS)
     FetchContent_MakeAvailable(doctest)
     unset(CMAKE_POLICY_VERSION_MINIMUM CACHE)
 
+    # ── LayerGuard: include-level layering rules ─────────────────────────
+    # For each guarded layer, write its sources plus their same-name headers
+    # under Include/ to a list file, then grep for forbidden includes.
+    set(_lg_core "")
+    foreach(_f ${ONYX_CORE_SOURCES})
+        list(APPEND _lg_core "${_f}")
+        string(REGEX REPLACE ".*/Source/(.*)\\.cpp$" "\\1" _rel "${_f}")
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Include/Onyx/${_rel}.h")
+            list(APPEND _lg_core "${CMAKE_CURRENT_SOURCE_DIR}/Include/Onyx/${_rel}.h")
+        endif()
+    endforeach()
+    set(_lg_render "")
+    foreach(_f ${ONYX_RENDER_SOURCES})
+        list(APPEND _lg_render "${_f}")
+        string(REGEX REPLACE ".*/Source/(.*)\\.cpp$" "\\1" _rel "${_f}")
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Include/Onyx/${_rel}.h")
+            list(APPEND _lg_render "${CMAKE_CURRENT_SOURCE_DIR}/Include/Onyx/${_rel}.h")
+        endif()
+    endforeach()
+    list(JOIN _lg_core "\n" _lg_core_txt)
+    list(JOIN _lg_render "\n" _lg_render_txt)
+    file(WRITE "${CMAKE_BINARY_DIR}/layerguard-core.txt"   "${_lg_core_txt}")
+    file(WRITE "${CMAKE_BINARY_DIR}/layerguard-render.txt" "${_lg_render_txt}")
+    add_test(NAME LayerGuard.Core COMMAND ${CMAKE_COMMAND}
+        -DLISTFILE=${CMAKE_BINARY_DIR}/layerguard-core.txt
+        "-DFORBIDDEN=imgui|implot|GLFW/|glad/"
+        -P ${CMAKE_SOURCE_DIR}/cmake/LayerGuard.cmake)
+    add_test(NAME LayerGuard.Render COMMAND ${CMAKE_COMMAND}
+        -DLISTFILE=${CMAKE_BINARY_DIR}/layerguard-render.txt
+        "-DFORBIDDEN=imgui|implot|GLFW/"
+        -P ${CMAKE_SOURCE_DIR}/cmake/LayerGuard.cmake)
+
     add_subdirectory(Tests)
 endif()
