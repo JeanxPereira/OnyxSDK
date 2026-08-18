@@ -73,13 +73,13 @@ std::optional<bool> Settings::GetBool(std::string_view key) const {
 
     if (table_name.empty()) {
         // Root-level key
-        if (auto v = impl_->tbl[actual_key].value<bool>()) {
+        if (auto v = impl_->tbl[actual_key].value_exact<bool>()) {
             return *v;
         }
     } else {
         // Scoped key
         if (auto* tbl = impl_->tbl[table_name].as_table()) {
-            if (auto v = (*tbl)[actual_key].value<bool>()) {
+            if (auto v = (*tbl)[actual_key].value_exact<bool>()) {
                 return *v;
             }
         }
@@ -93,13 +93,13 @@ std::optional<int64_t> Settings::GetInt(std::string_view key) const {
 
     if (table_name.empty()) {
         // Root-level key
-        if (auto v = impl_->tbl[actual_key].value<int64_t>()) {
+        if (auto v = impl_->tbl[actual_key].value_exact<int64_t>()) {
             return *v;
         }
     } else {
         // Scoped key
         if (auto* tbl = impl_->tbl[table_name].as_table()) {
-            if (auto v = (*tbl)[actual_key].value<int64_t>()) {
+            if (auto v = (*tbl)[actual_key].value_exact<int64_t>()) {
                 return *v;
             }
         }
@@ -113,13 +113,13 @@ std::optional<double> Settings::GetDouble(std::string_view key) const {
 
     if (table_name.empty()) {
         // Root-level key
-        if (auto v = impl_->tbl[actual_key].value<double>()) {
+        if (auto v = impl_->tbl[actual_key].value_exact<double>()) {
             return *v;
         }
     } else {
         // Scoped key
         if (auto* tbl = impl_->tbl[table_name].as_table()) {
-            if (auto v = (*tbl)[actual_key].value<double>()) {
+            if (auto v = (*tbl)[actual_key].value_exact<double>()) {
                 return *v;
             }
         }
@@ -133,13 +133,13 @@ std::optional<std::string> Settings::GetString(std::string_view key) const {
 
     if (table_name.empty()) {
         // Root-level key
-        if (auto v = impl_->tbl[actual_key].value<std::string>()) {
+        if (auto v = impl_->tbl[actual_key].value_exact<std::string>()) {
             return *v;
         }
     } else {
         // Scoped key
         if (auto* tbl = impl_->tbl[table_name].as_table()) {
-            if (auto v = (*tbl)[actual_key].value<std::string>()) {
+            if (auto v = (*tbl)[actual_key].value_exact<std::string>()) {
                 return *v;
             }
         }

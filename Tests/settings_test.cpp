@@ -144,3 +144,44 @@ TEST_CASE("Settings GetDouble typed access") {
     }
     std::filesystem::remove(tmp);
 }
+
+TEST_CASE("Settings type mismatches return nullopt, never coerce") {
+    auto tmp = std::filesystem::temp_directory_path() / "onyx_settings_mismatch.toml";
+    std::filesystem::remove(tmp);
+    auto s = Settings::Load(tmp);
+    s.Set("t.flag", true);
+    s.Set("t.count", int64_t{7});
+    s.Set("t.ratio", 2.5);
+    CHECK_FALSE(s.GetInt("t.flag").has_value());     // bool is not an int
+    CHECK_FALSE(s.GetBool("t.count").has_value());   // int is not a bool
+    CHECK_FALSE(s.GetInt("t.ratio").has_value());    // float is not an int
+    CHECK_FALSE(s.GetDouble("t.count").has_value()); // int is not a double (exact)
+    std::filesystem::remove(tmp);
+}
+
+TEST_CASE("Settings two-dot key split uses only first dot") {
+    auto tmp = std::filesystem::temp_directory_path() / "onyx_settings_twodot.toml";
+    std::filesystem::remove(tmp);
+    {
+        auto s = Settings::Load(tmp);
+        s.Set("a.b.c", int64_t{1});
+        CHECK(s.Save());
+    }
+    // Read raw TOML and verify structure: [a] table with b.c key
+    {
+        std::ifstream file(tmp);
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        std::string content = buffer.str();
+        CHECK(content.find("[a]") != std::string::npos);
+        // Look for the key - it may be quoted or unquoted depending on toml++ output
+        CHECK((content.find("\"b.c\"") != std::string::npos ||
+               content.find("b.c") != std::string::npos));
+        file.close();
+    }
+    {
+        auto s = Settings::Load(tmp);
+        CHECK(s.GetInt("a.b.c") == 1);
+    }
+    std::filesystem::remove(tmp);
+}
