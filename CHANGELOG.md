@@ -3,6 +3,31 @@
 ## Unreleased
 
 ### Added
+- **M3a module contracts** (v1 spec §5, §6, §11) — the SDK's game-facing
+  surface:
+  - `Modules::IGameModule` — probe/types/decoders/parse in one contract;
+    detection is evidence-ranked (`RankProbes`: confidence + reason per
+    module, floor 40, ties mean nobody wins).
+  - `Modules::Workspace`/`Document` — the composition root: owns the
+    EventBus, JobQueue, settings and decoder registry; open is
+    salvage-first (a partial tree with diags is a result, not a failure),
+    async parses cannot be freed under a Close, and module exceptions
+    never cross the boundary.
+  - `Modules::DecoderRegistry` — decode capabilities keyed by output
+    (Scene/Image/Text); a throwing decoder yields diags, never a crash.
+  - **OnyxBox** (`Examples/OnyxBox`) — a synthetic module proving the
+    contracts end to end; hardened against hostile containers (TOC count
+    clamp, lying image headers).
+  - `Cli::Commands` — generic `probe`/`list --json`/`extract`/`decode
+    --strict` for any Workspace; extract refuses unsafe entry names.
+    Example binary `onyxbox-cli`.
+
+### Changed
+- **BREAKING:** materials carry explicit texture roles (`TextureRole`,
+  `MaterialDesc`); `MaterialInfo`, `pbrLayers` and the nested per-layer
+  texture vectors are gone — `SceneData::textures` is a flat pool indexed
+  by role. Consumers pinned to v0.6.x are unaffected until they port.
+
 - **M2 identity & state services** (v1 spec §4, §7) — five new Core services,
   all UI-free and unit-tested:
   - `Types::TypeRegistrar` — module-namespaced type minting ("gowr.mesh");

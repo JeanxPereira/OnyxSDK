@@ -67,7 +67,7 @@ jobs plumbing in Core.
   TOML round-trip, diag salvage, bus subscription lifetime.
 - **Plan:** written at M1 gate.
 
-## M3 — Modules (spec W3)
+## M3 — Modules (spec W3) — M3a (Core contracts+CLI) ✅ DONE 2026-08-18; M3b (Shell rewiring) next
 
 The contract swap: `IGameModule`, evidence-based probe, `DecoderRegistry`,
 `Workspace` as composition root; both GoW modules ported; the generic CLI.
