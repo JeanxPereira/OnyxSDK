@@ -1,5 +1,6 @@
 #include <Onyx/Modules/DecoderRegistry.h>
 #include <exception>
+#include <string>
 
 namespace Onyx::Modules {
 
@@ -31,20 +32,21 @@ std::unique_ptr<Parsers::SceneData> DecoderRegistry::DecodeScene(DecodeContext& 
     auto it = m_scenes.find(ctx.entry.typeId.value);
     if (it == m_scenes.end()) return nullptr;
 
+    SceneDecoder decoder = it->second;  // Copy out before invoking
     try {
-        return it->second(ctx);
+        return decoder(ctx);
     } catch (const std::exception& e) {
         ctx.diags.Report(Services::Diag{
             Services::Severity::Error,
             "decoder.threw",
-            e.what(),
+            ctx.entry.name + ": " + e.what(),
             std::nullopt});
         return nullptr;
     } catch (...) {
         ctx.diags.Report(Services::Diag{
             Services::Severity::Error,
             "decoder.threw",
-            "decoder threw",
+            ctx.entry.name + ": decoder threw",
             std::nullopt});
         return nullptr;
     }
@@ -54,20 +56,21 @@ std::unique_ptr<Parsers::TextureData> DecoderRegistry::DecodeImage(DecodeContext
     auto it = m_images.find(ctx.entry.typeId.value);
     if (it == m_images.end()) return nullptr;
 
+    ImageDecoder decoder = it->second;  // Copy out before invoking
     try {
-        return it->second(ctx);
+        return decoder(ctx);
     } catch (const std::exception& e) {
         ctx.diags.Report(Services::Diag{
             Services::Severity::Error,
             "decoder.threw",
-            e.what(),
+            ctx.entry.name + ": " + e.what(),
             std::nullopt});
         return nullptr;
     } catch (...) {
         ctx.diags.Report(Services::Diag{
             Services::Severity::Error,
             "decoder.threw",
-            "decoder threw",
+            ctx.entry.name + ": decoder threw",
             std::nullopt});
         return nullptr;
     }
@@ -77,20 +80,21 @@ std::optional<TextOut> DecoderRegistry::DecodeText(DecodeContext& ctx) const {
     auto it = m_texts.find(ctx.entry.typeId.value);
     if (it == m_texts.end()) return std::nullopt;
 
+    TextDecoder decoder = it->second;  // Copy out before invoking
     try {
-        return it->second(ctx);
+        return decoder(ctx);
     } catch (const std::exception& e) {
         ctx.diags.Report(Services::Diag{
             Services::Severity::Error,
             "decoder.threw",
-            e.what(),
+            ctx.entry.name + ": " + e.what(),
             std::nullopt});
         return std::nullopt;
     } catch (...) {
         ctx.diags.Report(Services::Diag{
             Services::Severity::Error,
             "decoder.threw",
-            "decoder threw",
+            ctx.entry.name + ": decoder threw",
             std::nullopt});
         return std::nullopt;
     }

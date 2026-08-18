@@ -6,6 +6,8 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string>
+#include <unordered_map>
 
 namespace Onyx::Modules {
 
@@ -38,6 +40,8 @@ public:
     std::unique_ptr<Parsers::SceneData>   DecodeScene(DecodeContext&) const;
     std::unique_ptr<Parsers::TextureData> DecodeImage(DecodeContext&) const;
     std::optional<TextOut>                DecodeText (DecodeContext&) const;
+
+    // Audio and Schema decoder slots arrive with their first consumer (deliberate YAGNI).
 
 private:
     std::unordered_map<uint32_t, SceneDecoder> m_scenes;

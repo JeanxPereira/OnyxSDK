@@ -139,8 +139,9 @@ TEST_CASE("DecoderRegistry throwing decoder returns null + one Error diag") {
     REQUIRE(diag_list.size() == 1);
     CHECK(diag_list[0].severity == Severity::Error);
     CHECK(diag_list[0].code == "decoder.threw");
-    // Message should contain the exception what() or "decoder threw"
-    CHECK(!diag_list[0].message.empty());
+    // Message should contain the asset name and the exception details
+    CHECK(diag_list[0].message.find("test_entry") != std::string::npos);
+    CHECK(diag_list[0].message.find("decoder boom") != std::string::npos);
 }
 
 TEST_CASE("DecoderRegistry double registration replaces (last wins)") {
