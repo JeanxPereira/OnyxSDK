@@ -293,6 +293,7 @@ set(ONYX_SHELL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/NativeMenuBar.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/AnimCurveView.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/CameraPanel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/DocumentBrowser.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/Dopesheet.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/IsoBrowser.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/PakBrowser.cpp

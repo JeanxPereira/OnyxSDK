@@ -10,6 +10,7 @@
 
 #include "App/SettingsWindow.h"
 #include "App/StatusBar.h"
+#include <Onyx/App/Panels/DocumentBrowser.h>
 #include <Onyx/App/Panels/UiGallery.h>
 
 // Viewer headers
@@ -40,6 +41,12 @@ void App::registerPanels() {
   // UI test mode. Hidden by default (the panel's ctor clears `visible`); the
   // View menu picks it up automatically because it iterates the registry.
   m_panels.add(std::make_unique<UiGallery>());
+  // Generic Workspace document tree (M3b). m_workspace is set at the top
+  // of init(), before this runs -- see the member comment on m_workspace --
+  // so it is only ever null if some future call site invokes
+  // registerPanels() before that assignment; guarded defensively anyway.
+  if (m_workspace)
+    m_panels.add(std::make_unique<DocumentBrowser>(*m_workspace));
 
   // ── Game (app) panels/viewers ──────────────────────────────────────────────
   // Injected by the executable so the engine stays game-agnostic. Supplies
