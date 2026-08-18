@@ -8,10 +8,12 @@
 #include <doctest/doctest.h>
 
 #include <Onyx/Services/Appearance.h>
+#include <Onyx/Services/AppConfig.h>
 
 #include "imgui.h"
 
 #include <cstring>
+#include <filesystem>
 
 using namespace Onyx::Appearance;
 using Onyx::Theme::ThemeMode;
@@ -225,4 +227,39 @@ TEST_CASE("Appearance::State equality covers every input") {
     CHECK(o2 == o);
     o2.overrides[0].color = ImVec4(0, 0, 0, 1);
     CHECK(o2 != o);
+}
+
+TEST_CASE("Appearance::State survives an AppConfig round-trip") {
+    EnsureContext();
+
+    State original;
+    original.fontPath   = "C:/Windows/Fonts/consola.ttf";
+    original.fontSizePt = 17.0f;
+    original.userScale  = 1.35f;
+    original.accent     = ImVec4(0.2f, 0.4f, 0.6f, 1.0f);
+    original.mode       = ThemeMode::Light;
+
+    // Through the in-memory mapping...
+    Onyx::Services::AppConfig cfg;
+    cfg.setAppearanceState(original);
+    CHECK(cfg.appearanceState() == original);
+
+    // ...and through the file, which is what actually has to survive a restart.
+    // A field added to State that nobody persisted fails right here.
+    const auto path =
+        (std::filesystem::temp_directory_path() / "onyx_appearance_roundtrip.toml").string();
+    cfg.save(path);
+
+    const Onyx::Services::AppConfig reloaded = Onyx::Services::AppConfig::load(path);
+    const State back = reloaded.appearanceState();
+
+    CHECK(back.fontPath == original.fontPath);
+    CHECK(back.fontSizePt == doctest::Approx(original.fontSizePt));
+    CHECK(back.userScale == doctest::Approx(original.userScale));
+    CHECK(back.accent.x == doctest::Approx(original.accent.x));
+    CHECK(back.accent.z == doctest::Approx(original.accent.z));
+    CHECK(back.mode == original.mode);
+    CHECK(back == original);
+
+    std::filesystem::remove(path);
 }

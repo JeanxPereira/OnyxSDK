@@ -213,13 +213,7 @@ void Window::initImGui() {
         env.systemPrefersDark = (Onyx::Theme::GetEffectiveMode() != Onyx::Theme::ThemeMode::Light);
         Onyx::Appearance::SetEnvironment(env);
 
-        Onyx::Appearance::State state;
-        state.fontPath   = m_config.fontPath;
-        state.fontSizePt = m_config.fontSize;
-        state.userScale  = m_config.uiScale;
-        state.accent     = m_config.getAccent();
-        state.mode       = (Onyx::Theme::ThemeMode)m_config.themeMode;
-        Onyx::Appearance::Set(state);
+        Onyx::Appearance::Set(m_config.appearanceState());
 
         // Apply now so frame 1 already has the house metrics. The font list is
         // not populated yet, so this commit skips the atlas; App::init fills in

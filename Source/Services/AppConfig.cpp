@@ -9,6 +9,30 @@
 
 namespace Onyx::Services {
 
+// ── Appearance mapping ────────────────────────────────────────────────────
+
+Onyx::Appearance::State AppConfig::appearanceState() const {
+    Onyx::Appearance::State s;
+    s.fontPath   = fontPath;
+    s.fontSizePt = fontSize;
+    s.userScale  = uiScale;
+    s.accent     = getAccent();
+    s.mode       = static_cast<Onyx::Theme::ThemeMode>(themeMode);
+    return s;
+}
+
+void AppConfig::setAppearanceState(const Onyx::Appearance::State &s) {
+    fontPath  = s.fontPath;
+    fontSize  = s.fontSizePt;
+    uiScale   = s.userScale;
+    accentR   = s.accent.x;
+    accentG   = s.accent.y;
+    accentB   = s.accent.z;
+    accentA   = s.accent.w;
+    themeMode = static_cast<uint8_t>(s.mode);
+}
+
+
 static AppConfig* s_instance = nullptr;
 
 AppConfig* AppConfig::Get() { return s_instance; }
