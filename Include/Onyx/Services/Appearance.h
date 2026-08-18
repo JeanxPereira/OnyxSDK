@@ -36,13 +36,13 @@ struct ColorOverride {
 struct State {
     // Type
     std::string fontPath;               // "" = the bundled default (see Environment)
-    float       fontSizePt = 14.0f;     // logical size, independent of scale/DPI
+    float       fontSizePt = 15.0f;     // logical size, independent of scale/DPI
 
     // Metrics
-    float       userScale  = 1.1f;      // clamped to [kMinScale, kMaxScale]
+    float       userScale  = 1.0f;      // clamped to [kMinScale, kMaxScale]
 
     // Colour
-    ImVec4                     accent = {0.88f, 0.15f, 0.15f, 1.0f};
+    ImVec4                     accent = {0.282f, 0.173f, 0.398f, 1.0f};
     Theme::ThemeMode           mode   = Theme::ThemeMode::System;
     std::vector<ColorOverride> overrides;
 };

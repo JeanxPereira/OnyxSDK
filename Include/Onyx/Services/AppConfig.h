@@ -22,9 +22,10 @@ struct AppConfig {
   std::string windowTitle = "Onyx Toolkit";
 
   // Accent color (ImGuiCol_ButtonActive / backdrop)
-  float accentR = 0.880f; // default Custom Top Red
-  float accentG = 0.150f;
-  float accentB = 0.150f;
+  // Factory palette, tuned in the UI Gallery and adopted as the project default.
+  float accentR = 0.282f;
+  float accentG = 0.173f;
+  float accentB = 0.398f;
   float accentA = 1.000f;
 
   // Theme mode: 0 = Dark (default), 1 = Light, 2 = System (resolves at apply
@@ -41,8 +42,8 @@ struct AppConfig {
   std::vector<CustomPreset> customPresets;
 
   // UI scale + font size in pixels (synced with SettingsWindow)
-  float uiScale = 1.1f;   // house default: 1.0 reads a touch cramped
-  float fontSize = 14.0f;  // actual font pixel size (was fontScale in v5)
+  float uiScale = 1.0f;
+  float fontSize = 15.0f;  // actual font pixel size (was fontScale in v5)
   std::string fontPath = "";
 
   // Window decoration mode
