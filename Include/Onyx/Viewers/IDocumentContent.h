@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <string>
 
 
@@ -23,7 +23,7 @@ public:
     // composite document like MapViewer that wraps a Viewport3D inside.
     virtual Viewport3D* GetEmbeddedViewport() { return nullptr; }
 
-    // Opcional: para permitir fechar a aba via cÃ³digo
+    // Opcional: para permitir fechar a aba via código
     virtual bool IsOpen() const { return m_isOpen; }
     virtual void SetOpen(bool open) { m_isOpen = open; }
 

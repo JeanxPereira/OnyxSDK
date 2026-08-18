@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <Onyx/Parsers/AnimationData.h>
 #include <Onyx/Parsers/ObjectData.h>
 #include <glm/glm.hpp>

@@ -1,6 +1,6 @@
-﻿#pragma once
+#pragma once
 
-// â”€â”€ Umbrella header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Umbrella header ───────────────────────────────────────────────────────
 // Provides all UI helper functions through focused sub-headers.
 // Existing #include "UIHelpers.h" call sites continue to work unchanged.
 
@@ -12,11 +12,11 @@ using Onyx::App::FormatBytes;
 using Onyx::App::FormatNum;
 using Onyx::App::MatchesFilter;
 
-// TypeId â†’ visual mapping (TypeName, ColorForType, IconForType, SkinModeName)
+// TypeId → visual mapping (TypeName, ColorForType, IconForType, SkinModeName)
 #include <Onyx/App/TypeVisuals.h>
 
-// NOTE: Role â†’ visual mapping (ColorForRole/IconForRole) is GOWR-specific and
-// lives in the app (ui/RoleVisuals.h). It is deliberately NOT pulled in here â€”
+// NOTE: Role → visual mapping (ColorForRole/IconForRole) is GOWR-specific and
+// lives in the app (ui/RoleVisuals.h). It is deliberately NOT pulled in here —
 // this umbrella is engine-side and must stay game-agnostic. App TUs that need
 // role visuals include "ui/RoleVisuals.h" directly.
 

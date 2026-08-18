@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <Onyx/Viewers/IDocumentContent.h>
 #include <Onyx/Vfs/IFile.h>
@@ -23,7 +23,7 @@ extern "C" {
 
 namespace Onyx::Viewers {
 
-// â”€â”€â”€ Thread-Safe Queue â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Thread-Safe Queue ──────────────────────────────────────────────────────
 template <typename T>
 class ThreadSafeQueue {
 public:
@@ -79,7 +79,7 @@ private:
     std::condition_variable m_cond;
 };
 
-// â”€â”€â”€ Custom structs for queue items â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Custom structs for queue items ──────────────────────────────────────────
 struct PacketData {
     AVPacket* pkt = nullptr; // We'll manage allocation manually or via wrappers
 };
@@ -91,7 +91,7 @@ struct FrameData {
     std::vector<uint8_t> pixels; // RGBA pixels
 };
 
-// â”€â”€â”€ Simple Audio Ring Buffer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Simple Audio Ring Buffer ────────────────────────────────────────────────
 class AudioRingBuffer {
 public:
     AudioRingBuffer(size_t capacity = 1024 * 1024) : m_buffer(capacity), m_capacity(capacity) {}
@@ -108,14 +108,14 @@ private:
     mutable std::mutex m_mutex;
 };
 
-// â”€â”€â”€ Playback State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Playback State ─────────────────────────────────────────────────────────
 enum class PlayState {
     Playing,
     Paused,
     Stopped
 };
 
-// â”€â”€â”€ VideoPlayer 2.0 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── VideoPlayer 2.0 ────────────────────────────────────────────────────────
 class VideoPlayer : public IDocumentContent {
 public:
     VideoPlayer(const std::string& name, std::shared_ptr<Vfs::IFile> file);

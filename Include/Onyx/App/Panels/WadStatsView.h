@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <Onyx/App/IPanel.h>
 #include <vector>
 #include <string>

@@ -1,4 +1,4 @@
-﻿#include <glad/glad.h>
+#include <glad/glad.h>
 #include <Onyx/Rendering/GridRenderer.h>
 #include <Onyx/Rendering/ShaderManager.h>
 #include <Onyx/Services/Logger.h>

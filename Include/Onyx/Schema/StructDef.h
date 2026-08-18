@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include <Onyx/Schema/DataSchema.h>
 #include <vector>
 #include <string>

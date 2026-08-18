@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "imgui.h"
 #include <Onyx/App/PanelRegistry.h>
 
@@ -12,6 +12,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 
 namespace Onyx::App {
 
@@ -35,7 +36,11 @@ public:
     // Minimal accessor the registrar uses to add a (game) panel.
     void addPanel(std::unique_ptr<IPanel> panel) { m_panels.add(std::move(panel)); }
 
-    // Frame phases â€” called by Window
+    // Show/hide a registered panel by name; false if no such panel. Lets an app
+    // open e.g. the "UI Gallery" from a command-line flag or its own menu.
+    bool setPanelVisible(std::string_view name, bool visible);
+
+    // Frame phases — called by Window
     void frameBegin();
     void frame();
     void frameEnd();

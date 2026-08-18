@@ -1,4 +1,5 @@
 #pragma once
+#include <Onyx/Services/Appearance.h>
 #include "imgui.h"
 #include <filesystem>
 #include <string>
@@ -21,9 +22,10 @@ struct AppConfig {
   std::string windowTitle = "Onyx Toolkit";
 
   // Accent color (ImGuiCol_ButtonActive / backdrop)
-  float accentR = 0.880f; // default Custom Top Red
-  float accentG = 0.150f;
-  float accentB = 0.150f;
+  // Factory palette, tuned in the UI Gallery and adopted as the project default.
+  float accentR = 0.282f;
+  float accentG = 0.173f;
+  float accentB = 0.398f;
   float accentA = 1.000f;
 
   // Theme mode: 0 = Dark (default), 1 = Light, 2 = System (resolves at apply
@@ -41,7 +43,7 @@ struct AppConfig {
 
   // UI scale + font size in pixels (synced with SettingsWindow)
   float uiScale = 1.0f;
-  float fontSize = 14.0f;  // actual font pixel size (was fontScale in v5)
+  float fontSize = 15.0f;  // actual font pixel size (was fontScale in v5)
   std::string fontPath = "";
 
   // Window decoration mode
@@ -89,6 +91,21 @@ struct AppConfig {
 
   // Get accent color as ImVec4 (theme application is handled by ThemeManager)
   ImVec4 getAccent() const { return ImVec4(accentR, accentG, accentB, accentA); }
+
+  // Per-slot colour overrides from the theme editor. Persisted so a tuned
+  // palette survives a restart, like every other appearance input.
+  struct ColorOverrideEntry {
+    uint16_t slot = 0;
+    float r = 0.0f, g = 0.0f, b = 0.0f, a = 1.0f;
+  };
+  std::vector<ColorOverrideEntry> colorOverrides;
+
+  // ── Appearance ────────────────────────────────────────────────────────────
+  // The config is the on-disk form of Appearance::State. Both directions live
+  // here so the mapping exists once: a field added to State that nobody
+  // persists fails the round-trip test rather than shipping.
+  Onyx::Appearance::State appearanceState() const;
+  void setAppearanceState(const Onyx::Appearance::State &s);
 };
 
 } // namespace Onyx::Services

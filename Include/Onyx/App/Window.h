@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <GLFW/glfw3.h>
 #include <vector>
@@ -34,40 +34,37 @@ public:
     bool isBorderless() const { return !m_config.nativeDecorations; }
 
 private:
-    // â”€â”€ Platform-specific (implemented per OS in window/platform/) â”€â”€
+    // ── Platform-specific (implemented per OS in window/platform/) ──
     void configureGLFW();
     void setupNativeWindow();
     void beginNativeWindowFrame();
     void endNativeWindowFrame();
 
-    // â”€â”€ Lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Lifecycle ────────────────────────────────────────────────────
     void initGLFW();
     void initImGui();
     void exitGLFW();
     void exitImGui();
 
-    // â”€â”€ Frame phases â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Frame phases ─────────────────────────────────────────────────
     void frameBegin();
     void frame();
     void frameEnd();
 
-    // â”€â”€ Optimizations â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    bool shouldRender();   // vtx buffer diff â€” skip GPU when idle
-    void unlockFrameRate();
+    // ── Optimizations ────────────────────────────────────────────────
+    // Frame pacing lives in Onyx::Frame now: clients that animate say so, rather
+    // than the window guessing from vertex-buffer diffs and input state.
 
-    // â”€â”€ Members â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Members ──────────────────────────────────────────────────────
     GLFWwindow*  m_window   = nullptr;
     App                         m_app;
     Onyx::Services::AppConfig   m_config;
 
     // Frame rate control
-    bool   m_shouldUnlockFrameRate = false;
     double m_fpsUnlockedEndTime    = 0.0;
     bool   m_firstFrame            = true;
 
     // Vtx buffer diff
-    std::vector<uint8_t> m_previousVtxData;
-    size_t               m_previousVtxDataSize = 0;
 
     // Config path
     std::string m_configPath;

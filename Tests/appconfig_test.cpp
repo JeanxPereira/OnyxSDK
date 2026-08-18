@@ -66,5 +66,6 @@ TEST_CASE("AppConfig missing file yields defaults") {
     CHECK(def.windowW == 1280);
     CHECK(def.windowH == 720);
     CHECK(def.uiScale == doctest::Approx(1.0f));
+    CHECK(def.fontSize == doctest::Approx(15.0f));   // project defaults, not ImGui's
     CHECK(static_cast<int>(def.themeMode) == 0);
 }
