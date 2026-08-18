@@ -368,9 +368,8 @@ onyx_apply_common(Onyx_Render)
 target_link_libraries(Onyx_Render PUBLIC Onyx_Core glad)
 
 # ── Onyx::Shell — the ImGui application framework ────────────────────────
-# Carries MEDIA sources until Task 5 gives the FFmpeg edge its own target.
 add_library(Onyx_Shell STATIC
-    ${ONYX_SHELL_SOURCES} ${ONYX_MEDIA_SOURCES}
+    ${ONYX_SHELL_SOURCES}
     "${ONYX_ICON_TABLE}")
 add_library(Onyx::Shell ALIAS Onyx_Shell)
 onyx_apply_common(Onyx_Shell)
@@ -384,8 +383,19 @@ target_link_libraries(Onyx_Shell PUBLIC
     implot_lib
     imgui_color_text_edit
     glfw
-    miniaudio
-    ffmpeg_lib)
+    miniaudio)
+
+# ── Onyx::Media — sole owner of the FFmpeg edge ──────────────────────────
+# Nothing in Shell references VideoPlayer symbols (verified 2026-08-18);
+# only consumers instantiate it, so OFF simply drops the code and the DLLs.
+option(ONYX_COMPONENT_MEDIA "Build the video player component (FFmpeg)" ON)
+if(ONYX_COMPONENT_MEDIA)
+    add_library(Onyx_Media STATIC ${ONYX_MEDIA_SOURCES})
+    add_library(Onyx::Media ALIAS Onyx_Media)
+    onyx_apply_common(Onyx_Media)
+    target_link_libraries(Onyx_Media PUBLIC Onyx_Core imgui_lib miniaudio ffmpeg_lib)
+    target_link_libraries(Onyx_Shell PUBLIC Onyx_Media)
+endif()
 
 # ── Onyx::Onyx — the aggregate consumers link ─────────────────────────────
 # Tests/ and GoWToolkit keep linking one name; the split stays invisible to
