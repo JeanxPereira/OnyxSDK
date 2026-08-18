@@ -159,8 +159,9 @@ public:
     // unsubscribed handler stops immediately, including for events already
     // queued in this same batch — if handler A unsubscribes handler B, B is
     // skipped from that point on, even for the very event A is currently
-    // being invoked for. Defined out-of-line in EventBus.cpp (it is not a
-    // template).
+    // being invoked for. A handler that throws is caught and logged; the
+    // remaining handlers, and remaining queued events, still run. Defined
+    // out-of-line in EventBus.cpp (it is not a template).
     void Pump();
 
     // Number of events queued and not yet drained by a Pump() call.

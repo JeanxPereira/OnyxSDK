@@ -195,7 +195,14 @@ void JobQueue::Pump() {
     // queue mutex is taken.
     for (auto& job : finished) {
         if (job->onDone) {
-            job->onDone();
+            // A throwing Done must not skip the remaining drained
+            // callbacks -- same containment policy as a throwing Work.
+            try {
+                job->onDone();
+            } catch (...) {
+                LOG_ERR("[Jobs] Done callback on lane %llu threw; continuing drain",
+                        (unsigned long long)job->lane);
+            }
         }
     }
 }

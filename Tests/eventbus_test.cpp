@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -88,4 +89,16 @@ TEST_CASE("EventBus Pump stops a handler unsubscribed by an earlier handler in t
 
     CHECK(aCalls == 1);
     CHECK(bCalls == 0);   // B must never fire, even for this same-batch event
+}
+
+TEST_CASE("EventBus Pump contains a throwing handler so later handlers still run") {
+    Onyx::Services::EventBus bus;
+    bool secondRan = false;
+    auto s1 = bus.On<EvA>([&](const EvA&) -> void { throw std::runtime_error("boom"); });
+    auto s2 = bus.On<EvA>([&](const EvA&) { secondRan = true; });
+
+    bus.Post(EvA{1});
+    bus.Pump();
+
+    CHECK(secondRan);
 }

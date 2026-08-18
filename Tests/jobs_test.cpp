@@ -72,3 +72,15 @@ TEST_CASE("A throwing Work neither crashes nor wedges its lane") {
     CHECK(doneRan);       // failed job still completes through Pump
     CHECK(secondRan);     // lane was released, next job ran
 }
+
+TEST_CASE("JobQueue Pump contains a throwing Done callback so later Done callbacks still run") {
+    Onyx::Services::JobQueue q(2);
+    std::atomic<bool> secondDoneRan{false};
+    q.Submit(30, [](Onyx::Services::Progress&) {},
+             []{ throw std::runtime_error("boom"); });
+    q.Submit(31, [](Onyx::Services::Progress&) {},
+             [&]{ secondDoneRan = true; });
+    while (q.PendingCallbacks() < 2) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    q.Pump();
+    CHECK(secondDoneRan);   // the first Done's throw must not skip the second
+}

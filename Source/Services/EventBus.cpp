@@ -1,5 +1,7 @@
 #include <Onyx/Services/EventBus.h>
 
+#include <Onyx/Services/Logger.h>
+
 #include <algorithm>
 
 namespace Onyx::Services {
@@ -76,7 +78,13 @@ void EventBus::Pump() {
                 invoke = hit->invoke;
             }
 
-            invoke(queued.data.get());
+            // A throwing handler must not skip the remaining handlers for
+            // this event, nor the remaining queued events.
+            try {
+                invoke(queued.data.get());
+            } catch (...) {
+                LOG_ERR("[EventBus] handler threw during Pump; continuing");
+            }
         }
     }
 }
