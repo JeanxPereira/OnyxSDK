@@ -128,10 +128,27 @@ ParseResult OnyxBoxModule::ParseContainer(ContainerContext& ctx) {
         return ParseResult{false};
     }
 
+    const uint64_t fileSize = file.Size();
+
+    // Never trust the raw count for allocation: a corrupt/hostile header can
+    // claim billions of entries. Clamp to what the file could physically
+    // hold (the smallest possible packed entry is nameLen(2) + kind(1) +
+    // payloadOffset(4) + payloadSize(4) = 11 bytes, with an empty name)
+    // before reserving.
+    constexpr uint32_t kMinEntrySize = 2 + 1 + 4 + 4;
+    const uint32_t maxPossibleEntries =
+        uint32_t(std::min<uint64_t>(fileSize / kMinEntrySize, UINT32_MAX));
+    if (count > maxPossibleEntries) {
+        ctx.diags.Report(Diag{Severity::Warning, "obx.toc.count-clamped",
+                               "TOC count " + std::to_string(count) +
+                                   " exceeds what the file could hold; clamped to " +
+                                   std::to_string(maxPossibleEntries),
+                               std::nullopt});
+        count = maxPossibleEntries;
+    }
+
     std::vector<TocEntry> toc;
     toc.reserve(count);
-
-    const uint64_t fileSize = file.Size();
 
     for (uint32_t i = 0; i < count; ++i) {
         uint16_t nameLen = 0;
@@ -221,9 +238,12 @@ std::unique_ptr<Onyx::Parsers::TextureData> OnyxBoxModule::DecodeImage(DecodeCon
     Onyx::Vfs::IFile& file = *ctx.doc.file;
     const uint64_t fileSize = file.Size();
 
-    if (uint64_t(te->payloadOffset) + 4 > fileSize) {
+    // The entry's own declared range must fit in the file, and must be at
+    // least large enough to hold the width/height header.
+    if (uint64_t(te->payloadOffset) + uint64_t(te->payloadSize) > fileSize ||
+        te->payloadSize < 4) {
         ctx.diags.Report(Diag{Severity::Error, "obx.image.range",
-                               "image header out of bounds", std::nullopt});
+                               "image payload out of bounds", std::nullopt});
         return nullptr;
     }
 
@@ -235,10 +255,19 @@ std::unique_ptr<Onyx::Parsers::TextureData> OnyxBoxModule::DecodeImage(DecodeCon
         return nullptr;
     }
 
-    const uint64_t pixelBytes = uint64_t(width) * uint64_t(height) * 4;
-    if (uint64_t(te->payloadOffset) + 4 + pixelBytes > fileSize) {
-        ctx.diags.Report(Diag{Severity::Error, "obx.image.range",
-                               "pixel data out of bounds", std::nullopt});
+    // Never trust width/height to size the pixel read until they are
+    // checked against the TOC's own declared payloadSize: a lying header
+    // (e.g. claiming 8x8 inside a 10-byte payload) must not be allowed to
+    // read past this entry's declared range into a neighboring entry's
+    // bytes -- that range was only verified against the *file*, not
+    // against what this specific entry says it owns.
+    const uint64_t declaredPixelBytes = uint64_t(width) * uint64_t(height) * 4;
+    const uint64_t expectedSize = 4 + declaredPixelBytes;
+    if (expectedSize != uint64_t(te->payloadSize)) {
+        ctx.diags.Report(Diag{Severity::Error, "obx.image.size-mismatch",
+                               ctx.entry.name + ": declared " + std::to_string(width) +
+                                   "x" + std::to_string(height) + " exceeds payload",
+                               std::nullopt});
         return nullptr;
     }
 
@@ -246,8 +275,9 @@ std::unique_ptr<Onyx::Parsers::TextureData> OnyxBoxModule::DecodeImage(DecodeCon
     tex->name = ctx.entry.name;
     tex->width = width;
     tex->height = height;
-    tex->pixels.resize(pixelBytes);
-    if (pixelBytes > 0 && file.Read(tex->pixels.data(), pixelBytes) != pixelBytes) {
+    tex->pixels.resize(declaredPixelBytes);
+    if (declaredPixelBytes > 0 &&
+        file.Read(tex->pixels.data(), declaredPixelBytes) != declaredPixelBytes) {
         ctx.diags.Report(Diag{Severity::Error, "obx.image.truncated",
                                "pixel data truncated", std::nullopt});
         return nullptr;

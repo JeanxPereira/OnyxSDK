@@ -116,3 +116,114 @@ TEST_CASE("onyxbox types are minted in the obx namespace") {
     ws.AddModule(std::make_unique<OnyxBox::OnyxBoxModule>());
     CHECK(catalog.Find("obx.image").valid());
 }
+
+TEST_CASE("onyxbox clamps a lying TOC count instead of trusting it for allocation") {
+    // Header claims ~4 billion entries; the file holds none. A raw
+    // toc.reserve(count) would attempt a wild allocation -- the count must
+    // be clamped to what the file could physically hold before reserving.
+    std::vector<uint8_t> buf;
+    buf.insert(buf.end(), {uint8_t('O'), uint8_t('B'), uint8_t('X'), uint8_t('1')});
+    PutU32LE(buf, 0xFFFFFFF0u);
+
+    auto path = std::filesystem::temp_directory_path() / "onyx_onyxbox_lying_count.obx";
+    {
+        std::ofstream f(path, std::ios::binary);
+        f.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
+    }
+
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(std::make_unique<OnyxBox::OnyxBoxModule>());
+
+    auto id = ws.Open(path);
+    REQUIRE(id != 0);
+    auto* doc = ws.Get(id);
+    REQUIRE(doc);
+    CHECK(doc->roots.empty());  // no room in the file for even one entry
+
+    auto diags = doc->diags.Drain();
+    bool sawClampDiag = false;
+    for (auto& d : diags) {
+        if (d.code == "obx.toc.count-clamped") {
+            sawClampDiag = true;
+            CHECK(d.severity == Onyx::Services::Severity::Warning);
+        }
+    }
+    CHECK(sawClampDiag);
+
+    ws.Close(id);
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("onyxbox rejects an image whose payloadSize doesn't match the declared WxH") {
+    // "liar": kind=1, payloadSize says 10 bytes, but the embedded header
+    // claims 8x8 (needs 4 + 256 = 260 bytes). A "safe" text entry follows
+    // immediately after, plus trailing padding, so the *file* is large
+    // enough that a fileSize-only bounds check (the old bug) would happily
+    // let the pixel read run past the declared 10-byte payload and return
+    // the neighbor's (and padding's) bytes as pixels.
+    const std::string safeText = "SAFE_TEXT";
+
+    // magic(4) + count(4) + 2 * (nameLen(2) + name(4) + kind(1) + offset(4) + size(4))
+    const uint32_t headerSize = 4 + 4 + 2 * (2 + 4 + 1 + 4 + 4);
+    const uint32_t liarOffset = headerSize;
+    const uint32_t liarSize = 10;
+    const uint32_t safeOffset = liarOffset + liarSize;
+    const uint32_t safeSize = uint32_t(safeText.size());
+    const uint32_t padding = 512;  // pushes fileSize well past liarOffset + 260
+
+    std::vector<uint8_t> buf;
+    buf.insert(buf.end(), {uint8_t('O'), uint8_t('B'), uint8_t('X'), uint8_t('1')});
+    PutU32LE(buf, 2);
+    PutTocHeader(buf, "liar", 1, liarOffset, liarSize);
+    PutTocHeader(buf, "safe", 2, safeOffset, safeSize);
+
+    PutU16LE(buf, 8);  // width  -- claims 8x8 ...
+    PutU16LE(buf, 8);  // height -- ... which needs 260 bytes, not 10
+    for (int i = 0; i < 6; ++i) buf.push_back(uint8_t(0xAA));  // fills out liarSize
+
+    buf.insert(buf.end(), safeText.begin(), safeText.end());
+    for (uint32_t i = 0; i < padding; ++i) buf.push_back(uint8_t(0xEE));
+
+    auto path = std::filesystem::temp_directory_path() / "onyx_onyxbox_lying_image.obx";
+    {
+        std::ofstream f(path, std::ios::binary);
+        f.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
+    }
+
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(std::make_unique<OnyxBox::OnyxBoxModule>());
+
+    auto id = ws.Open(path);
+    REQUIRE(id != 0);
+    auto* doc = ws.Get(id);
+    REQUIRE(doc);
+    REQUIRE(doc->roots.size() == 2);
+    doc->diags.Drain();  // discard any parse-time diags before asserting on decode diags
+
+    auto& reg = ws.Decoders();
+    Onyx::Services::Progress prog;
+    Onyx::Modules::DecodeContext ctx{*doc, doc->roots[0], doc->diags, prog};
+    auto img = reg.DecodeImage(ctx);
+    CHECK(img == nullptr);
+
+    auto diags = doc->diags.Drain();
+    bool sawMismatch = false;
+    for (auto& d : diags) {
+        if (d.code == "obx.image.size-mismatch") {
+            sawMismatch = true;
+            CHECK(d.severity == Onyx::Services::Severity::Error);
+            CHECK(d.message.find("liar") != std::string::npos);
+        }
+    }
+    CHECK(sawMismatch);
+
+    // The neighboring entry's bytes are untouched by the failed image
+    // decode -- decoding it still yields its own real text.
+    Onyx::Modules::DecodeContext ctx2{*doc, doc->roots[1], doc->diags, prog};
+    auto txt = reg.DecodeText(ctx2);
+    REQUIRE(txt);
+    CHECK(txt->text == safeText);
+
+    ws.Close(id);
+    std::filesystem::remove(path);
+}
