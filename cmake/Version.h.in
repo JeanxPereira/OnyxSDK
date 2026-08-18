@@ -1,0 +1,16 @@
+#pragma once
+
+// Generated from cmake/Version.h.in -- the version lives in the top-level
+// project() call, so CMake and C++ can never disagree about it.
+
+#define ONYX_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define ONYX_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define ONYX_VERSION_PATCH @PROJECT_VERSION_PATCH@
+#define ONYX_VERSION_STRING "@PROJECT_VERSION@"
+
+namespace Onyx {
+
+// e.g. "0.6.0" -- handy for About boxes and bug reports.
+inline constexpr const char* Version() { return ONYX_VERSION_STRING; }
+
+} // namespace Onyx

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(OnyxSDK LANGUAGES CXX C)
+project(OnyxSDK VERSION 0.6.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -130,9 +130,18 @@ target_compile_features(imgui_color_text_edit PUBLIC cxx_std_17)
 add_library(ffmpeg_lib INTERFACE)
 
 if(WIN32)
+    # Pinned to a dated (immutable) BtbN autobuild rather than the rolling
+    # `latest` tag -- assets under `latest` are deleted as upstream moves on,
+    # which 404s the configure step of every existing checkout. Override with
+    # -DONYX_FFMPEG_WIN_URL=<zip> to test a newer build; keep the archive
+    # layout (ffmpeg-*/include, /lib, /bin) the same.
+    set(ONYX_FFMPEG_WIN_URL
+        "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-03-31-13-11/ffmpeg-n7.1.3-43-g5a1f107b4c-win64-gpl-shared-7.1.zip"
+        CACHE STRING "FFmpeg 7.x win64 gpl-shared archive used by Onyx")
+
     FetchContent_Declare(
         ffmpeg_prebuilt
-        URL      "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-gpl-shared-7.1.zip"
+        URL      "${ONYX_FFMPEG_WIN_URL}"
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_MakeAvailable(ffmpeg_prebuilt)
@@ -193,6 +202,31 @@ FetchContent_Declare(tomlplusplus
     SOURCE_SUBDIR  _skip_add_subdirectory)
 FetchContent_MakeAvailable(tomlplusplus)
 
+# ── Generated version header ──────────────────────────────────────────────
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Version.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/Onyx/Version.h"
+    @ONLY)
+
+# ── Generated SF Symbols icon table ───────────────────────────────────────
+# The name->glyph table the icon browser walks is derived from SFSymbols.h at
+# build time rather than kept as a hand-maintained copy (which used to be 6.6k
+# lines inside FontDebuggerWindow.cpp, and drifted whenever the font was
+# regenerated).
+set(ONYX_ICON_TABLE "${CMAKE_CURRENT_BINARY_DIR}/generated/Onyx/Fonts/SFSymbolsTable.inl")
+add_custom_command(
+    OUTPUT  "${ONYX_ICON_TABLE}"
+    COMMAND ${CMAKE_COMMAND}
+            -DHEADER=${CMAKE_CURRENT_SOURCE_DIR}/Include/Onyx/Fonts/SFSymbols.h
+            -DOUTPUT=${ONYX_ICON_TABLE}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateIconTable.cmake
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Include/Onyx/Fonts/SFSymbols.h"
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateIconTable.cmake"
+    COMMENT "Generating SF Symbols icon table"
+    VERBATIM)
+set_source_files_properties("${ONYX_ICON_TABLE}" PROPERTIES
+    GENERATED TRUE HEADER_FILE_ONLY TRUE)
+
 # ── The Onyx engine library ────────────────────────────────────────────────
 file(GLOB_RECURSE ONYX_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp"
@@ -205,11 +239,12 @@ if(APPLE)
     list(APPEND ONYX_SOURCES ${ONYX_OBJC})
 endif()
 
-add_library(Onyx STATIC ${ONYX_SOURCES})
+add_library(Onyx STATIC ${ONYX_SOURCES} "${ONYX_ICON_TABLE}")
 add_library(Onyx::Onyx ALIAS Onyx)
 
 target_include_directories(Onyx
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/Include
+            ${CMAKE_CURRENT_BINARY_DIR}/generated   # Onyx/Version.h
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source
             ${tomlplusplus_SOURCE_DIR}/include
 )
@@ -235,9 +270,9 @@ endif()
 target_compile_definitions(Onyx PUBLIC
     $<$<PLATFORM_ID:Windows>:GLFW_EXPOSE_NATIVE_WIN32>
     $<$<PLATFORM_ID:Darwin>:GLFW_EXPOSE_NATIVE_COCOA>
-    $<$<PLATFORM_ID:Windows>:GOWTOOL_OS_WINDOWS>
-    $<$<PLATFORM_ID:Darwin>:GOWTOOL_OS_MACOS>
-    $<$<PLATFORM_ID:Linux>:GOWTOOL_OS_LINUX>
+    $<$<PLATFORM_ID:Windows>:ONYX_OS_WINDOWS>
+    $<$<PLATFORM_ID:Darwin>:ONYX_OS_MACOS>
+    $<$<PLATFORM_ID:Linux>:ONYX_OS_LINUX>
     $<$<PLATFORM_ID:Windows>:NOMINMAX>
 )
 
