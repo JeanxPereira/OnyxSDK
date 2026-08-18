@@ -86,6 +86,10 @@ Window::~Window() {
             glfwGetWindowSize(m_window, &m_config.windowW, &m_config.windowH);
         }
 
+        // Panels no longer write appearance fields into the config; the owner
+        // does, once, here. One less thing every slider has to remember.
+        m_config.setAppearanceState(Onyx::Appearance::Get());
+
         m_config.save(m_configPath);
     }
 

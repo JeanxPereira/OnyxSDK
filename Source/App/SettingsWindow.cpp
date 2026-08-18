@@ -3,6 +3,7 @@
 #include <Onyx/Services/PathUtils.h>
 #include "Fonts/FontManager.h"
 #include "Services/ScaleManager.h"
+#include <Onyx/Services/Appearance.h>
 #include "imgui.h"
 #include "imgui_internal.h"
 #include <Onyx/Rendering/ShaderManager.h>
@@ -43,6 +44,20 @@ static void EndSubWindow() {
 // ── Init ────────────────────────────────────────────────────────────────────
 
 namespace Onyx::App {
+
+// Font changes are one intent, not three calls: pick the entry, hand the path
+// and size to the owner, let Commit() rebake at frame end if it must.
+void SettingsWindow::ApplyFontChoice(int fontIndex, float sizePt) {
+  const auto &fonts = Onyx::Fonts::GetFontList();
+  std::string path;
+  if (fontIndex >= 0 && fontIndex < (int)fonts.size())
+    path = fonts[fontIndex].path;
+
+  Onyx::Appearance::Mutate([&](Onyx::Appearance::State &st) {
+    st.fontPath   = path;
+    st.fontSizePt = sizePt;
+  });
+}
 
 void SettingsWindow::Init() {
   // Font list is now managed by Onyx::Fonts (populated in App::init)
@@ -199,9 +214,9 @@ void SettingsWindow::DrawInterfaceCategory() {
     float uiScale = m_uiScale;
     if (ImGui::SliderFloat("UI Scale", &uiScale, 0.5f, 3.0f, "%.2fx")) {
       if (uiScale != m_uiScale && uiScale > 0.1f) {
-        Onyx::Scale::SetUserScale(uiScale);
-        Onyx::Scale::ApplyStyleScale(uiScale);
-        Onyx::Theme::ApplyTheme(config->getAccent()); // reapply colors over reset style
+        Onyx::Appearance::Mutate([uiScale](Onyx::Appearance::State &st) {
+          st.userScale = uiScale;
+        });
         m_uiScale = uiScale;
         if (config)
           config->uiScale = uiScale;
@@ -218,9 +233,7 @@ void SettingsWindow::DrawInterfaceCategory() {
     ImGui::Spacing();
     auto preset = [&](const char *lbl, float t) {
       if (Onyx::App::Widgets::Button(lbl, ImVec2(50, 0))) {
-        Onyx::Scale::SetUserScale(t);
-        Onyx::Scale::ApplyStyleScale(t);
-        Onyx::Theme::ApplyTheme(config->getAccent());
+        Onyx::Appearance::Mutate([t](Onyx::Appearance::State &st) { st.userScale = t; });
         m_uiScale = t;
         if (config)
           config->uiScale = t;
@@ -275,8 +288,7 @@ void SettingsWindow::DrawInterfaceCategory() {
       // Rebuild when input is deactivated (Enter key or lost focus)
       if (m_fontSizeChanged && ImGui::IsItemDeactivatedAfterEdit()) {
         m_fontSizeChanged = false;
-        Onyx::Fonts::BuildAtlas(m_fontSelected, m_fontSize);
-        if (config) { config->fontSize = m_fontSize; config->fontPath = Onyx::Fonts::GetCurrentFontPath(); }
+        ApplyFontChoice(m_fontSelected, m_fontSize);
       }
     }
     ImGui::EndDisabled();
@@ -292,8 +304,7 @@ void SettingsWindow::DrawInterfaceCategory() {
 
     // Auto-rebuild on family change ───────────────────────────────
     if (familyChanged) {
-      Onyx::Fonts::BuildAtlas(m_fontSelected, m_fontSize);
-      if (config) { config->fontSize = m_fontSize; config->fontPath = Onyx::Fonts::GetCurrentFontPath(); }
+      ApplyFontChoice(m_fontSelected, m_fontSize);
     }
 
     ImGui::PopItemWidth();
