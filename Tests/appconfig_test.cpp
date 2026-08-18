@@ -65,6 +65,6 @@ TEST_CASE("AppConfig missing file yields defaults") {
     AppConfig def = AppConfig::load(missing);
     CHECK(def.windowW == 1280);
     CHECK(def.windowH == 720);
-    CHECK(def.uiScale == doctest::Approx(1.0f));
+    CHECK(def.uiScale == doctest::Approx(1.1f));   // house default, not 1.0
     CHECK(static_cast<int>(def.themeMode) == 0);
 }
