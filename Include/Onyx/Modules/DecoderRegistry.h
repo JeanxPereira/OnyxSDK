@@ -3,6 +3,7 @@
 #include <Onyx/Parsers/SceneNode.h>
 #include <Onyx/Parsers/TextureData.h>
 #include <Onyx/Types/TypeId.h>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>

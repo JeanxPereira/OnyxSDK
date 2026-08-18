@@ -1,6 +1,7 @@
 #pragma once
 #include <Onyx/Types/TypeRegistrar.h>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
