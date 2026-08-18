@@ -228,18 +228,118 @@ set_source_files_properties("${ONYX_ICON_TABLE}" PROPERTIES
     GENERATED TRUE HEADER_FILE_ONLY TRUE)
 
 # ── The Onyx engine library ────────────────────────────────────────────────
-file(GLOB_RECURSE ONYX_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp"
+# Every source is assigned to exactly one layer. The lists are the single
+# source of truth for the v1 target split (docs/design/2026-08-18-onyx-v1-
+# architecture.md, W1); the completeness check below fails the configure if
+# a file on disk belongs to no layer, so nothing can silently drop out of
+# the build the way a stale explicit list would.
+set(ONYX_CORE_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Audio/AdpcmDecoder.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Container/ChunkReader.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Container/ChunkSchema.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Container/ChunkTree.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Domain/MediaKind.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Schema/NodeInstance.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Schema/StructDef.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/AssetDatabase.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/AssetVisibility.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/FrameScheduler.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Logger.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Metrics.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/ProfileManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/RecentFiles.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/SessionLog.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/TaskManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Threading.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Types/TypeCatalog.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Types/TypeRegistry.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Vfs/IsoFile.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Vfs/IsoFileSystem.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Vfs/OsFile.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Vfs/TransformFile.cpp
 )
+
+set(ONYX_RENDER_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/AnimationPlayer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/Camera.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/GpuMesh.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/GridRenderer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/SceneRenderer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/ShaderManager.cpp
+)
+
+set(ONYX_MEDIA_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/VideoPlayer.cpp
+)
+
+set(ONYX_SHELL_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Api/ToolkitApi.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/ActiveAnimation.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/AnimationTimeline.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/App.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/AssetNodeRenderer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/FontDebuggerWindow.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/InfoTab.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/NativeMenuBar.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/AnimCurveView.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/CameraPanel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/Dopesheet.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/IsoBrowser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/PakBrowser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/UiGallery.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/WadStatsView.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Platform/NativeWindow_linux.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Platform/NativeWindow_windows.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Platform/SystemFileDialog.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Platform/Window_linux.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Platform/Window_windows.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/SettingsWindow.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/StatusBar.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/TitleBar.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/ViewerRegistry.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Widgets.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Window.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/WindowDecorator.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Fonts/FontManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Fonts/IconTable.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Platform/SystemTheme_linux.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Platform/SystemTheme_windows.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/AxisGizmo.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/AppConfig.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Appearance.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/ScaleManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/ThemeManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/DocumentWindow.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/ImageViewer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/TextEditorViewer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/Viewport3D.cpp
+)
+
 if(APPLE)
-    file(GLOB_RECURSE ONYX_OBJC CONFIGURE_DEPENDS
-        "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.mm"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.m"
-    )
-    list(APPEND ONYX_SOURCES ${ONYX_OBJC})
+    list(APPEND ONYX_SHELL_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Platform/NativeWindow_macos.mm
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Platform/Window_macos.mm
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Platform/macos_filedialog.m
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Platform/macos_menu.m
+        ${CMAKE_CURRENT_SOURCE_DIR}/Source/Platform/SystemTheme_macos.mm)
 endif()
 
-add_library(Onyx STATIC ${ONYX_SOURCES} "${ONYX_ICON_TABLE}")
+# Completeness check: a .cpp on disk that no layer claims is a configure
+# error, not a silent omission.
+file(GLOB_RECURSE _onyx_all_cpp CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp")
+set(_onyx_listed ${ONYX_CORE_SOURCES} ${ONYX_RENDER_SOURCES}
+                 ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES})
+foreach(_f ${_onyx_all_cpp})
+    if(NOT _f IN_LIST _onyx_listed)
+        message(FATAL_ERROR "Source file not assigned to a layer: ${_f}")
+    endif()
+endforeach()
+
+add_library(Onyx STATIC
+    ${ONYX_CORE_SOURCES} ${ONYX_RENDER_SOURCES}
+    ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES}
+    "${ONYX_ICON_TABLE}")
 add_library(Onyx::Onyx ALIAS Onyx)
 
 target_include_directories(Onyx
