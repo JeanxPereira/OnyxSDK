@@ -3,6 +3,7 @@
 #include <atomic>
 #include <chrono>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -57,4 +58,17 @@ TEST_CASE("Progress snapshots are consistent") {
     CHECK(snap.fraction == doctest::Approx(0.5f));
     CHECK(snap.label == "halfway");
     quit = true;
+}
+
+TEST_CASE("A throwing Work neither crashes nor wedges its lane") {
+    Onyx::Services::JobQueue q(1);
+    std::atomic<bool> doneRan{false}, secondRan{false};
+    q.Submit(9, [](Onyx::Services::Progress&) { throw std::runtime_error("boom"); },
+             [&]{ doneRan = true; });
+    q.Submit(9, [&](Onyx::Services::Progress&) { secondRan = true; });
+    while (!secondRan) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    while (q.PendingCallbacks() < 1) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    q.Pump();
+    CHECK(doneRan);       // failed job still completes through Pump
+    CHECK(secondRan);     // lane was released, next job ran
 }

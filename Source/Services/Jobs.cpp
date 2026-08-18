@@ -1,5 +1,7 @@
 #include <Onyx/Services/Jobs.h>
 
+#include <Onyx/Services/Logger.h>
+
 #include <algorithm>
 #include <utility>
 
@@ -153,8 +155,18 @@ void JobQueue::WorkerLoop() {
 
         // Run Work with no lock held — this is the whole point of the
         // pool, and holding the queue mutex here would serialize every
-        // lane against every other one.
-        job->work(job->progress);
+        // lane against every other one. Work is arbitrary user code;
+        // exceptions never cross a service boundary in this SDK, so a
+        // throw is contained here and the job still completes normally
+        // (done flag set, lane released, Done still queued for Pump) —
+        // a failed job must never wedge its lane or take down the
+        // process.
+        try {
+            job->work(job->progress);
+        } catch (...) {
+            LOG_ERR("[Jobs] job on lane %llu threw; treated as failed",
+                    (unsigned long long)lane);
+        }
         job->done.store(true, std::memory_order_release);
 
         {
