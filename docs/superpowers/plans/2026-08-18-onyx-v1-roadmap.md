@@ -18,20 +18,21 @@ M1 Targets ──► M2 Identity ──► M3 Modules ──► M4 Vulkan ──
 
 ## M0 — Oracle corpus (side-track, before M4)
 
-The GL renderer's reference output, produced by the GoWToolkit headless
-harness (`GoWTool render`), against which the Vulkan renderer is proven.
+The GL renderer's reference output against which the Vulkan renderer is
+proven. v1 is SDK-first (decision 2026-08-18: the GoWToolkit port follows
+v1 rather than gating it), so the corpus is **synthetic and SDK-side**: an
+oracle tool built on the GL SceneRenderer renders programmatic scenes — a
+skinned cube mid-pose, a PBR sphere grid with every texture role bound, an
+alpha-blend stack, a 200-joint palette — to PNG + per-batch JSON.
 
-- **Deliverables:** the harness finished (stdout capture fix in
-  `Source/main.cpp` console attach; CLI log sink so parser diagnostics are
-  visible headlessly); a fixed corpus list (scenes × 4 canonical views);
-  generated PNGs + per-batch JSON reports stored outside the repo,
-  referenced by env var.
+- **Deliverables:** the oracle tool (Examples/ or Tools/), the synthetic
+  corpus generator (deterministic, no game data), reference images
+  committed (small, synthetic — no licensing concern).
 - **Gate:** corpus renders reproducibly twice with byte-identical reports
-  and pixel-identical PNGs on the same machine; Jean confirms the images
-  match the GUI viewport for the same scenes.
-- **Depends on:** nothing in the SDK port. Can run any time before M4.
-  Blocked today only by the in-flight logger/SessionLog work in the SDK
-  (the CLI sink installs on top of it).
+  and pixel-identical PNGs on the same machine.
+- A real-game corpus via the GoWToolkit headless harness is a post-v1
+  addition when the toolkit ports; it extends the oracle, it does not gate
+  M4.
 
 ## M1 — Target split (spec W1)
 
@@ -73,16 +74,16 @@ The contract swap: `IGameModule`, evidence-based probe, `DecoderRegistry`,
 
 - **Deliverables:** `IGameModule`/`ProbeInput`/`ProbeResult`/`MountSpec`/
   `ContainerContext`/`ModuleState`; `Workspace`+`Document` replacing
-  AssetDatabase/registry singletons; `gow2` and `gowr` modules on the new
-  contracts (GOW2's probe loses all knowledge of GOWR magics); TypeSpec
-  data replacing ITypeHandler presentation virtuals; decoders keyed by
-  output; the generic CLI (`probe/list/extract/decode/render`) absorbing
-  the GoWToolkit harness; `MaterialDesc` with explicit `TextureRole`s
-  replacing positional layers + `pbrLayers`.
-- **Gate:** GoWToolkit fully functional on v1 contracts (browse, view,
-  animate, CLI); `render` output matches M0 oracle images for the corpus;
-  `IAssetProfile`, `ITypeHandler`, `ProfileManager`, GameTypes globals
-  deleted from the tree.
+  AssetDatabase/registry singletons; TypeSpec data replacing ITypeHandler
+  presentation virtuals; decoders keyed by output; the generic CLI
+  (`probe/list/extract/decode/render`); `MaterialDesc` with explicit
+  `TextureRole`s replacing positional layers + `pbrLayers`; a complete
+  example module (synthetic container format) exercising every contract.
+- **Gate:** the example module drives browse/decode/CLI end-to-end;
+  contract unit tests green; `IAssetProfile` and `ProfileManager` deleted
+  from the SDK tree. (The gow2/gowr modules and the GoWToolkit port are
+  post-v1 consumer work; `ITypeHandler` survives only as long as that
+  consumer needs it.)
 - **Plan:** written at M2 gate.
 
 ## M4 — Vulkan (spec W4)
@@ -111,8 +112,10 @@ The exit exam: a second toolkit with zero SDK edits.
   of a skinned corpus model; stability policy (§15) documented in the
   README; **v1.0 tag**.
 - **Gate:** COMI toolkit builds and runs having touched only its own
-  sources; TestKit green in CI for both toolkits; a skinned character
-  exported to glTF poses correctly in Blender.
+  sources; TestKit green in CI; a skinned synthetic model exported to glTF
+  poses correctly in Blender. (The GoWToolkit port then follows v1.0 as
+  its first consumer migration, picking up the real-game corpus for M0's
+  oracle as it lands.)
 - **Plan:** written at M4 gate.
 
 ## Standing rules for every milestone
