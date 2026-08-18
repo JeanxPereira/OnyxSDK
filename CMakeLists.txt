@@ -336,8 +336,33 @@ foreach(_f ${_onyx_all_cpp})
     endif()
 endforeach()
 
+# Shared compile surface for every Onyx layer target. GLFW_EXPOSE_NATIVE_*
+# is deliberately absent: exposing native window handles is a Shell concern.
+function(onyx_apply_common tgt)
+    target_compile_features(${tgt} PUBLIC cxx_std_20)
+    if(MSVC)
+        target_compile_options(${tgt} PUBLIC /utf-8)
+    endif()
+    target_compile_definitions(${tgt} PUBLIC
+        $<$<PLATFORM_ID:Windows>:ONYX_OS_WINDOWS>
+        $<$<PLATFORM_ID:Darwin>:ONYX_OS_MACOS>
+        $<$<PLATFORM_ID:Linux>:ONYX_OS_LINUX>
+        $<$<PLATFORM_ID:Windows>:NOMINMAX>)
+    target_include_directories(${tgt}
+        PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/Include
+                ${CMAKE_CURRENT_BINARY_DIR}/generated
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source
+                ${tomlplusplus_SOURCE_DIR}/include)
+endfunction()
+
+# ── Onyx::Core — no UI, no GPU, no GLFW ───────────────────────────────────
+add_library(Onyx_Core STATIC ${ONYX_CORE_SOURCES})
+add_library(Onyx::Core ALIAS Onyx_Core)
+onyx_apply_common(Onyx_Core)
+target_link_libraries(Onyx_Core PUBLIC glm::glm lz4_lib)
+
 add_library(Onyx STATIC
-    ${ONYX_CORE_SOURCES} ${ONYX_RENDER_SOURCES}
+    ${ONYX_RENDER_SOURCES}
     ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES}
     "${ONYX_ICON_TABLE}")
 add_library(Onyx::Onyx ALIAS Onyx)
@@ -352,13 +377,12 @@ target_include_directories(Onyx
 target_compile_features(Onyx PUBLIC cxx_std_20)
 
 target_link_libraries(Onyx PUBLIC
+    Onyx_Core
     imgui_lib
     implot_lib
     imgui_color_text_edit
     glfw
     glad
-    glm::glm
-    lz4_lib
     miniaudio
     ffmpeg_lib
 )
