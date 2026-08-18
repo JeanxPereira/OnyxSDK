@@ -252,6 +252,7 @@ set(ONYX_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/ProfileManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/RecentFiles.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/SessionLog.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Settings.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/TaskManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Threading.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Types/TypeCatalog.cpp
