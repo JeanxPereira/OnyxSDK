@@ -188,9 +188,6 @@ void Window::initImGui() {
     Onyx::Theme::ApplyTheme(m_config.getAccent(),
                            (Onyx::Theme::ThemeMode)m_config.themeMode);
 
-    // House proportions on top of the palette, before Scale::Init snapshots the
-    // style as its reset base.
-    Onyx::Theme::ApplyStyleDefaults();
 
     if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
         ImGui::GetStyle().WindowRounding = 0.0f;

@@ -54,10 +54,7 @@ private:
     float m_minContrast     = 4.5f;   // WCAG AA for body text
     bool  m_onlyFailing     = false;
 
-    // Typography page
-    float m_fontSize        = 0.0f;   // 0 = pick up the live value on first draw
-    int   m_fontIndex       = -1;
-    bool  m_fontSizeDirty   = false;
+    // Typography page keeps no state: it renders Appearance::Get() directly.
 
     // Icons page. The match list is cached because the grid is ~6.7k entries:
     // re-filtering (and re-laying-out) all of them every frame would make the

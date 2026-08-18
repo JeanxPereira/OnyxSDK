@@ -60,20 +60,16 @@ void SettingsWindow::ApplyFontChoice(int fontIndex, float sizePt) {
 }
 
 void SettingsWindow::Init() {
-  // Font list is now managed by Onyx::Fonts (populated in App::init)
-  if (config) {
-    m_uiScale = config->uiScale;
-    m_fontSize = config->fontSize;
-    m_fontSelected = Onyx::Fonts::FindFontIndex(config->fontPath);
-    if (m_fontSelected < 0) m_fontSelected = Onyx::Fonts::DefaultFontIndex();
-  }
-  // Build the atlas for the first frame with the loaded config
-  Onyx::Fonts::BuildAtlas(m_fontSelected, m_fontSize);
-  // Persist back to config in case font index resolved differently
-  if (config) {
-    config->fontSize = m_fontSize;
-    config->fontPath = Onyx::Fonts::GetCurrentFontPath();
-  }
+  // Mirrors of the appearance inputs, for this panel's widgets only. The atlas
+  // is NOT built here: Appearance::Commit owns that, and a second writer is how
+  // the font size and the atlas reference drifted apart before.
+  const Onyx::Appearance::State &want = Onyx::Appearance::Get();
+  m_uiScale  = want.userScale;
+  m_fontSize = want.fontSizePt;
+
+  m_fontSelected = Onyx::Fonts::FindFontIndex(want.fontPath);
+  if (m_fontSelected < 0)
+    m_fontSelected = Onyx::Fonts::DefaultFontIndex();
 }
 
 // ── Draw (1:1 ImHex ViewSettings::drawContent layout) ───────────────────────

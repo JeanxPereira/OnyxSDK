@@ -7,15 +7,14 @@
 namespace Onyx::Scale {
 
 // ── Static state ──────────────────────────────────────────────────────────
-static float s_userScale   = 1.0f;
 static float s_nativeScale = 1.0f;
 
 
 // ── Init ──────────────────────────────────────────────────────────────────
 
 void Init(float userScale, float nativeDpiScale) {
-    s_userScale   = std::clamp(userScale, 0.5f, 3.0f);
     s_nativeScale = std::max(nativeDpiScale, 1.0f);
+    SetUserScale(userScale);
 
     // No style snapshot any more -- Appearance::HouseStyle() is the base, and a
     // function cannot be captured at the wrong moment.
@@ -23,18 +22,18 @@ void Init(float userScale, float nativeDpiScale) {
 
 // ── Queries ───────────────────────────────────────────────────────────────
 
-float GetUserScale()   { return s_userScale; }
+// Reads through to the owner rather than keeping a copy: two variables holding
+// "the UI scale" is how they drifted in the first place.
+float GetUserScale()   { return Appearance::Get().userScale; }
 float GetNativeScale() { return s_nativeScale; }
-float GetGlobalScale() { return s_userScale * s_nativeScale; }
+float GetGlobalScale() { return GetUserScale() * s_nativeScale; }
 float GetFontDpi()     { return s_nativeScale * 96.0f; }
 
 // ── Mutations ─────────────────────────────────────────────────────────────
 
 void SetUserScale(float scale) {
-    s_userScale = std::clamp(scale, 0.5f, 3.0f);
-    // Appearance is the owner; this stays as the familiar spelling for existing
-    // call sites. The change lands on the next Commit().
-    Appearance::Mutate([&](Appearance::State& st) { st.userScale = s_userScale; });
+    const float clamped = std::clamp(scale, Appearance::kMinScale, Appearance::kMaxScale);
+    Appearance::Mutate([clamped](Appearance::State& st) { st.userScale = clamped; });
 }
 
 void SetNativeScale(float scale) {
@@ -68,9 +67,7 @@ ImVec2 Scaled(float x, float y) {
 // to Appearance::Mutate and this should go.
 
 void ApplyStyleScale(float userScale) {
-    const float clamped = std::clamp(userScale, Appearance::kMinScale, Appearance::kMaxScale);
-    s_userScale = clamped;
-    Appearance::Mutate([clamped](Appearance::State& st) { st.userScale = clamped; });
+    SetUserScale(userScale);
 }
 
 } // namespace Onyx::Scale
