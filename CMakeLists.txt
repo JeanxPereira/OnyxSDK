@@ -436,6 +436,11 @@ if(ONYX_BUILD_EXAMPLES)
     add_subdirectory(Examples/MinimalViewer)
 endif()
 
+# Onyx_ExampleBox is unconditional (not gated by ONYX_BUILD_EXAMPLES): it is
+# a tiny static lib with no UI/GPU deps, and Tests/ links it to exercise the
+# module contracts (IGameModule, Workspace, DecoderRegistry) end to end.
+add_subdirectory(Examples/OnyxBox)
+
 if(ONYX_BUILD_TESTS)
     enable_testing()
 
