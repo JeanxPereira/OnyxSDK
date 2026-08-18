@@ -7,10 +7,13 @@
 
 #include <Onyx/Domain/MediaKind.h>
 #include <Onyx/Services/AssetVisibility.h>
+#include <Onyx/Services/Settings.h>
 #include <Onyx/Types/TypeCatalog.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <string>
+#include <utility>
 
 using namespace Onyx::Services;
 using Onyx::Types::TypeCatalog;
@@ -26,9 +29,9 @@ TypeId MintType(const char* key) {
     return TypeCatalog::Get().Register(info);
 }
 
-bool HasOverrideFor(const std::vector<AssetVisibility::SerializedOverride>& all, TypeId id) {
-    return std::any_of(all.begin(), all.end(), [&](const AssetVisibility::SerializedOverride& o) {
-        return o.typeId == uint16_t(id.value);
+bool HasOverrideForKey(const std::vector<std::pair<std::string, bool>>& all, std::string_view key) {
+    return std::any_of(all.begin(), all.end(), [&](const std::pair<std::string, bool>& kv) {
+        return kv.first == key;
     });
 }
 
@@ -61,44 +64,58 @@ TEST_CASE("AssetVisibility user overrides flip Hidden<->Visible but never Intern
 
     vis.SetUserOverride(hidden, true);
     CHECK(vis.IsVisible(hidden));
-    CHECK(HasOverrideFor(vis.ExportOverrides(), hidden));
+    CHECK(HasOverrideForKey(vis.ExportOverridesByKey(), TypeCatalog::Get().KeyOf(hidden)));
 
     // Setting an override back to the default drops it rather than storing a
     // redundant entry -- otherwise the config would grow with every toggle.
     vis.SetUserOverride(hidden, false);
     CHECK_FALSE(vis.IsVisible(hidden));
-    CHECK_FALSE(HasOverrideFor(vis.ExportOverrides(), hidden));
+    CHECK_FALSE(HasOverrideForKey(vis.ExportOverridesByKey(), TypeCatalog::Get().KeyOf(hidden)));
 
     // Internal types are structural: an override must not make them appear.
     vis.SetUserOverride(internal, true);
     CHECK_FALSE(vis.IsVisible(internal));
-    CHECK_FALSE(HasOverrideFor(vis.ExportOverrides(), internal));
+    CHECK_FALSE(HasOverrideForKey(vis.ExportOverridesByKey(), TypeCatalog::Get().KeyOf(internal)));
 
     vis.ClearUserOverride(hidden);
     CHECK(vis.GetCurrent(hidden) == Visibility::Hidden);
 }
 
-TEST_CASE("AssetVisibility overrides survive an export/import round-trip") {
+TEST_CASE("AssetVisibility overrides persist by key via Settings, dropping unknown keys") {
     AssetVisibility& vis = AssetVisibility::Get();
-    const TypeId a = MintType("TEST_VIS_RT_A");
-    const TypeId b = MintType("TEST_VIS_RT_B");
+    vis.ResetAllOverrides();
+
+    const TypeId a = MintType("TEST_VIS_KEY_A");
+    const TypeId b = MintType("TEST_VIS_KEY_B");
     vis.SetDefault(a, Visibility::Hidden);
     vis.SetDefault(b, Visibility::Visible);
 
-    vis.ResetAllOverrides();
     vis.SetUserOverride(a, true);   // show a normally-hidden type
     vis.SetUserOverride(b, false);  // hide a normally-visible one
 
-    const auto exported = vis.ExportOverrides();
-    CHECK(exported.size() == 2);
+    auto tmp = std::filesystem::temp_directory_path() / "onyx_visibility_overrides_test.toml";
+    std::filesystem::remove(tmp);
+    Settings settings = Settings::Load(tmp);
+
+    vis.SaveOverrides(settings);
+
+    // A key nothing has ever registered a type under: LoadOverrides must
+    // drop it silently instead of resurrecting a garbage override, because
+    // it walks the catalog's registered types rather than the file's keys.
+    settings.Set("visibility.TEST_VIS_KEY_NEVER_REGISTERED", true);
 
     vis.ResetAllOverrides();
     CHECK_FALSE(vis.IsVisible(a));
     CHECK(vis.IsVisible(b));
 
-    vis.ImportOverrides(exported);
-    CHECK(vis.IsVisible(a));
+    vis.LoadOverrides(settings);
+    CHECK(vis.IsVisible(a));      // survived by key
     CHECK_FALSE(vis.IsVisible(b));
 
+    const auto restored = vis.ExportOverridesByKey();
+    CHECK(restored.size() == 2);  // exactly a and b -- the unknown key never landed
+    CHECK(TypeCatalog::Get().Find("TEST_VIS_KEY_NEVER_REGISTERED") == TypeId{});
+
     vis.ResetAllOverrides();
+    std::filesystem::remove(tmp);
 }

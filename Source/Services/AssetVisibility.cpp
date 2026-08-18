@@ -1,5 +1,7 @@
 #include <Onyx/Services/AssetVisibility.h>
 #include <Onyx/Domain/Entry.h>
+#include <Onyx/Services/Settings.h>
+#include <Onyx/Types/TypeCatalog.h>
 #include <Onyx/Types/TypeRegistry.h>
 
 namespace Onyx::Services {
@@ -56,26 +58,37 @@ std::vector<AssetVisibility::TypeVisInfo> AssetVisibility::GetFilterableTypes() 
     return result;
 }
 
-std::vector<AssetVisibility::SerializedOverride> AssetVisibility::ExportOverrides() const {
-    std::vector<SerializedOverride> result;
+std::vector<std::pair<std::string, bool>> AssetVisibility::ExportOverridesByKey() const {
+    std::vector<std::pair<std::string, bool>> result;
     result.reserve(m_overrides.size());
-    for (const auto& [key, vis] : m_overrides) {
-        SerializedOverride so;
-        so.typeId  = (uint16_t)key;
-        so.visible = vis ? 1 : 0;
-        so._pad    = 0;
-        result.push_back(so);
+    const auto& catalog = Types::TypeCatalog::Get();
+    for (const auto& [idValue, visible] : m_overrides) {
+        std::string_view key = catalog.KeyOf(Types::TypeId{idValue});
+        if (key.empty()) continue;   // type no longer registered; drop it
+        result.emplace_back(std::string(key), visible);
     }
     return result;
 }
 
-void AssetVisibility::ImportOverrides(const std::vector<SerializedOverride>& data) {
+void AssetVisibility::SaveOverrides(Settings& into) const {
+    for (const auto& [key, visible] : ExportOverridesByKey()) {
+        into.Set("visibility." + key, visible);
+    }
+}
+
+void AssetVisibility::LoadOverrides(const Settings& from) {
     m_overrides.clear();
-    // Legacy GTKC keys packed (gameVer<<8 | typeId): GOW2 (ver 0) records read
-    // back unchanged here; GOWR (ver 1) records land on a typeId no live type
-    // owns and are harmless orphans (never queried). Acceptable one-time reset.
-    for (const auto& so : data) {
-        m_overrides[so.typeId] = (so.visible != 0);
+    const auto& catalog = Types::TypeCatalog::Get();
+    // Walk every registered type rather than the settings file: a key the
+    // catalog never claimed is thereby never looked up, which is how
+    // unknown/stale keys get dropped silently.
+    for (size_t i = 0; i < catalog.Count(); ++i) {
+        Types::TypeId id{(uint32_t)i};
+        std::string_view key = catalog.KeyOf(id);
+        if (key.empty()) continue;
+        if (auto v = from.GetBool("visibility." + std::string(key))) {
+            m_overrides[id.value] = *v;
+        }
     }
 }
 

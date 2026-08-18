@@ -35,6 +35,8 @@ std::string_view TypeCatalog::KeyOf(TypeId id) const {
     return (id.value < m_infos.size()) ? std::string_view(m_infos[id.value].key) : std::string_view("");
 }
 
+size_t TypeCatalog::Count() const { return m_infos.size(); }
+
 const char* TypeCatalog::Icon(TypeId id) const {
     const char* ic = Info(id).icon;
     return ic ? ic : ICON_SF_DOCUMENT;

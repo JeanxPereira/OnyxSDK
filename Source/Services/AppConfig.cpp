@@ -1,6 +1,7 @@
 #include <Onyx/Services/AppConfig.h>
 #include <Onyx/Services/Appearance.h>
 #include <Onyx/Services/AssetVisibility.h>
+#include <Onyx/Types/TypeCatalog.h>
 #include <toml++/toml.hpp>
 #include <cstdint>
 #include <cstring>
@@ -162,18 +163,20 @@ AppConfig AppConfig::load(const std::string& path) {
 
     if (const auto* vis = tbl["visibility"].as_table()) {
         if (const auto* ov = (*vis)["overrides"].as_array()) {
-            std::vector<AssetVisibility::SerializedOverride> overrides;
+            AssetVisibility::Get().ResetAllOverrides();
             for (const auto& node : *ov) {
                 const auto* o = node.as_table();
                 if (!o) continue;
-                AssetVisibility::SerializedOverride so;
-                so.typeId  = static_cast<uint16_t>((*o)["type"].value_or<int64_t>(0));
-                so.visible = (*o)["visible"].value_or(false) ? 1 : 0;
-                so._pad    = 0;
-                overrides.push_back(so);
+                std::string key = (*o)["key"].value_or(std::string{});
+                if (key.empty()) continue;
+                // A key no live type claims (removed/renamed type) is
+                // dropped silently rather than resurrected as a garbage
+                // override.
+                Onyx::Types::TypeId id = Onyx::Types::TypeCatalog::Get().Find(key);
+                if (!id.valid()) continue;
+                bool visible = (*o)["visible"].value_or(false);
+                AssetVisibility::Get().SetUserOverride(id, visible);
             }
-            if (!overrides.empty())
-                AssetVisibility::Get().ImportOverrides(overrides);
         }
     }
 
@@ -255,13 +258,13 @@ void AppConfig::save(const std::string& path) const {
         {"panel_visible", camPanelVisible},
     });
 
-    auto overrides = AssetVisibility::Get().ExportOverrides();
+    auto overrides = AssetVisibility::Get().ExportOverridesByKey();
     if (!overrides.empty()) {
         toml::array ov;
-        for (const auto& so : overrides) {
+        for (const auto& [key, visible] : overrides) {
             ov.push_back(toml::table{
-                {"type", static_cast<int64_t>(so.typeId)},
-                {"visible", so.visible != 0},
+                {"key", key},
+                {"visible", visible},
             });
         }
         tbl.insert("visibility", toml::table{{"overrides", std::move(ov)}});

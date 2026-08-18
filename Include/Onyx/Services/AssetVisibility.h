@@ -1,13 +1,17 @@
 #pragma once
 #include <Onyx/Types/TypeId.h>
 #include <cstdint>
+#include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace Onyx::Domain { struct AssetEntry; }
 using AssetEntry = Onyx::Domain::AssetEntry;
 
 namespace Onyx::Services {
+
+class Settings;
 
 /// Controls whether a type appears in the asset browser tree.
 enum class Visibility : uint8_t {
@@ -47,16 +51,15 @@ public:
 
     std::vector<TypeVisInfo> GetFilterableTypes() const;
 
-    // Overrides serialize as a compact array. key = TypeId value.
-    struct SerializedOverride {
-        uint16_t typeId;
-        uint8_t  visible;   // 0 or 1
-        uint8_t  _pad = 0;
-    };
-    static_assert(sizeof(SerializedOverride) == 4, "Must be 4 bytes for GTKC alignment");
+    // Overrides persist by type key ("gowr.mesh"), not numeric TypeId, so a
+    // catalog re-registering types in a different order (or an app adding
+    // new types) never corrupts previously saved user overrides. A key that
+    // no longer resolves to a registered type (removed/renamed) is silently
+    // dropped on load rather than resurrected as a garbage override.
+    void SaveOverrides(Settings& into) const;   // writes "visibility.<key>" = bool
+    void LoadOverrides(const Settings& from);   // unknown keys are dropped
 
-    std::vector<SerializedOverride> ExportOverrides() const;
-    void ImportOverrides(const std::vector<SerializedOverride>& data);
+    std::vector<std::pair<std::string, bool>> ExportOverridesByKey() const;
 
 private:
     AssetVisibility();
