@@ -1,4 +1,5 @@
 #include <Onyx/Services/ThemeManager.h>
+#include <Onyx/Services/Appearance.h>
 #include <Onyx/Services/FrameScheduler.h>
 #include <Onyx/Platform/SystemTheme.h>
 #include <Onyx/Services/Logger.h>
@@ -10,10 +11,6 @@ namespace Onyx::Theme {
 
 // ── Static state ──────────────────────────────────────────────────────────
 
-static ImVec4 s_currentAccent = {0.880f, 0.150f, 0.150f, 1.0f};
-static ThemeMode s_currentMode = ThemeMode::Dark;
-static ThemeMode s_currentEffective = ThemeMode::Dark;
-static std::map<int, ImVec4> s_overrides;
 static FlashState s_flashState;
 
 // Resolve System → Dark / Light via the platform helper. Cached at every
@@ -26,11 +23,6 @@ static ThemeMode ResolveMode(ThemeMode m) {
 }
 
 // ── Smooth transition state ───────────────────────────────────────────────
-static bool s_transitioning = false;
-static float s_transitionStart = 0.0f;
-static constexpr float kTransitionDuration = 0.25f; // seconds
-static ImVec4 s_oldColors[ImGuiCol_COUNT];
-static ImVec4 s_newColors[ImGuiCol_COUNT];
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -354,96 +346,41 @@ void BuildPalette(ImVec4 *colors, const ImVec4 &accent, ThemeMode mode) {
 
 // ── ApplyTheme ────────────────────────────────────────────────────────────
 
+// ── Colour entry points (facade over Onyx::Appearance) ────────────────────
+// Colour joined the appearance owner: the accent, the mode and the per-slot
+// overrides are inputs on Appearance::State, the palette is built by Resolve,
+// and Commit is the only writer of style.Colors. These keep the familiar
+// spelling for existing call sites and consumers.
+
 void ApplyTheme(const ImVec4 &accent, ThemeMode mode, bool animate) {
-  ImGuiStyle &s = ImGui::GetStyle();
-  s_currentAccent     = accent;
-  s_currentMode       = mode;            // store user's intent
-  s_currentEffective  = ResolveMode(mode); // System → Dark/Light right here
-
-  // Compute target palette (includes Phases 1-3 inside BuildPalette)
-  ImVec4 target[ImGuiCol_COUNT];
-  BuildPalette(target, accent, s_currentEffective);
-
-  // ── Phase 4: Apply per-color overrides on top ──
-  // Overrides are intentional — we never auto-correct them. But we log a
-  // warning when an override lands a surface on the wrong side of the
-  // Phase 3 mode-side bound, since that almost certainly means unreadable
-  // text on top of that surface.
-  for (const auto &[idx, color] : s_overrides) {
-    if (idx >= 0 && idx < ImGuiCol_COUNT) {
-      const ImVec4& bg = target[ImGuiCol_WindowBg];
-      const float textLum = Luminance(target[ImGuiCol_Text]);
-      const bool  isDark  = textLum > 0.5f;
-      const float surfLum = BlendedLuminance(color, bg);
-      const float surfMax = isDark ? 0.30f : 1.0f;
-      const float surfMin = isDark ? 0.0f  : 0.70f;
-      if (surfLum < surfMin || surfLum > surfMax) {
-        LOG_WARN("[ThemeManager] Override for slot %d (surfLum=%.2f) is "
-                 "outside the mode bound [%.2f, %.2f]. Text may be "
-                 "unreadable on this surface.",
-                 idx, surfLum, surfMin, surfMax);
-      }
-      target[idx] = color;
-    }
-  }
-
-  if (animate && ImGui::GetTime() > 0.0) {
-    // Snapshot current colors for lerp source
-    for (int i = 0; i < ImGuiCol_COUNT; i++) {
-      s_oldColors[i] = s.Colors[i];
-      s_newColors[i] = target[i];
-    }
-    s_transitioning = true;
-    s_transitionStart = (float)ImGui::GetTime();
-    // Without this the window sleeps at the idle rate and a 0.25s ease-out
-    // lands in about four frames.
-    Onyx::Frame::RequestAnimation(kTransitionDuration);
-  } else {
-    // Instant apply (live color picker drag, or first frame)
-    for (int i = 0; i < ImGuiCol_COUNT; i++)
-      s.Colors[i] = target[i];
-    s_transitioning = false;
-  }
+  Appearance::Mutate(
+      [&](Appearance::State &st) {
+        st.accent = accent;
+        st.mode   = mode;
+      },
+      animate);
 }
 
 void ApplyTheme(const ImVec4 &accent, bool animate) {
-  // Legacy shim: keep the currently-active mode (live colour-picker drags
-  // shouldn't flip Dark↔Light unexpectedly).
-  ApplyTheme(accent, s_currentMode, animate);
+  // Keeps the active mode: a live colour-picker drag should not flip Dark/Light.
+  Appearance::Mutate([&](Appearance::State &st) { st.accent = accent; }, animate);
 }
 
-ThemeMode GetMode()          { return s_currentMode; }
-ThemeMode GetEffectiveMode() { return s_currentEffective; }
+ThemeMode GetMode() { return Appearance::Get().mode; }
 
-void UpdateTransition() {
-  if (!s_transitioning)
-    return;
-
-  float elapsed = (float)ImGui::GetTime() - s_transitionStart;
-  float t = elapsed / kTransitionDuration;
-
-  ImGuiStyle &s = ImGui::GetStyle();
-
-  if (t >= 1.0f) {
-    // Transition complete — snap to final
-    for (int i = 0; i < ImGuiCol_COUNT; i++)
-      s.Colors[i] = s_newColors[i];
-    s_transitioning = false;
-  } else {
-    // Smooth cubic ease-out: t' = 1 - (1-t)^3
-    float ease = 1.0f - (1.0f - t) * (1.0f - t) * (1.0f - t);
-    for (int i = 0; i < ImGuiCol_COUNT; i++)
-      s.Colors[i] = Lerp4(s_oldColors[i], s_newColors[i], ease);
-
-    // Keep asking: the request is a deadline, so re-asking each frame simply
-    // holds it open until the transition finishes.
-    Onyx::Frame::RequestAnimation(double(kTransitionDuration - elapsed));
-  }
+ThemeMode GetEffectiveMode() {
+  return (Appearance::Get().mode == ThemeMode::System)
+             ? (Appearance::Env().systemPrefersDark ? ThemeMode::Dark : ThemeMode::Light)
+             : Appearance::Get().mode;
 }
 
-bool IsTransitioning() { return s_transitioning; }
+// The transition lives in Appearance::Tick, driven by Window. Kept so callers
+// that used to drive it here keep building.
+void UpdateTransition() { Appearance::Tick(); }
 
-ImVec4 GetAccent() { return s_currentAccent; }
+bool IsTransitioning() { return Appearance::IsTransitioning(); }
+
+ImVec4 GetAccent() { return Appearance::Get().accent; }
 
 ImVec4 GetContrastColor(const ImVec4& fg, const ImVec4& bgBehind) {
   // Resolve a translucent fg over an opaque bgBehind: a 31%-alpha accent over a
@@ -516,17 +453,39 @@ ImVec4 ToolbarButtonText() {
 // ── Per-color override storage ────────────────────────────────────────────
 
 void SetColorOverride(int imguiColIdx, const ImVec4 &color) {
-  s_overrides[imguiColIdx] = color;
-  if (imguiColIdx >= 0 && imguiColIdx < ImGuiCol_COUNT)
-    ImGui::GetStyle().Colors[imguiColIdx] = color;
+  if (imguiColIdx < 0 || imguiColIdx >= ImGuiCol_COUNT)
+    return;
+  Appearance::Mutate([&](Appearance::State &st) {
+    for (auto &o : st.overrides) {
+      if (o.imguiCol == imguiColIdx) {
+        o.color = color;
+        return;
+      }
+    }
+    st.overrides.push_back({imguiColIdx, color});
+  });
 }
 
-void ClearColorOverride(int imguiColIdx) { s_overrides.erase(imguiColIdx); }
+void ClearColorOverride(int imguiColIdx) {
+  Appearance::Mutate([&](Appearance::State &st) {
+    for (size_t i = 0; i < st.overrides.size(); ++i) {
+      if (st.overrides[i].imguiCol == imguiColIdx) {
+        st.overrides.erase(st.overrides.begin() + long(i));
+        return;
+      }
+    }
+  });
+}
 
-void ClearAllOverrides() { s_overrides.clear(); }
+void ClearAllOverrides() {
+  Appearance::Mutate([](Appearance::State &st) { st.overrides.clear(); });
+}
 
 bool HasOverride(int imguiColIdx) {
-  return s_overrides.find(imguiColIdx) != s_overrides.end();
+  for (const auto &o : Appearance::Get().overrides)
+    if (o.imguiCol == imguiColIdx)
+      return true;
+  return false;
 }
 
 // ── Flash state ───────────────────────────────────────────────────────────

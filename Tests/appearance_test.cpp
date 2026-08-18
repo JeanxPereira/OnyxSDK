@@ -263,3 +263,97 @@ TEST_CASE("Appearance::State survives an AppConfig round-trip") {
 
     std::filesystem::remove(path);
 }
+
+// ── Palette transition ────────────────────────────────────────────────────
+
+TEST_CASE("Appearance::EaseOut is clamped and hits both endpoints") {
+    CHECK(EaseOut(0.0f) == doctest::Approx(0.0f));
+    CHECK(EaseOut(1.0f) == doctest::Approx(1.0f));
+
+    // Out-of-range input must not overshoot: a frame delivered late (t > 1)
+    // has to land on the target, not past it.
+    CHECK(EaseOut(-3.0f) == doctest::Approx(0.0f));
+    CHECK(EaseOut(9.0f) == doctest::Approx(1.0f));
+
+    // Ease-out: most of the distance is covered early.
+    CHECK(EaseOut(0.5f) > 0.5f);
+    CHECK(EaseOut(0.25f) > 0.25f);
+    for (float t = 0.0f; t < 1.0f; t += 0.1f)
+        CHECK(EaseOut(t) <= EaseOut(t + 0.1f));   // monotonic
+}
+
+TEST_CASE("Appearance::Lerp interpolates every slot and clamps t") {
+    Palette from, to;
+    for (int i = 0; i < ImGuiCol_COUNT; ++i) {
+        from.colors[i] = ImVec4(0.0f, 0.0f, 0.0f, 1.0f);
+        to.colors[i]   = ImVec4(1.0f, 0.5f, 0.25f, 0.0f);
+    }
+
+    const Palette at0 = Lerp(from, to, 0.0f);
+    const Palette at1 = Lerp(from, to, 1.0f);
+    const Palette mid = Lerp(from, to, 0.5f);
+
+    for (int i = 0; i < ImGuiCol_COUNT; ++i) {
+        CHECK(at0.colors[i].x == doctest::Approx(0.0f));
+        CHECK(at1.colors[i].x == doctest::Approx(1.0f));
+        CHECK(at1.colors[i].w == doctest::Approx(0.0f));   // alpha too
+        CHECK(mid.colors[i].x == doctest::Approx(0.5f));
+        CHECK(mid.colors[i].y == doctest::Approx(0.25f));
+        CHECK(mid.colors[i].w == doctest::Approx(0.5f));
+    }
+
+    // A late frame must not push past the target.
+    const Palette over = Lerp(from, to, 4.0f);
+    CHECK(over.colors[0].x == doctest::Approx(1.0f));
+}
+
+TEST_CASE("Appearance::Resolve folds overrides into the palette that animates") {
+    EnsureContext();
+    const Environment e = BaseEnv();
+
+    State s = BaseState();
+    const ImVec4 sentinel(0.11f, 0.22f, 0.33f, 1.0f);
+    s.overrides.push_back({ImGuiCol_FrameBg, sentinel});
+
+    // The override is part of the target, not painted on afterwards, so it
+    // eases along with everything else instead of snapping into place.
+    const Resolved r = Resolve(s, e);
+    CHECK(r.style.Colors[ImGuiCol_FrameBg].x == doctest::Approx(sentinel.x));
+
+    Palette target;
+    for (int i = 0; i < ImGuiCol_COUNT; ++i)
+        target.colors[i] = r.style.Colors[i];
+
+    Palette start;
+    for (int i = 0; i < ImGuiCol_COUNT; ++i)
+        start.colors[i] = ImVec4(0, 0, 0, 1);
+
+    const Palette half = Lerp(start, target, 0.5f);
+    CHECK(half.colors[ImGuiCol_FrameBg].x == doctest::Approx(sentinel.x * 0.5f));
+}
+
+TEST_CASE("Appearance overrides survive the config round-trip") {
+    EnsureContext();
+
+    State original;
+    original.overrides.push_back({ImGuiCol_Button, ImVec4(0.1f, 0.2f, 0.3f, 0.9f)});
+    original.overrides.push_back({ImGuiCol_Text, ImVec4(1.0f, 0.0f, 0.5f, 1.0f)});
+
+    Onyx::Services::AppConfig cfg;
+    cfg.setAppearanceState(original);
+
+    const auto path =
+        (std::filesystem::temp_directory_path() / "onyx_overrides_roundtrip.toml").string();
+    cfg.save(path);
+    const State back = Onyx::Services::AppConfig::load(path).appearanceState();
+
+    REQUIRE(back.overrides.size() == 2);
+    CHECK(back.overrides[0].imguiCol == ImGuiCol_Button);
+    CHECK(back.overrides[0].color.x == doctest::Approx(0.1f));
+    CHECK(back.overrides[0].color.w == doctest::Approx(0.9f));
+    CHECK(back.overrides[1].imguiCol == ImGuiCol_Text);
+    CHECK(back.overrides[1].color.y == doctest::Approx(0.0f));
+    CHECK(back == original);
+
+    std::filesystem::remove(path);
+}
