@@ -1,4 +1,5 @@
 #include <Onyx/Modules/Workspace.h>
+#include <Onyx/Modules/DecoderRegistry.h>
 #include <Onyx/Vfs/OsFile.h>
 
 #include <algorithm>
@@ -9,6 +10,7 @@ namespace Onyx::Modules {
 Workspace::Workspace(Types::TypeCatalog& catalog)
     : m_catalog(catalog)
     , m_modules()
+    , m_decoders(std::make_unique<DecoderRegistry>())
     , m_settings(Services::Settings::Load(std::filesystem::path{}))
     , m_events()
     , m_documents()
@@ -22,7 +24,7 @@ void Workspace::AddModule(std::unique_ptr<IGameModule> m) {
     if (!m) return;
     Types::TypeRegistrar registrar(m_catalog, m->Info().id);
     m->RegisterTypes(registrar);
-    // Task 3 wires RegisterDecoders
+    m->RegisterDecoders(*m_decoders);
     m_modules.push_back(std::move(m));
 }
 
@@ -176,10 +178,7 @@ void Workspace::Close(DocumentId id) {
 Services::EventBus& Workspace::Events() { return m_events; }
 Services::JobQueue& Workspace::Jobs() { return m_jobs; }
 Services::Settings& Workspace::WorkspaceSettings() { return m_settings; }
+class DecoderRegistry& Workspace::Decoders() { return *m_decoders; }
 Types::TypeCatalog& Workspace::Catalog() { return m_catalog; }
-
-// Workspace::Decoders() is intentionally NOT defined here: DecoderRegistry
-// does not exist yet (Task 3 adds the class, the m_decoders member, and
-// this method's body). Nothing in M3a calls it.
 
 } // namespace Onyx::Modules

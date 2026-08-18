@@ -137,6 +137,7 @@ private:
     // released.)
     Types::TypeCatalog& m_catalog;
     std::vector<std::unique_ptr<IGameModule>> m_modules;
+    std::unique_ptr<class DecoderRegistry> m_decoders;
     Services::Settings m_settings;
     Services::EventBus m_events;
     std::vector<std::shared_ptr<Document>> m_documents;
