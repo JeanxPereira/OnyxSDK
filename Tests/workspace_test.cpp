@@ -140,6 +140,30 @@ struct ThrowFake : Onyx::Modules::IGameModule {
     }
 };
 
+// Regression fixture for spec §5.1: with exactly one registered module,
+// probing (and its confidence floor) must be skipped entirely. Probe
+// always scores well below kProbeFloor here to prove Open still succeeds
+// and parses.
+struct LowScoreFake : Onyx::Modules::IGameModule {
+    ModuleInfo Info() const override {
+        return ModuleInfo{"lowscore", "LowScore", {}, {}};
+    }
+
+    ProbeResult Probe(const ProbeInput&) const override {
+        return ProbeResult{10, "always low"};   // well below kProbeFloor
+    }
+
+    void RegisterTypes(Onyx::Types::TypeRegistrar&) override {}
+    void RegisterDecoders(DecoderRegistry&) override {}
+
+    ParseResult ParseContainer(ContainerContext& ctx) override {
+        Onyx::Domain::AssetEntry entry;
+        entry.name = "solo";
+        ctx.roots.push_back(std::move(entry));
+        return ParseResult{true};
+    }
+};
+
 } // namespace
 
 TEST_CASE("Workspace opens a document through probe and salvages") {
@@ -176,7 +200,11 @@ TEST_CASE("Workspace opens a document through probe and salvages") {
 TEST_CASE("No module accepts the file: Open returns 0") {
     auto tmp = write_temp_file("onyx_workspace_test_nomatch.bin", "Xrest");
     Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    // Two modules registered (spec §5.1 only skips probing -- and its
+    // floor -- when exactly one module is registered), and neither
+    // recognizes this content: BoxFake wants 'B', ThrowFake wants 'T'.
     ws.AddModule(std::make_unique<BoxFake>());
+    ws.AddModule(std::make_unique<ThrowFake>());
 
     int opened = 0;
     auto sub = ws.Events().On<Onyx::Modules::DocumentOpened>([&](auto&) { ++opened; });
@@ -255,6 +283,41 @@ TEST_CASE("FindModule resolves by id then hint") {
     CHECK(ws.FindModule("boxfake") == raw);
     CHECK(ws.FindModule("bf") == raw);
     CHECK(ws.FindModule("nope") == nullptr);
+}
+
+TEST_CASE("AddModule rejects a duplicate module id") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(std::make_unique<BoxFake>());
+    REQUIRE(ws.Modules().size() == 1);
+
+    // Second module with the same Info().id ("boxfake") must be refused,
+    // not silently added or allowed to shadow the first registration.
+    ws.AddModule(std::make_unique<BoxFake>());
+    CHECK(ws.Modules().size() == 1);
+}
+
+TEST_CASE("A single registered module skips the probe floor entirely") {
+    auto tmp = write_temp_file("onyx_workspace_test_singlemodule.bin", "anything at all");
+    {
+        Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+        ws.AddModule(std::make_unique<LowScoreFake>());
+
+        // No hint given, and the only module's Probe() would score 10
+        // (well below kProbeFloor) -- with more than one module
+        // registered this would yield no winner and Open would fail.
+        // With exactly one module, spec §5.1 says the probe step is
+        // skipped entirely.
+        auto id = ws.Open(tmp);
+        REQUIRE(id != 0);
+
+        auto* doc = ws.Get(id);
+        REQUIRE(doc);
+        CHECK(doc->ready);
+        REQUIRE(doc->roots.size() == 1);
+        CHECK(doc->roots[0].name == "solo");
+    } // ~Workspace closes the Document's OsFile before we try to remove it.
+
+    std::filesystem::remove(tmp);
 }
 
 TEST_CASE("Close during an in-flight OpenAsync parse keeps the Document alive for the worker") {

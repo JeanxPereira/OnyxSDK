@@ -1,5 +1,6 @@
 #include <Onyx/Modules/Workspace.h>
 #include <Onyx/Modules/DecoderRegistry.h>
+#include <Onyx/Services/Logger.h>
 #include <Onyx/Vfs/OsFile.h>
 
 #include <algorithm>
@@ -22,7 +23,18 @@ Workspace::~Workspace() = default;
 
 void Workspace::AddModule(std::unique_ptr<IGameModule> m) {
     if (!m) return;
-    Types::TypeRegistrar registrar(m_catalog, m->Info().id);
+    const std::string id = m->Info().id;
+    for (const auto& existing : m_modules) {
+        if (existing->Info().id == id) {
+            // A duplicate id would collide in FindModule (by id) and in
+            // the TypeCatalog's per-module namespace -- refuse it outright
+            // rather than silently shadowing the first registration.
+            LOG_ERR("[Workspace] module id '%s' already registered; ignoring duplicate",
+                    id.c_str());
+            return;
+        }
+    }
+    Types::TypeRegistrar registrar(m_catalog, id);
     m->RegisterTypes(registrar);
     m->RegisterDecoders(*m_decoders);
     m_modules.push_back(std::move(m));
@@ -63,6 +75,12 @@ std::shared_ptr<Document> Workspace::PrepareDocument(const std::filesystem::path
         // Hint wins outright: no fallback to probing when it fails to
         // resolve, per the spec's "hint wins when given".
         module = FindModule(moduleHint);
+    } else if (m_modules.size() == 1) {
+        // Spec §5.1: with exactly one registered module, the probe step
+        // is skipped entirely -- there is nothing to disambiguate, so the
+        // confidence floor (kProbeFloor) never applies here even when
+        // that module's own Probe() would score low.
+        module = m_modules.front().get();
     } else {
         module = Probe(path).winner;
     }
@@ -136,7 +154,7 @@ DocumentId Workspace::OpenAsync(const std::filesystem::path& path, std::string_v
     DocumentId id = doc->id;
     auto ok = std::make_shared<bool>(false);
 
-    m_jobs.Submit(
+    doc->parseJob = m_jobs.Submit(
         id,
         // `doc` is captured BY VALUE (shared_ptr): this keeps the
         // Document object alive for the duration of RunParse even if

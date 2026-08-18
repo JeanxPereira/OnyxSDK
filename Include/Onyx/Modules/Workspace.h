@@ -9,6 +9,7 @@
 #include <Onyx/Domain/Entry.h>
 #include <Onyx/Vfs/IFile.h>
 
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -34,6 +35,9 @@ struct ContainerContext {
     std::vector<Domain::AssetEntry>& roots;   // module fills the tree here
 };
 
+// Thread contract: a Document obtained from Get() must not be read before
+// its TreeReady event (async open) -- worker threads write roots/diags/
+// state until then. `ready` is the only field safe to poll.
 struct Document {
     DocumentId  id = 0;
     std::filesystem::path path;
@@ -42,7 +46,9 @@ struct Document {
     std::shared_ptr<Vfs::IFile> file;
     Services::DiagSink diags;
     ModuleState state;
-    bool ready = false;                   // true once parse finished (ok or not)
+    std::atomic<bool> ready{false};       // true once parse finished (ok or not)
+    // parseJob: handle to the in-flight async parse; M3b wires progress/cancel.
+    Services::JobHandle parseJob;
 };
 
 // Events (id payloads only, spec §7.4):
@@ -61,6 +67,11 @@ public:
     Workspace& operator=(const Workspace&) = delete;
 
     // Registers the module's types (namespaced by Info().id) and decoders.
+    // A module whose Info().id duplicates an already-registered module is
+    // rejected: logged as an error and dropped without registering (the
+    // first registration for that id wins, and Modules().size() does not
+    // grow). This guards FindModule's by-id lookup and the TypeCatalog's
+    // per-module namespace from silently colliding.
     void AddModule(std::unique_ptr<IGameModule> m);
     const std::vector<std::unique_ptr<IGameModule>>& Modules() const;
     IGameModule* FindModule(std::string_view idOrHint) const;   // id, then hints

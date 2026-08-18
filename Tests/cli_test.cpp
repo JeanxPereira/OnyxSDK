@@ -142,6 +142,25 @@ std::unique_ptr<OnyxBox::OnyxBoxModule> MakeModule() {
     return std::make_unique<OnyxBox::OnyxBoxModule>();
 }
 
+// Never claims any file (Probe always scores 0). Registered alongside
+// OnyxBoxModule so a "no module accepts" scenario stays genuine: with
+// exactly one module registered, Workspace skips probing (and its
+// confidence floor) entirely per spec §5.1, so a single-module Workspace
+// can no longer be used to exercise the "nobody wins" path.
+struct NeverMatchModule : Onyx::Modules::IGameModule {
+    Onyx::Modules::ModuleInfo Info() const override {
+        return Onyx::Modules::ModuleInfo{"nevermatch", "NeverMatch", {}, {}};
+    }
+    Onyx::Modules::ProbeResult Probe(const Onyx::Modules::ProbeInput&) const override {
+        return Onyx::Modules::ProbeResult{0, "never matches"};
+    }
+    void RegisterTypes(Onyx::Types::TypeRegistrar&) override {}
+    void RegisterDecoders(Onyx::Modules::DecoderRegistry&) override {}
+    Onyx::Modules::ParseResult ParseContainer(Onyx::Modules::ContainerContext&) override {
+        return Onyx::Modules::ParseResult{false};
+    }
+};
+
 } // namespace
 
 TEST_CASE("cli probe prints a table with rows and a winner line") {
@@ -280,6 +299,7 @@ TEST_CASE("cli decode unknown entry name returns kUsage") {
 TEST_CASE("cli list returns kNoModule for a file no module accepts") {
     Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
     ws.AddModule(MakeModule());
+    ws.AddModule(std::make_unique<NeverMatchModule>());
     auto path = WriteGarbageFile();
 
     std::ostringstream out;

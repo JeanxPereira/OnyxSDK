@@ -167,6 +167,14 @@ void JobQueue::WorkerLoop() {
             LOG_ERR("[Jobs] job on lane %llu threw; treated as failed",
                     (unsigned long long)lane);
         }
+        // Release Work's captures now that it has run. A caller may stash
+        // this job's JobHandle on the very object Work's closure captured
+        // (e.g. Workspace::Document::parseJob, captured by value inside
+        // its own OpenAsync Work lambda for the Close()-race UAF guard) --
+        // leaving the closure alive would make that a genuine ownership
+        // cycle (object -> JobState -> closure -> object), leaking both
+        // forever. Nothing needs Work once it has returned.
+        job->work = nullptr;
         job->done.store(true, std::memory_order_release);
 
         {
