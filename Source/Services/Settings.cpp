@@ -33,6 +33,8 @@ class Settings::Impl {
 Settings::Settings() : impl_(std::make_unique<Impl>()) {}
 
 Settings::~Settings() = default;
+Settings::Settings(Settings&&) noexcept = default;
+Settings& Settings::operator=(Settings&&) noexcept = default;
 
 Settings Settings::Load(const std::filesystem::path& file) {
     Settings s;

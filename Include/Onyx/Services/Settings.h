@@ -52,9 +52,17 @@ class Settings {
 
     ~Settings();
 
-    // Move-only type (unique_ptr requires move semantics).
-    Settings(Settings&&) = default;
-    Settings& operator=(Settings&&) = default;
+    // Move-only type (unique_ptr requires move semantics). Declared here,
+    // defined `= default` in Settings.cpp rather than inline: an inline
+    // `= default` would odr-use unique_ptr<Impl>'s special members (in
+    // particular the deleter move-assignment invokes) at first use in
+    // whichever *other* translation unit calls them -- e.g.
+    // Workspace::SetWorkspaceSettingsPath's `m_settings = Settings::
+    // Load(path)` -- where Impl is still an incomplete forward
+    // declaration. Defining out-of-line, in the one TU where Impl is
+    // complete, is the standard pImpl fix.
+    Settings(Settings&&) noexcept;
+    Settings& operator=(Settings&&) noexcept;
     Settings(const Settings&) = delete;
     Settings& operator=(const Settings&) = delete;
 

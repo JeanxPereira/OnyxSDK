@@ -9,6 +9,7 @@
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <thread>
 
 using namespace Onyx::Modules;
@@ -161,6 +162,37 @@ struct LowScoreFake : Onyx::Modules::IGameModule {
         entry.name = "solo";
         ctx.roots.push_back(std::move(entry));
         return ParseResult{true};
+    }
+};
+
+// Fixture for CancelOpen: signals `started`, then blocks in
+// ParseContainer polling Progress::CancelRequested() (the cooperative
+// contract Jobs.h documents) until it observes the flag set, at which
+// point it returns without producing anything -- exactly what a module
+// honoring a cancel request is expected to do.
+struct CancelFake : Onyx::Modules::IGameModule {
+    std::atomic<bool>* started = nullptr;
+
+    ModuleInfo Info() const override {
+        return ModuleInfo{"cancelfake", "CancelFake", {}, {}};
+    }
+
+    ProbeResult Probe(const ProbeInput& in) const override {
+        if (!in.header.empty() && in.header[0] == std::byte{'C'}) {
+            return ProbeResult{90, "'C' magic"};
+        }
+        return ProbeResult{0, "no magic"};
+    }
+
+    void RegisterTypes(Onyx::Types::TypeRegistrar&) override {}
+    void RegisterDecoders(DecoderRegistry&) override {}
+
+    ParseResult ParseContainer(ContainerContext& ctx) override {
+        if (started) started->store(true);
+        while (!ctx.progress.CancelRequested()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        return ParseResult{false};
     }
 };
 
@@ -405,4 +437,76 @@ TEST_CASE("A throwing ParseContainer is contained: Open still returns a document
     }
 
     std::filesystem::remove(tmp);
+}
+
+TEST_CASE("CancelOpen cancels a blocked async parse and unknown ids report false") {
+    auto tmp = write_temp_file("onyx_workspace_test_cancel.bin", "Crest");
+    {
+        Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+
+        std::atomic<bool> started{false};
+        auto mod = std::make_unique<CancelFake>();
+        mod->started = &started;
+        ws.AddModule(std::move(mod));
+
+        Onyx::Modules::DocumentId readyId = 0;
+        bool readyOk = true;
+        auto sub = ws.Events().On<Onyx::Modules::TreeReady>([&](auto& e) {
+            readyId = e.id;
+            readyOk = e.ok;
+        });
+
+        auto id = ws.OpenAsync(tmp);
+        REQUIRE(id != 0);
+
+        // Deterministic hand-off: wait for the worker to be inside
+        // ParseContainer, polling CancelRequested().
+        auto deadline1 = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!started.load() && std::chrono::steady_clock::now() < deadline1) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        REQUIRE(started.load());
+
+        CHECK(ws.CancelOpen(id) == true);
+        CHECK(ws.CancelOpen(Onyx::Modules::DocumentId(999999)) == false);
+
+        auto deadline2 = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (readyId == 0 && std::chrono::steady_clock::now() < deadline2) {
+            ws.Jobs().Pump();
+            ws.Events().Pump();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        REQUIRE(readyId == id);
+        CHECK_FALSE(readyOk);   // module honored the cancel, reported ParseResult{false}
+
+        auto* doc = ws.Get(id);
+        REQUIRE(doc);
+        CHECK(doc->ready);
+    } // ~Workspace joins the worker (already finished) before removing tmp.
+
+    std::filesystem::remove(tmp);
+}
+
+TEST_CASE("SetWorkspaceSettingsPath swaps in Settings loaded from that path") {
+    auto tmp = std::filesystem::temp_directory_path() / "onyx_workspace_test_settings.toml";
+    std::error_code rmEc;
+    std::filesystem::remove(tmp, rmEc);
+
+    {
+        Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+        ws.SetWorkspaceSettingsPath(tmp);
+
+        ws.WorkspaceSettings().Set("gowr.texIndexDir", std::string("cache/tex"));
+        REQUIRE(ws.WorkspaceSettings().Save());
+    }
+
+    // Reload via a fresh Settings::Load, independent of the Workspace
+    // instance that wrote it -- proves the value actually round-tripped
+    // through the path SetWorkspaceSettingsPath pointed at, not just
+    // through the in-memory instance.
+    Onyx::Services::Settings reloaded = Onyx::Services::Settings::Load(tmp);
+    CHECK(reloaded.GetString("gowr.texIndexDir") == "cache/tex");
+
+    std::filesystem::remove(tmp, rmEc);
 }
