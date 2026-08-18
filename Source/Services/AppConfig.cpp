@@ -266,7 +266,7 @@ void AppConfig::save(const std::string& path) const {
         {"panel_visible", camPanelVisible},
     });
 
-    auto overrides = AssetVisibility::Get().ExportOverridesByKey();
+    auto overrides = AssetVisibility::Get().ExportOverridesByKey(Onyx::Types::TypeCatalog::Get());
     for (const auto& [key, visible] : pendingVisibility) {
         bool alreadyExported = std::any_of(overrides.begin(), overrides.end(),
             [&](const auto& kv) { return kv.first == key; });

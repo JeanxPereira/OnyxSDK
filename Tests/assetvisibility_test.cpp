@@ -64,18 +64,18 @@ TEST_CASE("AssetVisibility user overrides flip Hidden<->Visible but never Intern
 
     vis.SetUserOverride(hidden, true);
     CHECK(vis.IsVisible(hidden));
-    CHECK(HasOverrideForKey(vis.ExportOverridesByKey(), TypeCatalog::Get().KeyOf(hidden)));
+    CHECK(HasOverrideForKey(vis.ExportOverridesByKey(TypeCatalog::Get()), TypeCatalog::Get().KeyOf(hidden)));
 
     // Setting an override back to the default drops it rather than storing a
     // redundant entry -- otherwise the config would grow with every toggle.
     vis.SetUserOverride(hidden, false);
     CHECK_FALSE(vis.IsVisible(hidden));
-    CHECK_FALSE(HasOverrideForKey(vis.ExportOverridesByKey(), TypeCatalog::Get().KeyOf(hidden)));
+    CHECK_FALSE(HasOverrideForKey(vis.ExportOverridesByKey(TypeCatalog::Get()), TypeCatalog::Get().KeyOf(hidden)));
 
     // Internal types are structural: an override must not make them appear.
     vis.SetUserOverride(internal, true);
     CHECK_FALSE(vis.IsVisible(internal));
-    CHECK_FALSE(HasOverrideForKey(vis.ExportOverridesByKey(), TypeCatalog::Get().KeyOf(internal)));
+    CHECK_FALSE(HasOverrideForKey(vis.ExportOverridesByKey(TypeCatalog::Get()), TypeCatalog::Get().KeyOf(internal)));
 
     vis.ClearUserOverride(hidden);
     CHECK(vis.GetCurrent(hidden) == Visibility::Hidden);
@@ -97,7 +97,7 @@ TEST_CASE("AssetVisibility overrides persist by key via Settings, dropping unkno
     std::filesystem::remove(tmp);
     Settings settings = Settings::Load(tmp);
 
-    vis.SaveOverrides(settings);
+    vis.SaveOverrides(TypeCatalog::Get(), settings);
 
     // A key nothing has ever registered a type under: LoadOverrides must
     // drop it silently instead of resurrecting a garbage override, because
@@ -108,11 +108,11 @@ TEST_CASE("AssetVisibility overrides persist by key via Settings, dropping unkno
     CHECK_FALSE(vis.IsVisible(a));
     CHECK(vis.IsVisible(b));
 
-    vis.LoadOverrides(settings);
+    vis.LoadOverrides(TypeCatalog::Get(), settings);
     CHECK(vis.IsVisible(a));      // survived by key
     CHECK_FALSE(vis.IsVisible(b));
 
-    const auto restored = vis.ExportOverridesByKey();
+    const auto restored = vis.ExportOverridesByKey(TypeCatalog::Get());
     CHECK(restored.size() == 2);  // exactly a and b -- the unknown key never landed
     CHECK(TypeCatalog::Get().Find("TEST_VIS_KEY_NEVER_REGISTERED") == TypeId{});
 

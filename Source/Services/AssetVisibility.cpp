@@ -58,10 +58,9 @@ std::vector<AssetVisibility::TypeVisInfo> AssetVisibility::GetFilterableTypes() 
     return result;
 }
 
-std::vector<std::pair<std::string, bool>> AssetVisibility::ExportOverridesByKey() const {
+std::vector<std::pair<std::string, bool>> AssetVisibility::ExportOverridesByKey(const Types::TypeCatalog& catalog) const {
     std::vector<std::pair<std::string, bool>> result;
     result.reserve(m_overrides.size());
-    const auto& catalog = Types::TypeCatalog::Get();
     for (const auto& [idValue, visible] : m_overrides) {
         std::string_view key = catalog.KeyOf(Types::TypeId{idValue});
         if (key.empty()) continue;   // type no longer registered; drop it
@@ -70,15 +69,14 @@ std::vector<std::pair<std::string, bool>> AssetVisibility::ExportOverridesByKey(
     return result;
 }
 
-void AssetVisibility::SaveOverrides(Settings& into) const {
-    for (const auto& [key, visible] : ExportOverridesByKey()) {
+void AssetVisibility::SaveOverrides(const Types::TypeCatalog& catalog, Settings& into) const {
+    for (const auto& [key, visible] : ExportOverridesByKey(catalog)) {
         into.Set("visibility." + key, visible);
     }
 }
 
-void AssetVisibility::LoadOverrides(const Settings& from) {
+void AssetVisibility::LoadOverrides(const Types::TypeCatalog& catalog, const Settings& from) {
     m_overrides.clear();
-    const auto& catalog = Types::TypeCatalog::Get();
     // Walk every registered type rather than the settings file: a key the
     // catalog never claimed is thereby never looked up, which is how
     // unknown/stale keys get dropped silently.

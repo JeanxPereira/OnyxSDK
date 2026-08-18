@@ -9,6 +9,8 @@
 namespace Onyx::Domain { struct AssetEntry; }
 using AssetEntry = Onyx::Domain::AssetEntry;
 
+namespace Onyx::Types { class TypeCatalog; }
+
 namespace Onyx::Services {
 
 class Settings;
@@ -22,8 +24,9 @@ enum class Visibility : uint8_t {
 
 /// Centralized, data-driven asset visibility registry, keyed by TypeId.
 /// Each Types::TypeId has a default Visibility; users can override
-/// Hidden<->Visible via the Filters panel. Overrides persist in the GTKC config.
-/// The store holds no game knowledge; app-level code seeds defaults at startup.
+/// Hidden<->Visible via the Filters panel. Overrides persist by type key in
+/// the TOML config. The store holds no game knowledge; app-level code seeds
+/// defaults at startup.
 class AssetVisibility {
 public:
     static AssetVisibility& Get();
@@ -56,10 +59,14 @@ public:
     // new types) never corrupts previously saved user overrides. A key that
     // no longer resolves to a registered type (removed/renamed) is silently
     // dropped on load rather than resurrected as a garbage override.
-    void SaveOverrides(Settings& into) const;   // writes "visibility.<key>" = bool
-    void LoadOverrides(const Settings& from);   // unknown keys are dropped
+    // Not thread-safe: confine an instance to one thread or guard it
+    // externally.
+    void SaveOverrides(const Types::TypeCatalog& catalog, Settings& into) const;   // writes "visibility.<key>" = bool
+    // Not thread-safe: confine an instance to one thread or guard it
+    // externally.
+    void LoadOverrides(const Types::TypeCatalog& catalog, const Settings& from);   // unknown keys are dropped
 
-    std::vector<std::pair<std::string, bool>> ExportOverridesByKey() const;
+    std::vector<std::pair<std::string, bool>> ExportOverridesByKey(const Types::TypeCatalog& catalog) const;
 
 private:
     AssetVisibility();
