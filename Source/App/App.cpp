@@ -25,6 +25,7 @@
 #include <Onyx/Services/Logger.h>
 #include <Onyx/Services/PathUtils.h>
 #include "Fonts/FontManager.h"
+#include <Onyx/Services/Appearance.h>
 #include <Onyx/Fonts/SFSymbols.h>
 
 namespace Onyx::App {
@@ -73,6 +74,18 @@ void App::init(GLFWwindow *window, Onyx::Services::AppConfig *config) {
       0xE000, 0xFA19,
       {0.0f, 3.0f}
   });
+
+  // The font list exists now, so the environment can say what an unset font
+  // path resolves to. Keeping this out of State is what lets the "user has no
+  // choice saved" case be a real empty value instead of a sentinel index.
+  {
+    Onyx::Appearance::Environment env = Onyx::Appearance::Env();
+    const auto &fonts = Onyx::Fonts::GetFontList();
+    const int def = Onyx::Fonts::DefaultFontIndex();
+    if (def >= 0 && def < (int)fonts.size())
+      env.defaultFontPath = fonts[def].path;
+    Onyx::Appearance::SetEnvironment(env);
+  }
 
   // On macOS: nativeDecorations=true means use traffic lights
   // (borderless=false) On Windows/Linux: always borderless custom titlebar

@@ -13,6 +13,7 @@
 #include <Onyx/Services/PathUtils.h>
 #include <Onyx/Services/TaskManager.h>
 #include <Onyx/Services/ThemeManager.h>
+#include <Onyx/Services/Appearance.h>
 #include "Services/ScaleManager.h"
 #include "Fonts/FontManager.h"
 #include <Onyx/Services/Events.h>
@@ -202,7 +203,29 @@ void Window::initImGui() {
     }
 #endif
     Onyx::Scale::Init(m_config.uiScale, nativeScale);
-    Onyx::Scale::ApplyStyleScale(m_config.uiScale);
+
+    // Seed the appearance owner from config. The font half of the environment
+    // is filled in later (App::init populates the font list first); the first
+    // Commit() runs at the end of frame 1, by which time everything is ready.
+    {
+        Onyx::Appearance::Environment env;
+        env.nativeScale       = nativeScale;
+        env.systemPrefersDark = (Onyx::Theme::GetEffectiveMode() != Onyx::Theme::ThemeMode::Light);
+        Onyx::Appearance::SetEnvironment(env);
+
+        Onyx::Appearance::State state;
+        state.fontPath   = m_config.fontPath;
+        state.fontSizePt = m_config.fontSize;
+        state.userScale  = m_config.uiScale;
+        state.accent     = m_config.getAccent();
+        state.mode       = (Onyx::Theme::ThemeMode)m_config.themeMode;
+        Onyx::Appearance::Set(state);
+
+        // Apply now so frame 1 already has the house metrics. The font list is
+        // not populated yet, so this commit skips the atlas; App::init fills in
+        // the default font path and the next commit picks it up.
+        Onyx::Appearance::Commit();
+    }
 
     ImGui_ImplGlfw_InitForOpenGL(m_window, true);
 #if defined(__APPLE__)
@@ -349,6 +372,11 @@ void Window::frameEnd() {
     // Font rebuild MUST happen after all rendering is complete.
     // Rebuilding the atlas before Render() invalidates the font texture
     // that the current frame's draw commands reference.
+    // One owner, one place, once per frame, outside the frame: Commit applies
+    // any pending appearance change and uploads a rebuilt atlas. A frame with
+    // nothing pending costs a single state comparison.
+    Onyx::Appearance::Commit();
+
     if (Onyx::Fonts::IsPendingRebuild()) {
         Onyx::Fonts::UploadAtlas();
     }

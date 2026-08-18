@@ -1,4 +1,5 @@
 #include "Services/ScaleManager.h"
+#include <Onyx/Services/Appearance.h>
 #include "imgui.h"
 #include "imgui_internal.h"
 #include <algorithm>
@@ -9,10 +10,6 @@ namespace Onyx::Scale {
 static float s_userScale   = 1.0f;
 static float s_nativeScale = 1.0f;
 
-// Cached base style sizes (captured before any scaling is applied).
-// Used by ApplyStyleScale() to reset before re-scaling.
-static ImGuiStyle s_baseStyle;
-static bool       s_baseStyleCaptured = false;
 
 // ── Init ──────────────────────────────────────────────────────────────────
 
@@ -20,13 +17,8 @@ void Init(float userScale, float nativeDpiScale) {
     s_userScale   = std::clamp(userScale, 0.5f, 3.0f);
     s_nativeScale = std::max(nativeDpiScale, 1.0f);
 
-    // Capture the current style as the "base" before any scaling.
-    // This must be called AFTER the theme has been applied but BEFORE
-    // ScaleAllSizes() so we have a clean reference.
-    if (!s_baseStyleCaptured) {
-        s_baseStyle = ImGui::GetStyle();
-        s_baseStyleCaptured = true;
-    }
+    // No style snapshot any more -- Appearance::HouseStyle() is the base, and a
+    // function cannot be captured at the wrong moment.
 }
 
 // ── Queries ───────────────────────────────────────────────────────────────
@@ -40,6 +32,9 @@ float GetFontDpi()     { return s_nativeScale * 96.0f; }
 
 void SetUserScale(float scale) {
     s_userScale = std::clamp(scale, 0.5f, 3.0f);
+    // Appearance is the owner; this stays as the familiar spelling for existing
+    // call sites. The change lands on the next Commit().
+    Appearance::Mutate([&](Appearance::State& st) { st.userScale = s_userScale; });
 }
 
 void SetNativeScale(float scale) {
@@ -63,53 +58,19 @@ ImVec2 Scaled(float x, float y) {
 }
 
 // ── ApplyStyleScale ───────────────────────────────────────────────────────
-// Resets to the clean base style sizes, then applies the absolute scale.
-// This prevents cumulative drift from repeated ScaleAllSizes(ratio) calls.
+// Shim. The style is rebuilt from Appearance::HouseStyle() inside
+// Appearance::Commit(), so there is no snapshot to restore from any more --
+// which is exactly the point: a base captured from the live style depended on
+// when it was captured, and a UI-scale change could silently revert the app's
+// look to whatever was applied at init.
+//
+// Kept so existing call sites (and consumers) keep compiling; they should move
+// to Appearance::Mutate and this should go.
 
 void ApplyStyleScale(float userScale) {
-    if (!s_baseStyleCaptured)
-        return;
-
-    ImGuiStyle& current = ImGui::GetStyle();
-
-    // Restore size-related fields from base (preserving colors)
-    // Copy all non-color sizing fields from the base
-    ImVec4 savedColors[ImGuiCol_COUNT];
-    for (int i = 0; i < ImGuiCol_COUNT; i++)
-        savedColors[i] = current.Colors[i];
-
-    // The font size the user picked is not a scaled metric -- it is an input,
-    // owned by FontManager. Restoring it from the snapshot would silently undo
-    // a font-size change the moment anything touched the UI scale.
-    const float savedFontSizeBase = current.FontSizeBase;
-
-    // Copy the entire base style (sizes + padding + rounding)
-    current = s_baseStyle;
-
-    // Restore current colors (theme may have changed since init)
-    for (int i = 0; i < ImGuiCol_COUNT; i++)
-        current.Colors[i] = savedColors[i];
-    current.FontSizeBase = savedFontSizeBase;
-
-    // Now apply absolute scale from clean base
-    if (userScale != 1.0f)
-        current.ScaleAllSizes(userScale);
-
-    // ScaleAllSizes only touches padding/rounding/border metrics -- text is a
-    // separate axis since ImGui 1.92, where the drawn size is
-    // FontSizeBase * FontScaleMain * FontScaleDpi and glyphs are rasterised on
-    // demand at that size. Without these two lines the slider grew every widget
-    // around text that stayed at its reference size.
-    current.FontScaleMain = userScale;      // user intent
-    current.FontScaleDpi  = s_nativeScale;  // monitor/backing scale
-
-    // Clamp minimum sizes to prevent visual artifacts
-    current.SeparatorSize   = ImMax(current.SeparatorSize, 1.0f);
-    current.ChildBorderSize = ImMax(current.ChildBorderSize, 0.0f);
-    current.PopupBorderSize = ImMax(current.PopupBorderSize, 0.0f);
-    current.FrameBorderSize = ImMax(current.FrameBorderSize, 0.0f);
-    current.WindowBorderSize = ImMax(current.WindowBorderSize, 0.0f);
-    current.TabBorderSize   = ImMax(current.TabBorderSize, 0.0f);
+    const float clamped = std::clamp(userScale, Appearance::kMinScale, Appearance::kMaxScale);
+    s_userScale = clamped;
+    Appearance::Mutate([clamped](Appearance::State& st) { st.userScale = clamped; });
 }
 
 } // namespace Onyx::Scale

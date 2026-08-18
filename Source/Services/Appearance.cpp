@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace Onyx::Appearance {
 
@@ -125,8 +126,9 @@ namespace {
 State       s_desired;
 State       s_applied;
 Environment s_env;
-bool        s_dirty       = true;   // first Commit always applies
-bool        s_everApplied = false;
+bool        s_dirty        = true;   // first Commit always applies
+bool        s_everApplied  = false;
+bool        s_animateNext  = false;  // consumed by the next Commit
 
 // What the atlas currently holds, so a scale change never triggers a rebake.
 std::string s_bakedFontPath;
@@ -138,11 +140,12 @@ const State&       Get() { return s_desired; }
 const Environment& Env() { return s_env; }
 const State&       Applied() { return s_applied; }
 
-void Mutate(const std::function<void(State&)>& fn) {
+void Mutate(const std::function<void(State&)>& fn, bool animateColors) {
     if (!fn)
         return;
     fn(s_desired);
     s_dirty = true;
+    s_animateNext = s_animateNext || animateColors;
 }
 
 void Set(const State& state) {
@@ -164,11 +167,27 @@ void Commit() {
     const Resolved r = Resolve(s_desired, s_env);
 
     // Whole-struct assignment: no read-modify-write of the live style, so no
-    // drift and no dependence on what was applied before.
-    ImGui::GetStyle() = r.style;
+    // drift and no dependence on what was applied before. The palette is the
+    // exception -- ThemeManager still owns colour while it drives the ease-out
+    // transition, so the live colours are carried across the assignment and
+    // handed back to it below. (Folded in when the transition moves here.)
+    ImGuiStyle& live = ImGui::GetStyle();
+    ImVec4 liveColors[ImGuiCol_COUNT];
+    std::memcpy(liveColors, live.Colors, sizeof(liveColors));
+
+    live = r.style;
+    if (s_everApplied)
+        std::memcpy(live.Colors, liveColors, sizeof(liveColors));
 
     // The expensive path, gated on the only two inputs that can invalidate the
     // atlas. Moving the UI scale does not come through here.
+    // Adopt whatever the font system already has, so taking ownership at
+    // startup does not force a redundant rebake of an identical atlas.
+    if (s_bakedRefPx <= 0.0f && Fonts::GetCurrentFontSize() > 0.0f) {
+        s_bakedFontPath = Fonts::GetCurrentFontPath();
+        s_bakedRefPx    = Fonts::GetCurrentFontSize();
+    }
+
     const bool needsBake =
         (r.atlasFontPath != s_bakedFontPath) || (r.atlasRefPx != s_bakedRefPx);
     if (needsBake && !r.atlasFontPath.empty()) {
@@ -191,8 +210,21 @@ void Commit() {
     if (Fonts::IsPendingRebuild())
         Fonts::UploadAtlas();
 
+    // ── Colour ────────────────────────────────────────────────────────────
+    // Only when a colour input actually moved: ApplyTheme recomputes the whole
+    // palette and, for ThemeMode::System, asks the OS -- neither belongs on the
+    // path of a UI-scale drag.
+    const bool colorsChanged =
+        !s_everApplied || s_desired.accent.x != s_applied.accent.x ||
+        s_desired.accent.y != s_applied.accent.y ||
+        s_desired.accent.z != s_applied.accent.z ||
+        s_desired.accent.w != s_applied.accent.w || s_desired.mode != s_applied.mode;
+    if (colorsChanged)
+        Theme::ApplyTheme(s_desired.accent, s_desired.mode, s_animateNext && s_everApplied);
+
     s_applied     = s_desired;
     s_dirty       = false;
+    s_animateNext = false;
     s_everApplied = true;
 }
 
