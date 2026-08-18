@@ -96,6 +96,14 @@ private:
 
 // Owned by its composition root (a Workspace, in M3) — NOT a singleton.
 // See the file header above for the full Post/Pump/Subscription contract.
+//
+// Lifetime contract: the bus must not be destroyed concurrently with a
+// live Subscription's destruction on another thread. Owned by a
+// composition root (Workspace), teardown is destruction order:
+// subscriptions die before, or sequentially after, the bus — never
+// simultaneously on another thread. The alive-flag makes sequential
+// outliving a safe no-op; it does not synchronize concurrent
+// destruction.
 class EventBus {
 public:
     EventBus();
@@ -145,8 +153,13 @@ public:
 
     // Dispatches every event queued as of the moment Pump() is called, in
     // FIFO order, on the calling thread. See the file header for the
-    // re-entrant-Post note. Defined out-of-line in EventBus.cpp (it is
-    // not a template).
+    // re-entrant-Post note. The handler list for each queued event is
+    // snapshotted individually, right before that event is dispatched:
+    // if a handler unsubscribes another handler mid-batch, that removal
+    // takes effect from the next queued event onward — the event already
+    // snapshotted (the one whose handlers are currently being invoked)
+    // still reaches the handler being removed. Defined out-of-line in
+    // EventBus.cpp (it is not a template).
     void Pump();
 
     // Number of events queued and not yet drained by a Pump() call.
