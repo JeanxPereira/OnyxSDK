@@ -1,8 +1,11 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace Onyx::Services {
 
@@ -19,6 +22,9 @@ namespace Onyx::Services {
 //
 // Load(path) returns an empty Settings if the file does not exist.
 // Set() marks the instance Dirty(); Save() clears it.
+//
+// Not thread-safe: confine an instance to one thread or guard it
+// externally.
 class Settings {
  public:
     // Load from file. Missing file yields an empty, clean settings object.

@@ -22,9 +22,9 @@ public:
     static TypeCatalog& Get();
 
     // Registers a type and returns its handle. If forcedValue != 0, the handle
-    // takes that exact value (used to preserve legacy enum values for GTKC
-    // persistence stability). Re-registering the same key returns the existing
-    // handle.
+    // takes that exact value (used to preserve legacy enum values for legacy
+    // numeric stability, pre-key persistence). Re-registering the same key
+    // returns the existing handle.
     TypeId Register(const TypeInfo& info, uint32_t forcedValue = 0);
 
     TypeId            Find(std::string_view key) const;   // {} if absent

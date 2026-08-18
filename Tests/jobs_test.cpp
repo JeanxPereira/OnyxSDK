@@ -84,3 +84,27 @@ TEST_CASE("JobQueue Pump contains a throwing Done callback so later Done callbac
     q.Pump();
     CHECK(secondDoneRan);   // the first Done's throw must not skip the second
 }
+
+TEST_CASE("JobQueue destruction drops queued-but-unstarted jobs on the same lane") {
+    std::atomic<bool> firstRunning{false}, releaseFirst{false};
+    std::atomic<bool> secondWorkRan{false}, secondDoneRan{false};
+    {
+        Onyx::Services::JobQueue q(1); // single worker: job 2 cannot start
+                                        // while job 1 is still mid-flight
+        q.Submit(42, [&](Onyx::Services::Progress&) {
+            firstRunning = true;
+            while (!releaseFirst)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        });
+        q.Submit(42, [&](Onyx::Services::Progress&) { secondWorkRan = true; },
+                     [&]{ secondDoneRan = true; });
+        while (!firstRunning) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+        // Destroy the queue while job 1 is mid-flight; job 2 is still
+        // sitting unstarted in the pending deque for lane 42.
+        releaseFirst = true;
+    } // ~JobQueue: signals stop, joins workers -- job 2 must never run
+
+    CHECK_FALSE(secondWorkRan);
+    CHECK_FALSE(secondDoneRan);
+}

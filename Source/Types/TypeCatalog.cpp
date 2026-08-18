@@ -32,6 +32,10 @@ const TypeInfo& TypeCatalog::Info(TypeId id) const {
 }
 
 std::string_view TypeCatalog::KeyOf(TypeId id) const {
+    // Index 0 (Unknown/invalid) has no real key of its own -- its internal
+    // "UNKNOWN" label backs Info()/Label() only, never key-based lookups or
+    // persistence.
+    if (id.value == 0) return std::string_view("");
     return (id.value < m_infos.size()) ? std::string_view(m_infos[id.value].key) : std::string_view("");
 }
 

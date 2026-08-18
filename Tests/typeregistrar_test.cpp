@@ -33,6 +33,6 @@ TEST_CASE("TypeRegistrar mints keys inside its module namespace") {
 
 TEST_CASE("TypeCatalog::KeyOf answers for registered and invalid ids") {
     TypeCatalog& cat = TypeCatalog::Get();
-    CHECK(std::string(cat.KeyOf(TypeId{})) == "UNKNOWN");   // index 0 is the Unknown info
+    CHECK(std::string(cat.KeyOf(TypeId{})) == "");           // index 0 (Unknown) has no key
     CHECK(std::string(cat.KeyOf(TypeId{60000})) == "");     // out of range
 }
