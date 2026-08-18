@@ -76,6 +76,24 @@ struct Resolved {
     float       atlasRefPx = 14.0f;  // ...and at which reference size
 };
 
+// ── Palette transition ────────────────────────────────────────────────────
+// A value type, so a palette can be captured, interpolated and compared without
+// reaching into the live style. The transition is a pure function of
+// (from, to, t) -- what makes it testable, and what stops an interrupted
+// change from snapping back to a stale starting point.
+
+struct Palette {
+    ImVec4 colors[ImGuiCol_COUNT];
+};
+
+// Cubic ease-out, clamped: 0 -> 0, 1 -> 1, no overshoot.
+float EaseOut(float t);
+
+Palette Lerp(const Palette& from, const Palette& to, float t);
+
+// How long a colour change takes when animated.
+constexpr float kTransitionSeconds = 0.25f;
+
 // Onyx's house proportions, in logical units (1.0x). Pure: a base that is a
 // function rather than a snapshot cannot depend on when it was taken.
 ImGuiStyle HouseStyle();
@@ -102,6 +120,15 @@ void SetEnvironment(const Environment& env);
 // commands reference. Window drives this once per frame; a call with nothing
 // pending costs one comparison.
 void Commit();
+
+// Advances the palette transition. Called once per frame by Window, inside the
+// frame (it only writes colours, so it needs no atlas work). Requests frames
+// from Onyx::Frame while it runs -- an animation that cannot ask for frames is
+// an animation that steps.
+void Tick();
+
+// True while a colour transition is in flight.
+bool IsTransitioning();
 
 // The state actually in effect right now (equals Get() after a Commit).
 const State& Applied();

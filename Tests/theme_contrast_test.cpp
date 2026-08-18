@@ -9,6 +9,7 @@
 
 #include <doctest/doctest.h>
 #include <Onyx/Services/ThemeManager.h>
+#include <Onyx/Services/Appearance.h>
 #include "imgui.h"
 #include <cmath>
 
@@ -79,6 +80,7 @@ TEST_CASE("ThemeContrast: accent surfaces stay dark in Dark mode") {
         SUBCASE(fix.name) {
             Onyx::Theme::ApplyTheme(fix.color, Onyx::Theme::ThemeMode::Dark,
                                    /*animate=*/false);
+            Onyx::Appearance::Commit();
 
             ImGuiStyle& s = ImGui::GetStyle();
             ImVec4 bg   = s.Colors[ImGuiCol_WindowBg];
@@ -105,6 +107,7 @@ TEST_CASE("ThemeContrast: accent surfaces stay light in Light mode") {
         SUBCASE(fix.name) {
             Onyx::Theme::ApplyTheme(fix.color, Onyx::Theme::ThemeMode::Light,
                                    /*animate=*/false);
+            Onyx::Appearance::Commit();
 
             ImGuiStyle& s = ImGui::GetStyle();
             ImVec4 bg   = s.Colors[ImGuiCol_WindowBg];
@@ -130,6 +133,7 @@ TEST_CASE("ThemeContrast: Text color flips correctly for WindowBg") {
     // Dark mode with white accent → text should be light (high luminance).
     Onyx::Theme::ApplyTheme(ImVec4{1, 1, 1, 1}, Onyx::Theme::ThemeMode::Dark,
                            false);
+            Onyx::Appearance::Commit();
     {
         ImVec4 text = ImGui::GetStyle().Colors[ImGuiCol_Text];
         float textLum = TestLuminance(text);
@@ -140,6 +144,7 @@ TEST_CASE("ThemeContrast: Text color flips correctly for WindowBg") {
     // Light mode with black accent → text should be dark (low luminance).
     Onyx::Theme::ApplyTheme(ImVec4{0, 0, 0, 1}, Onyx::Theme::ThemeMode::Light,
                            false);
+            Onyx::Appearance::Commit();
     {
         ImVec4 text = ImGui::GetStyle().Colors[ImGuiCol_Text];
         float textLum = TestLuminance(text);
@@ -156,6 +161,7 @@ TEST_CASE("ThemeContrast: TextLink distinguishable from Text") {
         SUBCASE(fix.name) {
             Onyx::Theme::ApplyTheme(fix.color, Onyx::Theme::ThemeMode::Dark,
                                    false);
+            Onyx::Appearance::Commit();
             ImGuiStyle& s = ImGui::GetStyle();
             float textLum = TestLuminance(s.Colors[ImGuiCol_Text]);
             float linkLum = TestLuminance(s.Colors[ImGuiCol_TextLink]);

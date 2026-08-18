@@ -91,6 +91,14 @@ struct AppConfig {
   // Get accent color as ImVec4 (theme application is handled by ThemeManager)
   ImVec4 getAccent() const { return ImVec4(accentR, accentG, accentB, accentA); }
 
+  // Per-slot colour overrides from the theme editor. Persisted so a tuned
+  // palette survives a restart, like every other appearance input.
+  struct ColorOverrideEntry {
+    uint16_t slot = 0;
+    float r = 0.0f, g = 0.0f, b = 0.0f, a = 1.0f;
+  };
+  std::vector<ColorOverrideEntry> colorOverrides;
+
   // ── Appearance ────────────────────────────────────────────────────────────
   // The config is the on-disk form of Appearance::State. Both directions live
   // here so the mapping exists once: a field added to State that nobody

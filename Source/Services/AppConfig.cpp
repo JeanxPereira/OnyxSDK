@@ -18,6 +18,8 @@ Onyx::Appearance::State AppConfig::appearanceState() const {
     s.userScale  = uiScale;
     s.accent     = getAccent();
     s.mode       = static_cast<Onyx::Theme::ThemeMode>(themeMode);
+    for (const auto &o : colorOverrides)
+        s.overrides.push_back({int(o.slot), ImVec4(o.r, o.g, o.b, o.a)});
     return s;
 }
 
@@ -30,6 +32,11 @@ void AppConfig::setAppearanceState(const Onyx::Appearance::State &s) {
     accentB   = s.accent.z;
     accentA   = s.accent.w;
     themeMode = static_cast<uint8_t>(s.mode);
+
+    colorOverrides.clear();
+    colorOverrides.reserve(s.overrides.size());
+    for (const auto &o : s.overrides)
+        colorOverrides.push_back({uint16_t(o.imguiCol), o.color.x, o.color.y, o.color.z, o.color.w});
 }
 
 
@@ -106,6 +113,21 @@ AppConfig AppConfig::load(const std::string& path) {
                     if (c->size() > 2) cp.b = static_cast<float>((*c)[2].value_or(0.0));
                 }
                 cfg.customPresets.push_back(cp);
+            }
+        }
+        if (const auto* ovr = (*th)["override"].as_array()) {
+            for (const auto& node : *ovr) {
+                const auto* o = node.as_table();
+                if (!o) continue;
+                AppConfig::ColorOverrideEntry e;
+                e.slot = static_cast<uint16_t>((*o)["slot"].value_or<int64_t>(0));
+                if (const auto* c = (*o)["color"].as_array()) {
+                    if (c->size() > 0) e.r = static_cast<float>((*c)[0].value_or(0.0));
+                    if (c->size() > 1) e.g = static_cast<float>((*c)[1].value_or(0.0));
+                    if (c->size() > 2) e.b = static_cast<float>((*c)[2].value_or(0.0));
+                    if (c->size() > 3) e.a = static_cast<float>((*c)[3].value_or(1.0));
+                }
+                cfg.colorOverrides.push_back(e);
             }
         }
     }
@@ -193,6 +215,16 @@ void AppConfig::save(const std::string& path) const {
             });
         }
         theme.insert("preset", std::move(presets));
+    }
+    if (!colorOverrides.empty()) {
+        toml::array overrides;
+        for (const auto& o : colorOverrides) {
+            overrides.push_back(toml::table{
+                {"slot", static_cast<int64_t>(o.slot)},
+                {"color", colorArr({o.r, o.g, o.b, o.a})},
+            });
+        }
+        theme.insert("override", std::move(overrides));
     }
     tbl.insert("theme", std::move(theme));
 

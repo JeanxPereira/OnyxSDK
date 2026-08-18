@@ -2,6 +2,7 @@
 
 #include <Onyx/Services/Logger.h>
 #include "Fonts/FontManager.h"
+#include <Onyx/Services/FrameScheduler.h>
 
 #include "imgui.h"
 
@@ -57,6 +58,26 @@ ImGuiStyle HouseStyle() {
     s.FrameBorderSize  = 1.0f;
 
     return s;
+}
+
+// ── Palette transition ────────────────────────────────────────────────────
+
+float EaseOut(float t) {
+    t = std::clamp(t, 0.0f, 1.0f);
+    const float inv = 1.0f - t;
+    return 1.0f - inv * inv * inv;
+}
+
+Palette Lerp(const Palette& from, const Palette& to, float t) {
+    t = std::clamp(t, 0.0f, 1.0f);
+    Palette out;
+    for (int i = 0; i < ImGuiCol_COUNT; ++i) {
+        const ImVec4& a = from.colors[i];
+        const ImVec4& b = to.colors[i];
+        out.colors[i] = ImVec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t,
+                               a.z + (b.z - a.z) * t, a.w + (b.w - a.w) * t);
+    }
+    return out;
 }
 
 // ── Resolve ───────────────────────────────────────────────────────────────
@@ -134,6 +155,24 @@ bool        s_animateNext  = false;  // consumed by the next Commit
 std::string s_bakedFontPath;
 float       s_bakedRefPx = 0.0f;
 
+// Palette transition. `from` is captured from what is on screen at the moment
+// the change lands, not from the previously *resolved* palette: interrupting a
+// transition half way must continue from what the user is looking at.
+Palette s_paletteFrom;
+Palette s_paletteTo;
+bool    s_transitioning   = false;
+double  s_transitionStart = 0.0;
+
+Palette LivePalette() {
+    Palette p;
+    std::memcpy(p.colors, ImGui::GetStyle().Colors, sizeof(p.colors));
+    return p;
+}
+
+void WritePalette(const Palette& p) {
+    std::memcpy(ImGui::GetStyle().Colors, p.colors, sizeof(p.colors));
+}
+
 } // namespace
 
 const State&       Get() { return s_desired; }
@@ -160,6 +199,28 @@ void SetEnvironment(const Environment& env) {
 
 void Invalidate() { s_dirty = true; }
 
+bool IsTransitioning() { return s_transitioning; }
+
+void Tick() {
+    if (!s_transitioning)
+        return;
+
+    const float elapsed = float(ImGui::GetTime() - s_transitionStart);
+    const float t       = elapsed / kTransitionSeconds;
+
+    if (t >= 1.0f) {
+        WritePalette(s_paletteTo);
+        s_transitioning = false;
+        return;
+    }
+
+    WritePalette(Lerp(s_paletteFrom, s_paletteTo, EaseOut(t)));
+
+    // Re-ask every frame. The request is a deadline, so this simply holds it
+    // open for exactly as long as the transition still needs.
+    Frame::RequestAnimation(double(kTransitionSeconds - elapsed));
+}
+
 void Commit() {
     if (!s_dirty && s_everApplied && s_desired == s_applied)
         return;
@@ -167,17 +228,10 @@ void Commit() {
     const Resolved r = Resolve(s_desired, s_env);
 
     // Whole-struct assignment: no read-modify-write of the live style, so no
-    // drift and no dependence on what was applied before. The palette is the
-    // exception -- ThemeManager still owns colour while it drives the ease-out
-    // transition, so the live colours are carried across the assignment and
-    // handed back to it below. (Folded in when the transition moves here.)
+    // drift and no dependence on what was applied before.
+    const Palette onScreen = LivePalette();
     ImGuiStyle& live = ImGui::GetStyle();
-    ImVec4 liveColors[ImGuiCol_COUNT];
-    std::memcpy(liveColors, live.Colors, sizeof(liveColors));
-
     live = r.style;
-    if (s_everApplied)
-        std::memcpy(live.Colors, liveColors, sizeof(liveColors));
 
     // The expensive path, gated on the only two inputs that can invalidate the
     // atlas. Moving the UI scale does not come through here, and nothing else in
@@ -205,16 +259,26 @@ void Commit() {
         Fonts::UploadAtlas();
 
     // ── Colour ────────────────────────────────────────────────────────────
-    // Only when a colour input actually moved: ApplyTheme recomputes the whole
-    // palette and, for ThemeMode::System, asks the OS -- neither belongs on the
-    // path of a UI-scale drag.
-    const bool colorsChanged =
-        !s_everApplied || s_desired.accent.x != s_applied.accent.x ||
-        s_desired.accent.y != s_applied.accent.y ||
-        s_desired.accent.z != s_applied.accent.z ||
-        s_desired.accent.w != s_applied.accent.w || s_desired.mode != s_applied.mode;
-    if (colorsChanged)
-        Theme::ApplyTheme(s_desired.accent, s_desired.mode, s_animateNext && s_everApplied);
+    // Resolve already built the target palette (accent, mode and overrides), so
+    // there is nothing to recompute here -- only the choice between snapping to
+    // it and easing towards it.
+    Palette target;
+    std::memcpy(target.colors, r.style.Colors, sizeof(target.colors));
+
+    if (s_animateNext && s_everApplied) {
+        // Start from what is on screen, which for an interrupted transition is
+        // a partly-eased palette rather than the last resolved one. Starting
+        // from the latter is what makes a second click visibly snap back.
+        s_paletteFrom     = onScreen;
+        s_paletteTo       = target;
+        s_transitioning   = true;
+        s_transitionStart = ImGui::GetTime();
+        WritePalette(onScreen);
+        Frame::RequestAnimation(kTransitionSeconds);
+    } else {
+        s_transitioning = false;
+        WritePalette(target);
+    }
 
     s_applied     = s_desired;
     s_dirty       = false;

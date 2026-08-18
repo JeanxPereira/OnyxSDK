@@ -329,8 +329,9 @@ void Window::frameBegin() {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    // Drive smooth color transitions (preset switches with ease-out)
-    Onyx::Theme::UpdateTransition();
+    // Drive the palette transition (preset switches, ease-out). Inside the
+    // frame: it only writes colours, unlike Commit which may rebake the atlas.
+    Onyx::Appearance::Tick();
 
     beginNativeWindowFrame();
 }
