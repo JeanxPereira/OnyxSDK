@@ -31,6 +31,7 @@ add_executable(onyx_tests
     decoderregistry_test.cpp
     onyxbox_test.cpp
     materialdesc_test.cpp
+    cli_test.cpp
 )
 target_link_libraries(onyx_tests PRIVATE Onyx::Onyx Onyx_ExampleBox doctest::doctest imgui_lib)
 if(MSVC)
@@ -64,6 +65,7 @@ add_test(NAME OnyxWorkspace       COMMAND onyx_tests "--test-case=*Workspace ope
 add_test(NAME OnyxDecoders        COMMAND onyx_tests "--test-case=*DecoderRegistry*")
 add_test(NAME OnyxBox            COMMAND onyx_tests "--test-case=*onyxbox end to end*,*onyxbox types are minted*,*onyxbox clamps a lying TOC count*,*onyxbox rejects an image whose payloadSize*")
 add_test(NAME OnyxMaterialDesc    COMMAND onyx_tests "--test-case=*ResolveRoleIndices*")
+add_test(NAME OnyxCli             COMMAND onyx_tests "--test-case=*cli probe prints a table*,*cli list json contains type key*,*cli extract writes payloadSize*,*cli decode text entry prints hello box*,*cli decode strict returns kStrictErrors*,*cli decode unknown entry name*,*cli list returns kNoModule*,*cli Run dispatches probe list extract*,*cli Run returns kUsage to err*")
 
 add_test(NAME MinimalViewer_SelfTest
     COMMAND MinimalViewer --selftest $<TARGET_FILE:MinimalViewer>)

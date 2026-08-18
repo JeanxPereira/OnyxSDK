@@ -235,6 +235,7 @@ set_source_files_properties("${ONYX_ICON_TABLE}" PROPERTIES
 # the build the way a stale explicit list would.
 set(ONYX_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Audio/AdpcmDecoder.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Cli/Commands.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Container/ChunkReader.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Container/ChunkSchema.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Container/ChunkTree.cpp
@@ -432,14 +433,17 @@ endif()
 # Provide the engine's runtime font dir to consumers
 set(ONYX_FONTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts" CACHE INTERNAL "Onyx bundled fonts")
 
-if(ONYX_BUILD_EXAMPLES)
-    add_subdirectory(Examples/MinimalViewer)
-endif()
-
 # Onyx_ExampleBox is unconditional (not gated by ONYX_BUILD_EXAMPLES): it is
 # a tiny static lib with no UI/GPU deps, and Tests/ links it to exercise the
 # module contracts (IGameModule, Workspace, DecoderRegistry) end to end.
+# Added before the ONYX_BUILD_EXAMPLES block so Examples/OnyxCli below can
+# link the Onyx_ExampleBox target it depends on.
 add_subdirectory(Examples/OnyxBox)
+
+if(ONYX_BUILD_EXAMPLES)
+    add_subdirectory(Examples/MinimalViewer)
+    add_subdirectory(Examples/OnyxCli)
+endif()
 
 if(ONYX_BUILD_TESTS)
     enable_testing()
