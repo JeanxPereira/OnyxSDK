@@ -19,6 +19,11 @@
 
 namespace Onyx::Domain {
 
+// Per-node status flags (M3a, spec §5.4). `Failed` marks a node whose
+// parse produced partial/no data — the node stays in the tree (salvage,
+// spec §7.1) with diags describing what went wrong.
+enum class NodeFlags : uint8_t { None = 0, Failed = 1 };
+
 // ── AssetEntry ────────────────────────────────────────────────────────────
 // One node in the parsed WAD tree. Profiles populate this; the inspector
 // UI and the test snapshot harness both read it.
@@ -41,6 +46,7 @@ struct AssetEntry {
     MediaKind kind       = MediaKind::Unknown;
     ProfileTag profileTag;
     std::string   displayName;   // human-friendly name (falls back to name if empty)
+    NodeFlags     flags = NodeFlags::None;
 };
 
 } // namespace Onyx::Domain
