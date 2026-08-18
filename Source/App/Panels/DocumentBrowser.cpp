@@ -13,13 +13,21 @@
 // auto-focusing the panel), that is the point to add a subscription for
 // specifically that behavior, not preemptively.
 
+#include <Onyx/Api/ToolkitApi.h>
+#include <Onyx/App/ViewerOpening.h>
 #include <Onyx/App/Widgets.h>
 #include <Onyx/Services/Diagnostics.h>
 #include <Onyx/Types/TypeCatalog.h>
+#include <Onyx/Viewers/DocumentWindow.h>
+#include <Onyx/Viewers/ImageViewer.h>
+#include <Onyx/Viewers/TextEditorViewer.h>
+#include <Onyx/Viewers/Viewport3D.h>
 #include "imgui.h"
 
 #include <cstdio>
+#include <memory>
 #include <string>
+#include <utility>
 
 namespace Onyx::App {
 
@@ -29,6 +37,34 @@ namespace {
 // registered type carries, the same way a compiler error line ignores
 // the file's normal syntax highlighting.
 constexpr ImVec4 kFailedColor = ImVec4(1.0f, 0.65f, 0.15f, 1.0f);
+
+// Wires OpenSelection's decode result to the real viewer classes. Kept
+// separate from OpenSelection itself (Include/Onyx/App/ViewerOpening.h)
+// so that seam stays testable without linking ImGui/GL -- see that
+// header's file comment. The callbacks close over nothing, so one
+// instance is reused for every double-click rather than rebuilt per
+// click.
+Onyx::App::ViewerOpener MakeShellViewerOpener() {
+    Onyx::App::ViewerOpener opener;
+
+    opener.openImage = [](std::string name, std::unique_ptr<Onyx::Parsers::TextureData> texture) {
+        Onyx::Api::Documents().AddTab(
+            std::make_shared<Onyx::Viewers::ImageViewer>(name, std::move(texture)));
+    };
+
+    opener.openText = [](std::string name, Onyx::Modules::TextOut text) {
+        Onyx::Api::Documents().AddTab(
+            std::make_shared<Onyx::Viewers::TextEditorViewer>(name, std::move(text.text)));
+    };
+
+    opener.openScene = [](std::string name, std::unique_ptr<Onyx::Parsers::SceneData> scene) {
+        auto viewport = std::make_shared<Onyx::Viewers::Viewport3D>(name);
+        viewport->LoadScene(std::move(scene));
+        Onyx::Api::Documents().AddTab(viewport);
+    };
+
+    return opener;
+}
 
 } // namespace
 
@@ -107,6 +143,22 @@ void DocumentBrowser::DrawEntry(Onyx::Modules::Document& doc, const Onyx::Domain
 
     if (ImGui::IsItemClicked()) {
         m_workspace.Events().Post(Onyx::Modules::SelectionChanged{doc.id, path});
+    }
+
+    // Double-click opens a viewer directly, decoding on this (the UI)
+    // thread -- see Include/Onyx/App/ViewerOpening.h. This is a plain
+    // ImGui double-click check (matches PakBrowser's legacy pattern)
+    // rather than a second EventBus intent: OpenSelection already needs
+    // the exact (doc, path) pair the single click's SelectionChanged
+    // carries, and nothing else in the Shell currently wants to react to
+    // "the user double-clicked a browser row" independently of "open its
+    // viewer" -- so a dedicated event would have exactly one subscriber,
+    // itself, forever. If a second consumer shows up (e.g. a future
+    // "focus in Inspector on double-click" behavior), that is the point
+    // to promote this to a posted intent.
+    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        static const Onyx::App::ViewerOpener opener = MakeShellViewerOpener();
+        Onyx::App::OpenSelection(m_workspace, Onyx::Modules::SelectionChanged{doc.id, path}, opener);
     }
 
     if (hasChildren && open) {

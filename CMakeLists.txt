@@ -307,7 +307,9 @@ set(ONYX_SHELL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/SettingsWindow.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/StatusBar.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/TitleBar.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/ViewerOpening.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/ViewerRegistry.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/ViewerRouting.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Widgets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Window.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/WindowDecorator.cpp
