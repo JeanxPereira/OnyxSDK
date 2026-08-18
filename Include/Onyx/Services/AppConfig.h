@@ -4,6 +4,7 @@
 // named in signatures, so a forward declaration carries it.
 #include <filesystem>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Onyx::Appearance { struct State; }
@@ -99,6 +100,12 @@ struct AppConfig {
     float r = 0.0f, g = 0.0f, b = 0.0f, a = 1.0f;
   };
   std::vector<ColorOverrideEntry> colorOverrides;
+
+  // Visibility overrides whose key did not resolve against the type
+  // catalog at load() time (e.g. load() ran before the app seeded its
+  // types). Kept rather than dropped, so save() can round-trip them
+  // byte-equivalently instead of silently erasing a user's preferences.
+  std::vector<std::pair<std::string, bool>> pendingVisibility;
 
   // ── Appearance ────────────────────────────────────────────────────────────
   // The config is the on-disk form of Appearance::State. Both directions live

@@ -1,8 +1,10 @@
 #include <doctest/doctest.h>
 #include <Onyx/Services/AppConfig.h>
+#include <Onyx/Types/TypeCatalog.h>
 
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 
 using namespace Onyx::Services;
@@ -57,6 +59,52 @@ TEST_CASE("AppConfig saves and loads via TOML round-trip") {
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
+}
+
+TEST_CASE("AppConfig round-trips a visibility override for a type key the catalog has not seeded") {
+    // Simulates AppConfig::load() running before the app has registered its
+    // types (Window ctor runs later): the key in the file resolves to
+    // nothing right now.
+    const std::string key = "TEST_APPCONFIG_UNSEEDED_TYPE";
+    REQUIRE_FALSE(Onyx::Types::TypeCatalog::Get().Find(key).valid());
+
+    // Written by hand (rather than via AppConfig::save, which could only
+    // ever write a key that already resolves) to match the on-disk shape
+    // AppConfig::load() must parse regardless of who produced it.
+    const auto path1 =
+        (std::filesystem::temp_directory_path() / "onyx_appconfig_pending_vis_1.toml").string();
+    {
+        std::ofstream f(path1, std::ios::binary);
+        f << "[[visibility.overrides]]\n"
+          << "key = \"" << key << "\"\n"
+          << "visible = true\n";
+    }
+
+    AppConfig cfg = AppConfig::load(path1);
+
+    // Still unresolved -- the catalog was never seeded in this test.
+    CHECK_FALSE(Onyx::Types::TypeCatalog::Get().Find(key).valid());
+
+    bool foundPending = false;
+    for (const auto& [k, v] : cfg.pendingVisibility) {
+        if (k == key) { foundPending = true; CHECK(v == true); }
+    }
+    CHECK(foundPending);
+
+    const auto path2 =
+        (std::filesystem::temp_directory_path() / "onyx_appconfig_pending_vis_2.toml").string();
+    cfg.save(path2);
+
+    AppConfig cfg2 = AppConfig::load(path2);
+    bool survivedRoundTrip = false;
+    for (const auto& [k, v] : cfg2.pendingVisibility) {
+        if (k == key) { survivedRoundTrip = true; CHECK(v == true); }
+    }
+    CHECK(survivedRoundTrip);
+
+    std::error_code ec;
+    std::filesystem::remove(path1, ec);
+    std::filesystem::remove(path2, ec);
 }
 
 TEST_CASE("AppConfig missing file yields defaults") {

@@ -3,6 +3,7 @@
 #include <Onyx/Services/AssetVisibility.h>
 #include <Onyx/Types/TypeCatalog.h>
 #include <toml++/toml.hpp>
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -164,17 +165,24 @@ AppConfig AppConfig::load(const std::string& path) {
     if (const auto* vis = tbl["visibility"].as_table()) {
         if (const auto* ov = (*vis)["overrides"].as_array()) {
             AssetVisibility::Get().ResetAllOverrides();
+            cfg.pendingVisibility.clear();
             for (const auto& node : *ov) {
                 const auto* o = node.as_table();
                 if (!o) continue;
                 std::string key = (*o)["key"].value_or(std::string{});
                 if (key.empty()) continue;
-                // A key no live type claims (removed/renamed type) is
-                // dropped silently rather than resurrected as a garbage
-                // override.
-                Onyx::Types::TypeId id = Onyx::Types::TypeCatalog::Get().Find(key);
-                if (!id.valid()) continue;
                 bool visible = (*o)["visible"].value_or(false);
+                // A key that does not resolve right now might be a
+                // removed/renamed type -- or the catalog simply hasn't
+                // been seeded yet (load() runs before the app registers
+                // its types). Either way, keep the entry so save() can
+                // round-trip it rather than resurrecting or erasing it
+                // outright.
+                Onyx::Types::TypeId id = Onyx::Types::TypeCatalog::Get().Find(key);
+                if (!id.valid()) {
+                    cfg.pendingVisibility.emplace_back(std::move(key), visible);
+                    continue;
+                }
                 AssetVisibility::Get().SetUserOverride(id, visible);
             }
         }
@@ -259,6 +267,11 @@ void AppConfig::save(const std::string& path) const {
     });
 
     auto overrides = AssetVisibility::Get().ExportOverridesByKey();
+    for (const auto& [key, visible] : pendingVisibility) {
+        bool alreadyExported = std::any_of(overrides.begin(), overrides.end(),
+            [&](const auto& kv) { return kv.first == key; });
+        if (!alreadyExported) overrides.emplace_back(key, visible);
+    }
     if (!overrides.empty()) {
         toml::array ov;
         for (const auto& [key, visible] : overrides) {
