@@ -114,6 +114,18 @@ void SceneRenderer::Build(const Parsers::SceneData& scene) {
                 batch.texture0 = textureIds[part.materialId][part.textureLayer];
                 batch.hasTexture = true;
             }
+
+            // The remaining layers are PBR roles only when the loader says so.
+            if (scene.pbrLayers) {
+                const auto& layers = textureIds[part.materialId];
+                auto at = [&layers](size_t i) -> GLuint {
+                    return i < layers.size() ? layers[i] : 0;
+                };
+                batch.texNormal  = at(1);
+                batch.texAO      = at(2);
+                batch.texGloss   = at(3);
+                batch.texScatter = at(5);
+            }
         }
 
         m_batches.push_back(std::move(batch));
@@ -617,6 +629,7 @@ void SceneRenderer::RenderBatches(const std::vector<RenderBatch*>& batches,
     shader->SetVec3("uLightDir", lightDir);
     glm::vec3 viewPos = glm::vec3(glm::inverse(view)[3]);
     shader->SetVec3("uViewPos", viewPos);
+    shader->SetFloat("uNormalStrength", 1.0f);
 
     // Matcap texture (always bound to unit 2)
     if (mode == ShadingMode::Matcap) {
@@ -677,6 +690,23 @@ void SceneRenderer::RenderBatches(const std::vector<RenderBatch*>& batches,
             shader->SetInt("uEnvmap", 1);
             currentTex1 = batch->texture1;
         }
+
+        // PBR maps (units 3-6; 2 stays the matcap). Bound unconditionally so a
+        // batch never inherits the previous batch's maps: the flag alone is not
+        // enough, since the sampler keeps whatever was last bound to its unit.
+        struct { const char* name; GLuint tex; const char* flag; int unit; } kPbr[] = {
+            { "uTexNormal",  batch->texNormal,  "uHasNormal",  3 },
+            { "uTexAO",      batch->texAO,      "uHasAO",      4 },
+            { "uTexGloss",   batch->texGloss,   "uHasGloss",   5 },
+            { "uTexScatter", batch->texScatter, "uHasScatter", 6 },
+        };
+        for (const auto& m : kPbr) {
+            glActiveTexture(GL_TEXTURE0 + m.unit);
+            glBindTexture(GL_TEXTURE_2D, m.tex);
+            shader->SetInt(m.name, m.unit);
+            shader->SetInt(m.flag, m.tex != 0 ? 1 : 0);
+        }
+        shader->SetFloat("uMetallic", batch->metallic);
 
         batch->gpuMesh->Draw();
     }

@@ -21,6 +21,13 @@ struct RenderBatch {
     std::shared_ptr<GpuMesh>    gpuMesh;
     GLuint                      texture0 = 0;       // Diffuse texture
     GLuint                      texture1 = 0;       // Environment map / layer 1
+    // PBR maps, in the layer order the GOWR loader stages them. Zero means the
+    // material ships none, and the shader falls back to a constant.
+    GLuint                      texNormal  = 0;     // layer 1  _0n_
+    GLuint                      texAO      = 0;     // layer 2  _0ao_
+    GLuint                      texGloss   = 0;     // layer 3  _0g_
+    GLuint                      texScatter = 0;     // layer 5  _0sc_
+    float                       metallic   = 0.0f;
     float                       materialColor[4] = {1,1,1,1};
     float                       layerColor[4]    = {1,1,1,1};
     float                       uvOffset[2]      = {0,0};

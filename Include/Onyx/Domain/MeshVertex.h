@@ -16,6 +16,9 @@ struct GpuVertex {
     glm::vec2  uv1         {0.0f};
     glm::vec4  boneWeights {0.0f};
     glm::uvec4 boneIndices {0u};
+    // xyz = tangent, w = bitangent handedness (+1/-1). Identity default keeps
+    // the TBN orthonormal for meshes that ship no tangent stream.
+    glm::vec4  tangent     {1.0f, 0.0f, 0.0f, 1.0f};
 };
 
 } // namespace Onyx::Domain

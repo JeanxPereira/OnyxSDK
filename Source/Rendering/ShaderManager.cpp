@@ -51,6 +51,7 @@ layout(location=3) in vec4 aColor;
 layout(location=4) in vec2 aUV1;
 layout(location=5) in vec4 aBoneWeights;
 layout(location=6) in uvec4 aBoneIndices;
+layout(location=7) in vec4  aTangent;
 
 uniform mat4 uView;
 uniform mat4 uProjection;
@@ -67,39 +68,38 @@ out vec2 vUV;
 out vec2 vUV1;
 out vec4 vColor;
 out float vDet;
+out vec3 vWorldTangent;
+out float vHandedness;
 
 void main() {
     vec4 localPos;
     vec3 localNormal;
+    vec3 localTangent;
 
     if (uUseJoints == 1) {
-        // GOW2 skinning — porta exata do export_gltf.go:
-        //   Weight (flags & 0x7fff / 4096)  → peso do jointIndexes[0] (boneIndices.x)
-        //   1 - Weight                       → peso do jointIndexes[1] (boneIndices.y)
-        //
-        // Quando Weight == 0: 100% boneIndices.y (joint secundário é o único ativo)
-        // Quando Weight == 1: 100% boneIndices.x (joint primário é o único ativo)
-        // NUNCA usar uJoints[0] como fallback — isso colapsa tudo na raiz.
-        float w0 = aBoneWeights.x;  // Weight → peso de boneIndices.x
-        float w1 = aBoneWeights.y;  // 1-Weight → peso de boneIndices.y
-        if (w0 > 0.001 && w1 > 0.001) {
-            // Blended: dois joints ativos
-            mat4 skin = uJoints[aBoneIndices.x] * w0
-                      + uJoints[aBoneIndices.y] * w1;
-            localPos    = skin * vec4(aPos, 1.0);
-            localNormal = mat3(skin) * aNormal;
-        } else if (w0 > 0.001) {
-            // Rigid: 100% boneIndices.x
-            localPos    = uJoints[aBoneIndices.x] * vec4(aPos, 1.0);
-            localNormal = mat3(uJoints[aBoneIndices.x]) * aNormal;
-        } else {
-            // Rigid: 100% boneIndices.y (Weight == 0)
-            localPos    = uJoints[aBoneIndices.y] * vec4(aPos, 1.0);
-            localNormal = mat3(uJoints[aBoneIndices.y]) * aNormal;
-        }
+        // A weighted sum over the four influences. GOW2 only ever fills two of
+        // them - Weight in .x for boneIndices.x and 1-Weight in .y for
+        // boneIndices.y, with .zw left at zero - so this reproduces the old
+        // two-bone blend exactly for those meshes while letting GOWR, which
+        // ships four weights, contribute all of them instead of having half
+        // its influence silently dropped.
+        mat4 skin = uJoints[aBoneIndices.x] * aBoneWeights.x
+                  + uJoints[aBoneIndices.y] * aBoneWeights.y
+                  + uJoints[aBoneIndices.z] * aBoneWeights.z
+                  + uJoints[aBoneIndices.w] * aBoneWeights.w;
+
+        // Guard the degenerate vertex whose weights are all zero: without this
+        // the matrix collapses to zero and the vertex lands on the origin.
+        float wsum = aBoneWeights.x + aBoneWeights.y + aBoneWeights.z + aBoneWeights.w;
+        if (wsum < 0.001) skin = uJoints[aBoneIndices.x];
+
+        localPos     = skin * vec4(aPos, 1.0);
+        localNormal  = mat3(skin) * aNormal;
+        localTangent = mat3(skin) * aTangent.xyz;
     } else {
-        localPos    = vec4(aPos, 1.0);
-        localNormal = aNormal;
+        localPos     = vec4(aPos, 1.0);
+        localNormal  = aNormal;
+        localTangent = aTangent.xyz;
     }
 
     // Always apply model transform (handles Z-flip for GOW2 models)
@@ -111,6 +111,11 @@ void main() {
     vWorldNormal = normalize(worldNormal);
     vViewNormal  = mat3(uView) * vWorldNormal;
     vViewPos     = (uView * worldPos).xyz;
+
+    // The model transform may mirror (GOW2 flips Z), which flips handedness
+    // with it; vDet carries the sign so the fragment stage can correct.
+    vWorldTangent = mat3(uModelTransform) * localTangent;
+    vHandedness   = aTangent.w;
 
     vUV  = aUV + uLayerOffset;
     vUV1 = aUV1;
@@ -133,6 +138,8 @@ in vec2 vUV;
 in vec2 vUV1;
 in vec4 vColor;
 in float vDet;
+in vec3 vWorldTangent;
+in float vHandedness;
 
 // Material
 uniform vec4 uMaterialColor;
@@ -153,11 +160,61 @@ uniform sampler2D uMatcap;
 uniform int uUseEnvmap;
 uniform sampler2D uEnvmap;
 
+// ── PBR maps ────────────────────────────────────────────────────────────
+// The GOWR loader stages a material's textures by role, in a fixed layer
+// order; these samplers mirror it one for one. uTexture0 is layer 0.
+uniform sampler2D uTexNormal;    // layer 1  _0n_
+uniform sampler2D uTexAO;        // layer 2  _0ao_
+uniform sampler2D uTexGloss;     // layer 3  _0g_
+uniform sampler2D uTexScatter;   // layer 5  _0sc_
+uniform int uHasNormal;
+uniform int uHasAO;
+uniform int uHasGloss;
+uniform int uHasScatter;
+uniform float uMetallic;
+uniform float uNormalStrength;
+
 // Lighting
 uniform vec3 uLightDir;
 uniform vec3 uViewPos;
 
 out vec4 FragColor;
+
+// Rebuilds the tangent frame and applies the normal map. The map's Z is
+// reconstructed rather than sampled: the shipped normals are BC5, which stores
+// only two channels, and reconstructing stays correct for the BC7 ones too.
+vec3 ApplyNormalMap(vec3 N) {
+    vec3 T = vWorldTangent - N * dot(N, vWorldTangent);   // Gram-Schmidt
+    float len = length(T);
+    if (uHasNormal == 0 || len < 1e-5) return N;
+    T /= len;
+    // A mirroring model transform flips the frame with it.
+    vec3 B = cross(N, T) * vHandedness * sign(vDet);
+
+    vec2 nxy = texture(uTexNormal, vUV).rg * 2.0 - 1.0;
+    nxy *= uNormalStrength;
+    float nz = sqrt(max(1.0 - dot(nxy, nxy), 0.0));
+    return normalize(T * nxy.x + B * nxy.y + N * nz);
+}
+
+// GGX / Trowbridge-Reitz
+float DistributionGGX(float ndoth, float rough) {
+    float a  = rough * rough;
+    float a2 = a * a;
+    float d  = ndoth * ndoth * (a2 - 1.0) + 1.0;
+    return a2 / max(3.14159265 * d * d, 1e-7);
+}
+
+float GeometrySmith(float ndotv, float ndotl, float rough) {
+    float k = (rough + 1.0) * (rough + 1.0) / 8.0;
+    float gv = ndotv / (ndotv * (1.0 - k) + k);
+    float gl = ndotl / (ndotl * (1.0 - k) + k);
+    return gv * gl;
+}
+
+vec3 FresnelSchlick(float ct, vec3 F0) {
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - ct, 0.0, 1.0), 5.0);
+}
 
 void main() {
     if (uWireframeOverride == 1) {
@@ -207,11 +264,59 @@ void main() {
     // Alpha test
     if (clr.a < 0.01) discard;
 
-    // ── Textured Mode (material preview) ─────────────────────────────
+    // ── Textured Mode: the material as the game authored it ──────────
     if (uShadingMode == 2) {
-        float ndotl = max(dot(N, normalize(uLightDir)), 0.0);
-        vec3 lighting = vec3(0.30) + vec3(0.70) * ndotl;
-        FragColor = vec4(clr.rgb * lighting, clr.a);
+        vec3 Nm = ApplyNormalMap(N);
+        vec3 V  = normalize(uViewPos - vWorldPos);
+        vec3 L  = normalize(uLightDir);
+        vec3 H  = normalize(L + V);
+
+        // The maps are named for gloss, so roughness is its complement.
+        float gloss = uHasGloss == 1 ? texture(uTexGloss, vUV).r : 0.35;
+        float rough = clamp(1.0 - gloss, 0.045, 1.0);
+        float ao    = uHasAO == 1 ? texture(uTexAO, vUV).r : 1.0;
+
+        // The diffuse map is authored in display space; the lighting below is
+        // linear, so it has to be decoded before it takes part in it.
+        vec3 albedo = pow(clr.rgb, vec3(2.2));
+        vec3 F0     = mix(vec3(0.04), albedo, uMetallic);
+        vec3 kd     = albedo * (1.0 - uMetallic);
+
+        float ndotv = max(dot(Nm, V), 1e-4);
+        float ndotl = max(dot(Nm, L), 0.0);
+        float ndoth = max(dot(Nm, H), 0.0);
+
+        vec3  F    = FresnelSchlick(max(dot(H, V), 0.0), F0);
+        float D    = DistributionGGX(ndoth, rough);
+        float G    = GeometrySmith(ndotv, ndotl, rough);
+        vec3  spec = (D * G * F) / max(4.0 * ndotv * ndotl, 1e-4);
+
+        vec3 diffuse = kd / 3.14159265;
+
+        // Subsurface: the scatter map tints light that wraps past the
+        // terminator, which is what keeps skin from reading as plastic.
+        if (uHasScatter == 1) {
+            vec3 sss = texture(uTexScatter, vUV).rgb;
+            float wrapped = max(dot(Nm, L) * 0.5 + 0.5, 0.0);
+            diffuse += kd * sss * wrapped * 0.35 / 3.14159265;
+        }
+
+        vec3 keyLight = vec3(3.0);
+        vec3 color    = (diffuse + spec) * keyLight * ndotl;
+
+        // Two-band ambient standing in for an environment probe: a hemisphere
+        // for the diffuse, a fresnel-weighted term for the specular.
+        vec3 skyColor    = vec3(0.16, 0.18, 0.22);
+        vec3 groundColor = vec3(0.06, 0.05, 0.05);
+        vec3 ambient     = mix(groundColor, skyColor, Nm.y * 0.5 + 0.5);
+        vec3 ambSpec     = FresnelSchlick(ndotv, F0) * skyColor * (1.0 - rough);
+        color += (kd * ambient + ambSpec) * ao;
+
+        // Reinhard, then back to display space - the lighting above is linear.
+        color = color / (color + vec3(1.0));
+        color = pow(color, vec3(1.0 / 2.2));
+
+        FragColor = vec4(color, clr.a);
         return;
     }
 

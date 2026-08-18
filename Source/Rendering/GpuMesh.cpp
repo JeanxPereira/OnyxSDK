@@ -103,6 +103,11 @@ void GpuMesh::Upload(const std::vector<Domain::GpuVertex>& vertices,
                            (void*)offsetof(Domain::GpuVertex, boneIndices));
     glEnableVertexAttribArray(6);
 
+    // location 7: tangent (vec4; w carries bitangent handedness)
+    glVertexAttribPointer(7, 4, GL_FLOAT, GL_FALSE, sizeof(Domain::GpuVertex),
+                          (void*)offsetof(Domain::GpuVertex, tangent));
+    glEnableVertexAttribArray(7);
+
     glBindVertexArray(0);
 }
 

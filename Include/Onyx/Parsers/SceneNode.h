@@ -63,6 +63,13 @@ struct SceneData {
     // Decoded textures ready for GPU upload (index = materialId, then layerId)
     std::vector<std::vector<std::unique_ptr<TextureData>>>   textures;
 
+    // Whether the layer axis of `textures` carries PBR roles (0 diffuse,
+    // 1 normal, 2 occlusion, 3 gloss, 4 height, 5 scatter, 6 detail) rather
+    // than GOW2's alternative blend layers. Only the GOWR loader sets it, and
+    // the renderer refuses to sample a normal map without it - GOW2's layer 1
+    // is a second diffuse, and binding it as a normal map would wreck it.
+    bool                                        pbrLayers = false;
+
     bool HasSkeleton() const {
         return skeleton && skeleton->HasSkeleton();
     }
