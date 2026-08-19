@@ -33,6 +33,18 @@ struct ContainerContext {
     Services::Progress&       progress;
     ModuleState&              state;      // module writes what it wants kept
     std::vector<Domain::AssetEntry>& roots;   // module fills the tree here
+
+    // Mount processing at open (spec §5.2, Task 7). Both null/absent for a
+    // plain file (no MountSpec matched the opened path's extension, or the
+    // matching spec's factory refused the mount). When a mount succeeded,
+    // mountedVfs is the live VFS to open inner files through, and fileTable
+    // is the Document's file table to push those opened files into --
+    // stamping each pushed entry's resulting index into that entry's
+    // AssetEntry::source.fileIndex is the module's job. Index 0 always
+    // names the root container file (pre-seeded by the Workspace before
+    // ParseContainer runs).
+    Vfs::IVirtualFileSystem*  mountedVfs = nullptr;
+    std::vector<std::shared_ptr<Vfs::IFile>>* fileTable = nullptr;
 };
 
 // Thread contract: a Document obtained from Get() must not be read before
@@ -44,6 +56,17 @@ struct Document {
     IGameModule* module = nullptr;        // owned by the Workspace
     std::vector<Domain::AssetEntry> roots;
     std::shared_ptr<Vfs::IFile> file;
+
+    // Mount processing at open (Task 7). mountedVfs keeps the module's
+    // mounted VFS alive for the Document's whole lifetime (inner files it
+    // hands out must outlive the parse). fileTable is the file table
+    // AssetEntry::source.fileIndex indexes into: slot 0 is pre-seeded with
+    // `file` itself (the root container) by the Workspace before
+    // ParseContainer runs; a module parsing through a mount appends every
+    // inner file it opens via mountedVfs, in order, from slot 1 on.
+    std::shared_ptr<Vfs::IVirtualFileSystem> mountedVfs;
+    std::vector<std::shared_ptr<Vfs::IFile>> fileTable;
+
     Services::DiagSink diags;
     ModuleState state;
     std::atomic<bool> ready{false};       // true once parse finished (ok or not)

@@ -14,6 +14,7 @@
 #include <cstdio>       // SEEK_SET
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -162,11 +163,19 @@ bool IsSafeEntryName(std::string_view name) {
 // A "leaf" is an entry with no children -- container/branch nodes carry no
 // payload of their own to copy. Failed entries are skipped: their declared
 // range is known-bad (that is exactly why the parser flagged them).
+//
+// `fileTable` is the owning Document's file table (Task 7): slot 0 is
+// always the root container file; slot 1+ are inner files a mount-aware
+// module opened while parsing. Each entry's payload is read from
+// fileTable[e.source.fileIndex] -- an out-of-range index is a salvage
+// failure for that one entry (an error line, then keep going), never a
+// reason to abort the whole extract.
 void ExtractEntries(std::ostream& out, const std::vector<Domain::AssetEntry>& entries,
-                     const std::filesystem::path& outDir, Vfs::IFile& file) {
+                     const std::filesystem::path& outDir,
+                     const std::vector<std::shared_ptr<Vfs::IFile>>& fileTable) {
     for (const auto& e : entries) {
         if (!e.children.empty()) {
-            ExtractEntries(out, e.children, outDir, file);
+            ExtractEntries(out, e.children, outDir, fileTable);
             continue;
         }
         if ((static_cast<uint8_t>(e.flags) & static_cast<uint8_t>(Domain::NodeFlags::Failed)) != 0) continue;
@@ -175,6 +184,13 @@ void ExtractEntries(std::ostream& out, const std::vector<Domain::AssetEntry>& en
             out << "skipped '" << e.name << "': unsafe name\n";
             continue;
         }
+
+        if (e.source.fileIndex >= fileTable.size() || !fileTable[e.source.fileIndex]) {
+            out << "error '" << e.name << "': file index " << e.source.fileIndex
+                << " out of range\n";
+            continue;
+        }
+        Vfs::IFile& file = *fileTable[e.source.fileIndex];
 
         std::vector<uint8_t> buf(e.source.size);
         size_t got = 0;
@@ -269,8 +285,8 @@ int CmdExtract(Workspace& ws, const std::filesystem::path& path,
     std::error_code ec;
     std::filesystem::create_directories(outDir, ec);
 
-    if (doc->file) {
-        ExtractEntries(out, doc->roots, outDir, *doc->file);
+    if (!doc->fileTable.empty()) {
+        ExtractEntries(out, doc->roots, outDir, doc->fileTable);
     }
 
     std::vector<Diag> diags = doc->diags.Drain();

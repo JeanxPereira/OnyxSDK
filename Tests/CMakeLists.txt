@@ -27,6 +27,7 @@ add_executable(onyx_tests
     eventbus_test.cpp
     probe_test.cpp
     workspace_test.cpp
+    mounts_test.cpp
     selection_test.cpp
     decoderregistry_test.cpp
     viewerrouting_test.cpp
@@ -69,6 +70,7 @@ add_test(NAME OnyxDiagSink       COMMAND onyx_tests "--test-case=*DiagSink*")
 add_test(NAME OnyxJobs           COMMAND onyx_tests "--test-case=*JobQueue*,*Cancellation*,*Progress snapshots*,*throwing Work*")
 add_test(NAME OnyxEventBus       COMMAND onyx_tests "--test-case=*EventBus*,*Subscription*,*Distinct event types do not cross*,*Cross-thread Post is safe*")
 add_test(NAME OnyxWorkspace       COMMAND onyx_tests "--test-case=*Workspace opens a document*,*No module accepts the file*,*OpenAsync delivers TreeReady*,*Close posts DocumentClosed*,*FindModule resolves by id then hint*,*A single registered module skips the probe floor*,*Close during an in-flight OpenAsync parse*,*A throwing ParseContainer is contained*,*AddModule rejects a duplicate module id*,*CancelOpen cancels a blocked async parse*,*SetWorkspaceSettingsPath swaps in Settings*")
+add_test(NAME OnyxMounts          COMMAND onyx_tests "--test-case=*MountSpec:*,*Extract: fileIndex 1*,*Extract: an out-of-range fileIndex*")
 add_test(NAME OnyxSelection       COMMAND onyx_tests "--test-case=*Selection:*")
 add_test(NAME OnyxDecoders        COMMAND onyx_tests "--test-case=*DecoderRegistry*")
 add_test(NAME OnyxViewerRouting   COMMAND onyx_tests "--test-case=*RouteForType*,*ViewerOpening:*")
