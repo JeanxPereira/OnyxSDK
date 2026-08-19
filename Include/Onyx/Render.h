@@ -23,6 +23,20 @@
 // ready floor's one-shot-per-call contract does not fit (a persistent,
 // multi-pass, GPU-resident viewport, e.g. Onyx::Viewers::Viewport3D's own
 // implementation) -- see RenderToImage.h's top comment for that exact case.
+//
+// Third-party dependencies to compile a TU that includes ONLY this header
+// (verified by a standalone cold-start compile, T8 fix round 1 -- an
+// earlier version of this comment named only the Vulkan half and left
+// AxisGizmo.h's own imgui.h dependency undocumented):
+//   - glm (glm/glm.hpp)
+//   - Vulkan-Headers (vulkan/vulkan.h, via volk.h/vk_mem_alloc.h)
+//   - volk (volk.h)
+//   - VulkanMemoryAllocator (vk_mem_alloc.h)
+//   - Dear ImGui (imgui.h) -- pulled in by Rendering/AxisGizmo.h, which
+//     draws its gizmo discs through ImGui's own ImDrawList (see that
+//     header's own top comment); every consumer of this header links
+//     Onyx::Render, which already links imgui_lib, so this is never an
+//     extra dependency in practice -- it just was not written down here.
 #include <Onyx/Rendering/VkContext.h>
 #include <Onyx/Rendering/Pipelines.h>
 #include <Onyx/Rendering/OffscreenTarget.h>

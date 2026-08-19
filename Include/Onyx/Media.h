@@ -15,4 +15,16 @@
 // ONYX_COMPONENT_MEDIA enabled (the default) -- FFmpeg's own headers must
 // be on the include path for it to compile at all, same as any consumer of
 // Onyx::Media today.
+//
+// Third-party dependencies to compile a TU that includes ONLY this header
+// (verified by a standalone cold-start compile, T8 fix round 1 -- an
+// earlier version of this comment named only FFmpeg and left
+// VideoPlayer.h's own imgui.h dependency undocumented):
+//   - FFmpeg (libavformat/avformat.h, libavcodec/avcodec.h,
+//     libswscale/swscale.h, libswresample/swresample.h)
+//   - miniaudio (miniaudio.h)
+//   - Dear ImGui (imgui.h) -- VideoPlayer.h #includes it directly for its
+//     own playback-control widgets; every consumer of this header links
+//     Onyx::Media, which already links imgui_lib, so this is never an
+//     extra dependency in practice -- it just was not written down here.
 #include <Onyx/Viewers/VideoPlayer.h>
