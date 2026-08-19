@@ -526,13 +526,27 @@ or both.
   at all, disabled-with-tooltip would have been describing a feature that
   no longer exists in any form.)
 - **The parity gate's honest detection floor.** `VkOracleParity`'s
-  four-tier tolerance (see above) catches a defect that touches more than
-  roughly 0.2-0.3% of pixels at delta>8, or one broad enough to move
-  whole-image MAE past 1 LSB. It does **not** catch a defect confined to
-  one small object's silhouette (~0.13% of the frame in the adjudicated
-  measurements) — real teeth against that class of regression would come
-  from the opt-in per-scene metrics ratchet `compare --emit-metrics`
-  already emits into every ctest log, not yet wired into any gate.
+  four-tier tolerance (see above) catches a new defect only once it adds
+  roughly **0.41 to 0.68 percentage points** of pixels at delta>8, scene
+  dependent, or is broad enough to move whole-image MAE past 1 LSB. That
+  range is *measured*, not estimated: the `highDeltaPct` cap is 0.8% and
+  the gate prints every scene's own baseline on every run
+  (`ctest -R VkOracleParity -V`, real AMD hardware, at this tag) —
+  `sphere-grid-textured` 0.3941% (0.406 points of headroom, the tightest),
+  `sphere-grid` 0.3922% (0.408), `joint-chain-200` 0.2220% (0.578),
+  `skinned-cube` 0.1549% (0.645), `blend-stack` 0.1225% (0.678). An earlier
+  version of this entry claimed 0.2-0.3%, roughly twice as sensitive as the
+  gate actually is, with no derivation recorded anywhere; it looks carried
+  over from M4 and never re-measured after the four-knob retune. The other
+  two tiers are further from binding still: worst `differingPct` is 1.4748%
+  against a 2.0% cap, worst `mae` 0.1423 against 1.0. Re-measure these
+  numbers, do not copy them, if the thresholds or the corpus ever move.
+  The gate does **not** catch a defect confined to one small object's
+  silhouette (~0.13% of the frame in the adjudicated measurements) — that
+  is further below the floor than the old text implied, and real teeth
+  against that class of regression would come from the opt-in per-scene
+  metrics ratchet `compare --emit-metrics` already emits into every ctest
+  log, not yet wired into any gate.
 - **`Viewport3D` redraws via a blocking `OneShot` submit on the UI
   thread.** Each redraw allocates its own command buffer, records the
   frame, submits, and blocks until the GPU finishes — 45 FPS observed with
