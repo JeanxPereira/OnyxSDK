@@ -76,7 +76,7 @@ std::unique_ptr<Parsers::TextureData> DecoderRegistry::DecodeImage(DecodeContext
     }
 }
 
-std::optional<TextOut> DecoderRegistry::DecodeText(DecodeContext& ctx) const {
+std::optional<DecodedText> DecoderRegistry::DecodeText(DecodeContext& ctx) const {
     auto it = m_texts.find(ctx.entry.typeId.value);
     if (it == m_texts.end()) return std::nullopt;
 

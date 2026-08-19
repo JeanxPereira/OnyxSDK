@@ -282,6 +282,19 @@ below and `.github/workflows/ci.yml`'s own header comment).
   compilable, and still reachable by its own `#include`. Caught by the
   final whole-branch review before the tag was pushed, so no released
   version ever carried the trap.
+- **`Onyx::Modules::TextOut` renamed to `DecodedText`** (M5, final review) —
+  `TextOut` is a macro on Windows (`<wingdi.h>` defines it as
+  `TextOutA`/`TextOutW`), and `<Onyx/Onyx.h>` reaches `<windows.h>` through
+  `Services/PathUtils.h`. A consumer of the umbrella therefore declared
+  `Onyx::Modules::TextOutA` in their own TU while `Onyx_Core` shipped
+  `Onyx::Modules::TextOut` — an `LNK2019` on
+  `DecoderRegistry::Text`/`DecodeText` for anyone reaching the decoder
+  contract the documented way. Nothing in the SDK's own sources hit it,
+  because no in-tree TU included `PathUtils.h` and called a text decoder in
+  the same file. Found by the new cold-start link exam below on its first
+  run. The type name changes; the field names (`text`, `language`) and every
+  signature shape do not. A rename here after the tag would have been
+  MAJOR-class under this release's own stability policy.
 - **`<Onyx/Render.h>` and `<Onyx/Media.h>`** (M5, audit gap G2) — sibling
   umbrellas for the two halves `<Onyx/Onyx.h>` excludes on cost grounds
   rather than link grounds: the 7 Vulkan-touching renderer headers (every

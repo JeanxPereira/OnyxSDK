@@ -71,7 +71,7 @@ Onyx::App::ViewerOpener MakeShellViewerOpener() {
             std::make_shared<Onyx::Viewers::ImageViewer>(name, std::move(texture)), doc);
     };
 
-    opener.openText = [](Onyx::Modules::DocumentId doc, std::string name, Onyx::Modules::TextOut text) {
+    opener.openText = [](Onyx::Modules::DocumentId doc, std::string name, Onyx::Modules::DecodedText text) {
         Onyx::Api::Documents().AddTab(
             std::make_shared<Onyx::Viewers::TextEditorViewer>(name, std::move(text.text)), doc);
     };

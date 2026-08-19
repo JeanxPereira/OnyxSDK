@@ -92,7 +92,7 @@ public:
 private:
     static std::unique_ptr<Onyx::Parsers::TextureData>
         DecodeImage(Onyx::Modules::DecodeContext&);
-    static std::optional<Onyx::Modules::TextOut>
+    static std::optional<Onyx::Modules::DecodedText>
         DecodeText(Onyx::Modules::DecodeContext&);
     // kind=3 (mesh) -- see this file's top comment for the payload layout
     // and the single-part cube it decodes to.

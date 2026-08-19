@@ -40,7 +40,7 @@ std::shared_ptr<Document> FindShared(Workspace& ws, DocumentId id) {
 }
 
 void LogDecodeFailed(Workspace& ws, const AssetEntry& entry) {
-    LOG_WARN("[Viewer] decode failed for '%s' (%s) - see diagnostics", entry.name.c_str(),
+    ONYX_LOGF_WARN("[Viewer] decode failed for '%s' (%s) - see diagnostics", entry.name.c_str(),
              std::string(ws.Catalog().KeyOf(entry.typeId)).c_str());
 }
 
@@ -60,14 +60,14 @@ ViewerKind OpenSelection(Workspace& ws, const SelectionChanged& sel, const Viewe
     if (!entry) return ViewerKind::None;
 
     if ((static_cast<uint8_t>(entry->flags) & static_cast<uint8_t>(NodeFlags::Failed)) != 0) {
-        LOG_WARN("%s: not decoding a Failed node (%zu error diag(s))", entry->name.c_str(),
+        ONYX_LOGF_WARN("%s: not decoding a Failed node (%zu error diag(s))", entry->name.c_str(),
                  doc->diags.Count(Severity::Error));
         return ViewerKind::None;
     }
 
     const ViewerKind kind = RouteForType(ws.Decoders(), entry->typeId);
     if (kind == ViewerKind::None) {
-        LOG_INFO("no viewer for %s", std::string(ws.Catalog().KeyOf(entry->typeId)).c_str());
+        ONYX_LOGF_INFO("no viewer for %s", std::string(ws.Catalog().KeyOf(entry->typeId)).c_str());
         return ViewerKind::None;
     }
 
@@ -136,7 +136,7 @@ ViewerKind OpenSelection(Workspace& ws, const SelectionChanged& sel, const Viewe
         return ViewerKind::Image;
     }
     case ViewerKind::Text: {
-        auto result = std::make_shared<std::optional<Onyx::Modules::TextOut>>();
+        auto result = std::make_shared<std::optional<Onyx::Modules::DecodedText>>();
         Services::JobHandle handle = ws.Jobs().Submit(
             kDecodeLane,
             [&ws, docShared, entry, result](Progress& progress) {

@@ -19,11 +19,18 @@ struct DecodeContext {
     Services::Progress&    progress;
 };
 
-struct TextOut { std::string text; std::string language; };  // language: "json", "lua", ""
+// Named DecodedText, not TextOut: on Windows <wingdi.h> defines TextOut as
+// a macro (TextOutA/TextOutW), so a consumer who reached this type through
+// <Onyx/Onyx.h> -- which pulls in <windows.h> via Services/PathUtils.h --
+// got Onyx::Modules::TextOutA in their TU and Onyx::Modules::TextOut in the
+// library, i.e. an LNK2019 on DecoderRegistry::Text/DecodeText. Found by
+// the cold-start link exam (Tools/ColdStart) on its first run, at the
+// v1.0.0 final review; renaming after the tag would have been MAJOR.
+struct DecodedText { std::string text; std::string language; };  // language: "json", "lua", ""
 
 using SceneDecoder = std::function<std::unique_ptr<Parsers::SceneData>(DecodeContext&)>;
 using ImageDecoder = std::function<std::unique_ptr<Parsers::TextureData>(DecodeContext&)>;
-using TextDecoder  = std::function<std::optional<TextOut>(DecodeContext&)>;
+using TextDecoder  = std::function<std::optional<DecodedText>(DecodeContext&)>;
 
 class DecoderRegistry {
 public:
@@ -40,7 +47,7 @@ public:
     // Note: double registration on the same TypeId replaces (last wins).
     std::unique_ptr<Parsers::SceneData>   DecodeScene(DecodeContext&) const;
     std::unique_ptr<Parsers::TextureData> DecodeImage(DecodeContext&) const;
-    std::optional<TextOut>                DecodeText (DecodeContext&) const;
+    std::optional<DecodedText>                DecodeText (DecodeContext&) const;
 
     // Audio and Schema decoder slots arrive with their first consumer (deliberate YAGNI).
 

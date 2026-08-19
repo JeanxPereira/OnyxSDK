@@ -35,7 +35,7 @@ void RegisterCapabilities(DecoderRegistry& reg, TypeId type, bool scene, bool im
         reg.Image(type, [](DecodeContext&) { return std::make_unique<FakeTexture>(); });
     }
     if (text) {
-        reg.Text(type, [](DecodeContext&) { return std::make_optional(TextOut{"hello box", ""}); });
+        reg.Text(type, [](DecodeContext&) { return std::make_optional(DecodedText{"hello box", ""}); });
     }
 }
 
@@ -87,7 +87,7 @@ struct RoutingFake : Onyx::Modules::IGameModule {
     }
 
     void RegisterDecoders(DecoderRegistry& reg) override {
-        reg.Text(textType, [](DecodeContext&) { return std::make_optional(TextOut{"hello box", ""}); });
+        reg.Text(textType, [](DecodeContext&) { return std::make_optional(DecodedText{"hello box", ""}); });
         reg.Image(imageType, [](DecodeContext&) { return std::make_unique<FakeTexture>(); });
         // blobType intentionally left with no decoder.
         // corruptType HAS a Text decoder, but it always salvage-fails
@@ -159,7 +159,7 @@ struct BlockingTextFake : Onyx::Modules::IGameModule {
     }
 
     void RegisterDecoders(DecoderRegistry& reg) override {
-        reg.Text(textType, [this](DecodeContext& ctx) -> std::optional<TextOut> {
+        reg.Text(textType, [this](DecodeContext& ctx) -> std::optional<DecodedText> {
             if (decodeThreadId) *decodeThreadId = std::this_thread::get_id();
             if (started) started->store(true);
             while (!release->load() && !ctx.progress.CancelRequested()) {
@@ -168,7 +168,7 @@ struct BlockingTextFake : Onyx::Modules::IGameModule {
             const bool cancelled = ctx.progress.CancelRequested();
             if (finished) finished->store(true);
             if (cancelled) return std::nullopt;
-            return std::make_optional(TextOut{"decoded", ""});
+            return std::make_optional(DecodedText{"decoded", ""});
         });
     }
 
@@ -258,7 +258,7 @@ TEST_CASE("ViewerOpening: Text entry decodes and invokes openText") {
         bool opened = false;
         std::string openedName, openedText;
         ViewerOpener opener;
-        opener.openText = [&](DocumentId, std::string name, TextOut text) {
+        opener.openText = [&](DocumentId, std::string name, DecodedText text) {
             opened = true;
             openedName = name;
             openedText = text.text;
@@ -329,7 +329,7 @@ TEST_CASE("ViewerOpening: entry with no decoder capability routes to None, opene
 
         bool anyOpened = false;
         ViewerOpener opener;
-        opener.openText  = [&](DocumentId, std::string, TextOut) { anyOpened = true; };
+        opener.openText  = [&](DocumentId, std::string, DecodedText) { anyOpened = true; };
         opener.openImage = [&](DocumentId, std::string, std::unique_ptr<TextureData>) { anyOpened = true; };
         opener.openScene = [&](DocumentId, std::string, std::unique_ptr<SceneData>) { anyOpened = true; };
 
@@ -346,7 +346,7 @@ TEST_CASE("ViewerOpening: entry with no decoder capability routes to None, opene
         // capability and returns Text -- the salvage failure only shows up
         // once the async decode job actually runs; OpenSelection must
         // still never call the opener for it (it used to fail silently
-        // too; it still also logs via LOG_WARN from the Done callback now,
+        // too; it still also logs via ONYX_LOGF_WARN from the Done callback now,
         // which this seam-level test has no cheap way to capture/assert).
         anyOpened = false;
         kind = OpenSelection(ws, SelectionChanged{id, NodePath{{4}}}, opener);
@@ -381,7 +381,7 @@ TEST_CASE("ViewerOpening: Failed entry is never decoded, opener untouched") {
 
         bool anyOpened = false;
         ViewerOpener opener;
-        opener.openText = [&](DocumentId, std::string, TextOut) { anyOpened = true; };
+        opener.openText = [&](DocumentId, std::string, DecodedText) { anyOpened = true; };
 
         // roots[3] is the Failed entry -- same type (textType) as
         // roots[0], which DOES have a Text decoder, proving the Failed
@@ -449,7 +449,7 @@ TEST_CASE("ViewerOpening: decode runs off the caller thread, placeholder bracket
             return std::make_shared<int>(1); // any non-null opaque handle
         };
         opener.closePlaceholder = [&](std::shared_ptr<void>) { placeholderClosed = true; };
-        opener.openText = [&](DocumentId doc, std::string, TextOut text) {
+        opener.openText = [&](DocumentId doc, std::string, DecodedText text) {
             opened = true;
             openedDoc = doc;
             openedText = text.text;
@@ -518,7 +518,7 @@ TEST_CASE("ViewerOpening: closing the document cancels the in-flight decode; ope
             return std::make_shared<int>(1);
         };
         opener.closePlaceholder = [&](std::shared_ptr<void>) { placeholderClosed = true; };
-        opener.openText = [&](DocumentId, std::string, TextOut) { opened = true; };
+        opener.openText = [&](DocumentId, std::string, DecodedText) { opened = true; };
 
         ViewerKind kind = OpenSelection(ws, SelectionChanged{id, NodePath{{0}}}, opener);
         CHECK(kind == ViewerKind::Text);

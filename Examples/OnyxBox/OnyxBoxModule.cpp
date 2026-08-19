@@ -23,7 +23,7 @@ using Onyx::Modules::OpenFilter;
 using Onyx::Modules::ParseResult;
 using Onyx::Modules::ProbeInput;
 using Onyx::Modules::ProbeResult;
-using Onyx::Modules::TextOut;
+using Onyx::Modules::DecodedText;
 using Onyx::Services::Diag;
 using Onyx::Services::Severity;
 
@@ -627,7 +627,7 @@ std::unique_ptr<Onyx::Parsers::TextureData> OnyxBoxModule::DecodeImage(DecodeCon
     return tex;
 }
 
-std::optional<TextOut> OnyxBoxModule::DecodeText(DecodeContext& ctx) {
+std::optional<DecodedText> OnyxBoxModule::DecodeText(DecodeContext& ctx) {
     const uint32_t fileIndex = ctx.entry.source.fileIndex;
     const TocEntry* te = FindTocEntry(ctx.doc, ctx.entry.name, fileIndex);
     if (!te) {
@@ -654,7 +654,7 @@ std::optional<TextOut> OnyxBoxModule::DecodeText(DecodeContext& ctx) {
         return std::nullopt;
     }
 
-    return TextOut{text, ""};
+    return DecodedText{text, ""};
 }
 
 std::unique_ptr<Onyx::Parsers::SceneData> OnyxBoxModule::DecodeMesh(DecodeContext& ctx) {

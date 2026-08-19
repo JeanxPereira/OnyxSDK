@@ -19,8 +19,8 @@
 // widely-included header (DocumentBrowser.cpp, CameraPanel.cpp, ...) that
 // has NOTHING to do with Vulkan from its callers' point of view -- pulling
 // windows.h in through it broke the build the first time this was tried
-// (<wingdi.h>'s `#define TextOut TextOutW/A` collided with
-// Onyx::Modules::TextOut, a real type DocumentBrowser.cpp names). Every
+// (<wingdi.h>'s `#define DecodedText TextOutW/A` collided with
+// Onyx::Modules::DecodedText, a real type DocumentBrowser.cpp names). Every
 // Vulkan-touching member lives instead in the private, .cpp-only
 // `VulkanState` struct below -- the same forward-declare + unique_ptr<
 // incomplete-type> pattern Include/Onyx/App/Window.h already established
