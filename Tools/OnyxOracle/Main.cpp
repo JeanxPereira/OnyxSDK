@@ -5,6 +5,8 @@
 
 #include <Onyx/Rendering/SceneRenderer.h>
 #include <Onyx/RenderVk/OffscreenTarget.h>
+#include <Onyx/RenderVk/Pipelines.h>
+#include <Onyx/RenderVk/SceneRendererVk.h>
 #include <Onyx/RenderVk/VkContext.h>
 #include <Onyx/RenderVk/VkResources.h>
 
@@ -54,6 +56,18 @@ void PrintHelp() {
         "      validation layer isn't active (Release build or the layer is\n"
         "      unavailable) -- nothing to self-test in either case.\n"
         "\n"
+        "  onyx-oracle --vk-scene-smoke\n"
+        "      T5: builds and renders the M0 blend-stack corpus scene through\n"
+        "      SceneRendererVk (Solid mode) into a T4 OffscreenTarget, twice\n"
+        "      independently, asserting (a) not every pixel equals the clear\n"
+        "      color and (b) the two runs are byte-identical; repeats the same\n"
+        "      two checks for a sphere-grid-textured render (Textured mode, PBR\n"
+        "      material path) for extra confidence; also exercises\n"
+        "      RenderBackground once, asserting a non-uniform, repeatable\n"
+        "      gradient. Writes PNGs for each. Exit 0 on success, 1 on any\n"
+        "      assertion/GPU failure, 77 if no Vulkan-capable device/driver is\n"
+        "      found.\n"
+        "\n"
         "  onyx-oracle render-corpus --out DIR\n"
         "      Renders all 5 corpus scenes to DIR/<name>.png + DIR/<name>.json,\n"
         "      printing one summary line per scene. Exit 0 on success. Exit 77\n"
@@ -85,6 +99,214 @@ bool ReadWholeFile(const fs::path& path, std::vector<char>& out) {
     out.resize(static_cast<size_t>(size));
     if (size > 0 && !f.read(out.data(), size)) return false;
     return true;
+}
+
+// ── vk-scene-smoke (T5) ─────────────────────────────────────────────────
+
+// Builds and renders `scene` through a fresh SceneRendererVk into a fresh
+// w x h OffscreenTarget, TWICE, fully independently (separate Build() +
+// Render() + Readback() cycles, not just two draws into the same target) --
+// the stronger reproducibility claim task 5's brief asks for: not just "the
+// same draw commands replay identically" but "building the scene from
+// scratch a second time produces byte-identical GPU state and output."
+bool RenderSceneTwice(Onyx::RenderVk::VkContext& ctx, const Onyx::RenderVk::ScenePipelines& scenePipes,
+                       const Onyx::Parsers::SceneData& scene, const glm::mat4& view, const glm::mat4& proj,
+                       Onyx::Rendering::ShadingMode mode, int w, int h, const float clearColor[4],
+                       std::vector<uint8_t>& rgbaA, std::vector<uint8_t>& rgbaB, std::string& err) {
+    auto renderOnce = [&](std::vector<uint8_t>& out) -> bool {
+        Onyx::RenderVk::OffscreenTarget target;
+        if (!target.Create(ctx, w, h, err)) return false;
+
+        Onyx::RenderVk::SceneRendererVk renderer;
+        if (!renderer.Build(ctx, scenePipes, scene, err)) {
+            renderer.Clear(ctx);
+            target.Destroy(ctx);
+            return false;
+        }
+
+        bool ok = Onyx::RenderVk::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
+            target.BeginFrame(cmd, clearColor);
+            renderer.Render(cmd, view, proj, mode, w, h);
+            target.EndFrame(cmd);
+        }, err);
+        if (!ok) {
+            renderer.Clear(ctx);
+            target.Destroy(ctx);
+            return false;
+        }
+
+        ok = target.Readback(ctx, out, err);
+        renderer.Clear(ctx);
+        target.Destroy(ctx);
+        return ok;
+    };
+
+    return renderOnce(rgbaA) && renderOnce(rgbaB);
+}
+
+bool AllPixelsEqual(const std::vector<uint8_t>& rgba, const uint8_t expected[4]) {
+    for (size_t i = 0; i + 3 < rgba.size(); i += 4) {
+        if (rgba[i + 0] != expected[0] || rgba[i + 1] != expected[1] || rgba[i + 2] != expected[2] ||
+            rgba[i + 3] != expected[3]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool AllPixelsSameAsFirst(const std::vector<uint8_t>& rgba) {
+    if (rgba.size() < 4) return true;
+    const uint8_t first[4] = {rgba[0], rgba[1], rgba[2], rgba[3]};
+    return AllPixelsEqual(rgba, first);
+}
+
+bool BytesIdentical(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
+    return a.size() == b.size() && (a.empty() || std::memcmp(a.data(), b.data(), a.size()) == 0);
+}
+
+int RunVkSceneSmoke() {
+    Onyx::RenderVk::VkContext ctx;
+    std::string err;
+    if (!ctx.Init(/*presentSupport=*/false, err)) {
+        std::fprintf(stderr, "skip: %s\n", err.c_str());
+        return 77;
+    }
+
+    Onyx::RenderVk::ScenePipelines scenePipes;
+    if (!Onyx::RenderVk::Pipelines::CreateScene(ctx, scenePipes, err)) {
+        std::fprintf(stderr, "vk-scene-smoke: %s\n", err.c_str());
+        ctx.Shutdown();
+        return 1;
+    }
+    Onyx::RenderVk::BackgroundPipeline bgPipe;
+    if (!Onyx::RenderVk::Pipelines::CreateBackground(ctx, bgPipe, err)) {
+        std::fprintf(stderr, "vk-scene-smoke: %s\n", err.c_str());
+        Onyx::RenderVk::Pipelines::Destroy(ctx, scenePipes);
+        ctx.Shutdown();
+        return 1;
+    }
+
+    // Same gradient/clear neutral colors render-corpus uses (see
+    // RunRenderCorpus above) -- not app-config dependent.
+    const float clearColor[4] = {0.10f, 0.11f, 0.13f, 1.0f};
+    const uint8_t clearBytes[4] = {
+        static_cast<uint8_t>(clearColor[0] * 255.0f + 0.5f),
+        static_cast<uint8_t>(clearColor[1] * 255.0f + 0.5f),
+        static_cast<uint8_t>(clearColor[2] * 255.0f + 0.5f),
+        static_cast<uint8_t>(clearColor[3] * 255.0f + 0.5f),
+    };
+
+    int rc = 0;
+
+    // ── blend-stack, Solid mode -- the brief's required assertion ──────
+    {
+        CorpusScene blend = Onyx::OracleTool::BuildBlendStack();
+        std::vector<uint8_t> a, b;
+        if (!RenderSceneTwice(ctx, scenePipes, blend.scene, blend.view, blend.proj, blend.mode, blend.width,
+                              blend.height, clearColor, a, b, err)) {
+            std::fprintf(stderr, "vk-scene-smoke: blend-stack: %s\n", err.c_str());
+            rc = 1;
+        } else if (AllPixelsEqual(a, clearBytes)) {
+            std::fprintf(stderr, "vk-scene-smoke: blend-stack: every pixel equals the clear color\n");
+            rc = 1;
+        } else if (!BytesIdentical(a, b)) {
+            std::fprintf(stderr, "vk-scene-smoke: blend-stack: two independent Build()+Render() runs "
+                                 "are not byte-identical\n");
+            rc = 1;
+        } else {
+            std::string pngErr;
+            Onyx::OracleTool::WritePng("vk-scene-smoke-blend-stack.png", blend.width, blend.height, a, pngErr);
+            std::printf("vk-scene-smoke: blend-stack: %dx%d non-uniform, byte-identical across 2 runs -- OK\n",
+                        blend.width, blend.height);
+        }
+    }
+
+    // ── sphere-grid-textured, Textured mode -- extra confidence on the
+    // PBR/metallic material path (see BuildCorpus()'s own comment: Solid
+    // never reads uMetallic/normal/AO/gloss/scatter). ───────────────────
+    if (rc == 0) {
+        CorpusScene sphereTex = Onyx::OracleTool::BuildSphereGrid();
+        sphereTex.name = "sphere-grid-textured";
+        sphereTex.mode = Onyx::Rendering::ShadingMode::Textured;
+        std::vector<uint8_t> a, b;
+        if (!RenderSceneTwice(ctx, scenePipes, sphereTex.scene, sphereTex.view, sphereTex.proj, sphereTex.mode,
+                              sphereTex.width, sphereTex.height, clearColor, a, b, err)) {
+            std::fprintf(stderr, "vk-scene-smoke: sphere-grid-textured: %s\n", err.c_str());
+            rc = 1;
+        } else if (AllPixelsSameAsFirst(a)) {
+            std::fprintf(stderr, "vk-scene-smoke: sphere-grid-textured: every pixel is identical "
+                                 "(expected a rendered sphere grid, not a flat image)\n");
+            rc = 1;
+        } else if (!BytesIdentical(a, b)) {
+            std::fprintf(stderr, "vk-scene-smoke: sphere-grid-textured: two independent Build()+Render() "
+                                 "runs are not byte-identical\n");
+            rc = 1;
+        } else {
+            std::string pngErr;
+            Onyx::OracleTool::WritePng("vk-scene-smoke-sphere-grid-textured.png", sphereTex.width,
+                                       sphereTex.height, a, pngErr);
+            std::printf("vk-scene-smoke: sphere-grid-textured: %dx%d non-uniform, byte-identical across "
+                        "2 runs -- OK\n", sphereTex.width, sphereTex.height);
+        }
+    }
+
+    // ── RenderBackground -- otherwise unexercised by the two scene checks
+    // above (both use a flat OffscreenTarget clear, never the gradient). ─
+    if (rc == 0) {
+        constexpr int kW = 64, kH = 64;
+        const float bgClear[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+
+        auto renderBg = [&](std::vector<uint8_t>& out) -> bool {
+            Onyx::RenderVk::OffscreenTarget target;
+            if (!target.Create(ctx, kW, kH, err)) return false;
+
+            Onyx::RenderVk::SceneRendererVk renderer;
+            bool bgOk = true;
+            bool ok = Onyx::RenderVk::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
+                target.BeginFrame(cmd, bgClear);
+                bgOk = renderer.RenderBackground(ctx, bgPipe, cmd, glm::vec3(1.0f, 0.0f, 0.0f),
+                                                 glm::vec3(0.0f, 0.0f, 1.0f), err);
+                target.EndFrame(cmd);
+            }, err);
+            if (!ok || !bgOk) {
+                renderer.Clear(ctx);
+                target.Destroy(ctx);
+                return false;
+            }
+
+            ok = target.Readback(ctx, out, err);
+            renderer.Clear(ctx);
+            target.Destroy(ctx);
+            return ok;
+        };
+
+        std::vector<uint8_t> a, b;
+        if (!renderBg(a) || !renderBg(b)) {
+            std::fprintf(stderr, "vk-scene-smoke: background: %s\n", err.c_str());
+            rc = 1;
+        } else if (AllPixelsSameAsFirst(a)) {
+            std::fprintf(stderr, "vk-scene-smoke: background: every pixel is identical (expected a "
+                                 "top/bottom gradient)\n");
+            rc = 1;
+        } else if (!BytesIdentical(a, b)) {
+            std::fprintf(stderr, "vk-scene-smoke: background: two runs are not byte-identical\n");
+            rc = 1;
+        } else {
+            std::printf("vk-scene-smoke: background: %dx%d non-uniform gradient, byte-identical across "
+                        "2 runs -- OK\n", kW, kH);
+        }
+    }
+
+    Onyx::RenderVk::Pipelines::Destroy(ctx, bgPipe);
+    Onyx::RenderVk::Pipelines::Destroy(ctx, scenePipes);
+    ctx.Shutdown();
+
+    if (rc == 0 && ctx.ValidationMessageCount() != 0) {
+        std::fprintf(stderr, "%u validation message(s); last: %s\n", ctx.ValidationMessageCount(),
+                    ctx.LastValidationMessage().c_str());
+        rc = 1;
+    }
+    return rc;
 }
 
 // ── render-corpus ───────────────────────────────────────────────────────
@@ -454,6 +676,10 @@ int main(int argc, char** argv) {
             return 1;
         }
         return 0;
+    }
+
+    if (argc >= 2 && std::strcmp(argv[1], "--vk-scene-smoke") == 0) {
+        return RunVkSceneSmoke();
     }
 
     if (argc >= 2 && std::strcmp(argv[1], "--vk-validation-selftest") == 0) {

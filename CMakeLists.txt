@@ -364,6 +364,7 @@ set(ONYX_MEDIA_SOURCES
 set(ONYX_RENDERVK_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/OffscreenTarget.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/Pipelines.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/SceneRendererVk.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VkContext.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VkResources.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VmaImpl.cpp

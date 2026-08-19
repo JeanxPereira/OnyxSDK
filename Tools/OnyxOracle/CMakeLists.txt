@@ -38,6 +38,15 @@ set_tests_properties(VkBootSmoke PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")
 add_test(NAME VkValidationSelfTest COMMAND onyx-oracle --vk-validation-selftest)
 set_tests_properties(VkValidationSelfTest PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")
 
+# VkSceneSmoke (T5): builds+renders the M0 blend-stack corpus scene through
+# SceneRendererVk twice independently (Solid mode) asserting non-clear
+# output and byte-identical reproducibility, repeats both checks for a
+# sphere-grid-textured render (Textured/PBR mode), and exercises
+# RenderBackground once. SKIP (77) when no Vulkan-capable device/driver is
+# present, same as every other Vk* test above.
+add_test(NAME VkSceneSmoke COMMAND onyx-oracle --vk-scene-smoke)
+set_tests_properties(VkSceneSmoke PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")
+
 # OracleReproducible: renders the corpus twice (WORK/a, WORK/b) and verifies
 # the two runs are byte-identical -- see ReproTest.cmake for the exit-77
 # (no display session) propagation this depends on.
