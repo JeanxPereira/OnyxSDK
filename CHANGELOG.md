@@ -282,6 +282,24 @@ below and `.github/workflows/ci.yml`'s own header comment).
   compilable, and still reachable by its own `#include`. Caught by the
   final whole-branch review before the tag was pushed, so no released
   version ever carried the trap.
+- **The cold-start exam compiles AND links** (M5, final review) — the
+  checked-in exam TU (`Tools/ColdStart/ColdStartOnyx.cpp`) was
+  `#include <Onyx/Onyx.h>` plus `int main(){}`, compiled with `cl /c` and
+  never linked. That is the audit's own "Variant A", the variant the audit
+  itself caught false-passing, and a compile-only exam is structurally
+  incapable of seeing an unresolved external — which is why an umbrella
+  declaring API from three unlinked targets survived four review rounds.
+  The TU now does Variant B's real work (registers a module with a real
+  `RegisterDecoders` body, writes and parses a synthetic container through
+  a `Workspace`, resolves a `NodePath`, invokes a decoder, resolves a
+  resource path, logs a line), and a new `ColdStartToolkit` target links it
+  against **`Onyx::Onyx` and nothing else** — exactly what README tells a
+  consumer to link — with the `ColdStart` ctest entry running the result
+  (headless, no `SKIP_RETURN_CODE`, must pass on every runner). The raw
+  `cl /c` step in CI stays alongside it: only that step can prove the
+  header closure needs no `-I Source`/`-I build/generated`, and only the
+  link can prove the declarations are callable. It found the `TextOut`
+  collision above on its first run.
 - **Every logging macro is `ONYX_`-prefixed** (M5, final review) —
   `Services/Logger.h` is reachable from `<Onyx/Onyx.h>`, so until now every
   consumer of the umbrella inherited four unprefixed global macros

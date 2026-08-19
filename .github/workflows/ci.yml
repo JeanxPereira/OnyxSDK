@@ -50,24 +50,40 @@ jobs:
       - name: Build
         run: cmake --build --preset debug
 
-      - name: Cold-start header exam (T2/T9) -- <Onyx/Onyx.h> alone, public headers only
+      - name: Cold-start exam, half 1 of 2 -- COMPILE <Onyx/Onyx.h> alone, public headers only
         # The milestone's spine (see docs/design/2026-08-19-public-surface-
         # audit.md): a toolkit author who has only cloned the repo and
         # configured once must be able to compile a TU that includes
         # nothing but <Onyx/Onyx.h> against -I Include plus third-party
         # dirs alone -- explicitly NO -I Source, NO -I build/generated.
+        #
+        # Half 2 is the `ColdStart` ctest entry in the Test step below: the
+        # same TU, built by the ColdStartToolkit target against Onyx::Onyx
+        # and nothing else, then RUN. Neither half subsumes the other --
+        # only this step can prove the header closure needs no
+        # CMake-supplied include path, and only a link can prove that what
+        # the umbrella declares is actually callable. Through v0.6.0 the
+        # exam was this step alone, which is exactly why an umbrella
+        # declaring API from three unlinked targets survived four review
+        # rounds.
         # Include/Onyx/Version.h is checked into the tree (fbd54d3), so
         # the umbrella's first include resolves without depending on this
         # job's own configure having run -- it is exercised here anyway
         # because build/_deps/*-src (populated by the Configure step
         # above via FetchContent, the same mechanism a consumer's own
         # FetchContent would use) is the natural source for the
-        # third-party dirs the umbrella needs. Tools/ColdStart/ColdStartOnyx.cpp
-        # is deliberately not a member of any CMakeLists.txt target --
-        # through-CMake compilation would put Source/ on the include path
-        # via ordinary target properties, defeating the point. Command
-        # verified locally (MSVC, this exact set of -I dirs) before this
-        # step was authored; see task-9-report.md.
+        # third-party dirs the umbrella needs. This step compiles
+        # Tools/ColdStart/ColdStartOnyx.cpp OUTSIDE CMake on purpose:
+        # through-CMake compilation puts build/generated on the include
+        # path via ordinary target properties, which is what half 2 does
+        # and what this half must not. Command verified locally (MSVC,
+        # this exact set of -I dirs) before this step was authored; see
+        # task-9-report.md. The TU it compiles is no longer a trivial
+        # `int main(){}` -- that was the audit's own "Variant A", which
+        # the audit itself caught false-passing while the umbrella was
+        # missing eight headers a real toolkit needs. It now registers a
+        # module, parses a container, decodes an entry and resolves a
+        # selection: Variant B's shape.
         #
         # NOT duplicated on linux-lavapipe below: this step's exact
         # compiler invocation (cl.exe via ilammy/msvc-dev-cmd) has no
@@ -108,14 +124,19 @@ jobs:
         # CTest's own "treat this exit code as SKIP, not FAIL" contract:
         # ctest reports the test "Not Run" and does NOT count it toward
         # the run's pass/fail verdict, so the overall `ctest` process
-        # still exits 0 with 9 skips among the 52 registered tests
+        # still exits 0 with 9 skips among the 53 registered tests
         # (updated as of the v1.0 tag -- M5 added OnyxTestKit and OnyxGltf
         # among others; re-check this count if it drifts again). This
         # includes OnyxTestKit (Tests/testkit_test.cpp, Onyx::TestKit's
         # golden/decode-smoke/render-compare helpers): ctest with no -R
         # filter runs every registered test, so no separate invocation is
-        # needed to exercise it on both jobs. Nothing here should ever
-        # legitimately go red from a missing GPU.
+        # needed to exercise it on both jobs. This step is also where the
+        # cold-start exam's half 2 runs: the `ColdStart` entry (label
+        # "surface") executes ColdStartToolkit, which links Onyx::Onyx and
+        # nothing else. It is headless, carries no SKIP_RETURN_CODE, and
+        # must pass on both jobs -- a GPU-less runner is no excuse for it.
+        # Nothing else here should ever legitimately go red from a missing
+        # GPU.
         run: ctest --test-dir build -j1 --output-on-failure
 
   linux-lavapipe:

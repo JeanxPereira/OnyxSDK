@@ -337,6 +337,7 @@ configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/Include/Onyx/Version.h"
     @ONLY)
 
+
 # ── Generated SF Symbols icon table ───────────────────────────────────────
 # The name->glyph table the icon browser walks is derived from SFSymbols.h at
 # build time rather than kept as a hand-maintained copy (which used to be 6.6k
@@ -791,6 +792,14 @@ endif()
 # at Task 11). Unconditional: its ctest entries (VkBootSmoke,
 # VkOracleParity, ...) are part of the standard suite, not example-gated.
 add_subdirectory(Tools/OnyxOracle)
+
+# Tools/ColdStart -- the umbrella's compile-and-link exam. Links Onyx::Onyx
+# alone, exactly as README's "Consuming Onyx" tells a stranger to, so a
+# declaration the umbrella hands over whose symbol ships in some other
+# target fails the build here instead of in a consumer's project. See that
+# directory's own CMakeLists.txt for why the raw `cl /c` step in
+# .github/workflows/ci.yml stays alongside it.
+add_subdirectory(Tools/ColdStart)
 
 if(ONYX_BUILD_TESTS)
     FetchContent_Declare(
