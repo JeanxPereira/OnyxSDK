@@ -436,6 +436,14 @@ endif()
 # Provide the engine's runtime font dir to consumers
 set(ONYX_FONTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts" CACHE INTERNAL "Onyx bundled fonts")
 
+# enable_testing() must run before any add_subdirectory() that calls
+# add_test() -- CMake only emits a CTestTestfile.cmake for a subdirectory
+# that was added after testing was enabled in its parent scope. Hoisted here,
+# ahead of Examples/Tools/OnyxOracle, rather than left inside the
+# ONYX_BUILD_TESTS block below (where it used to live) so OracleGlSmoke
+# registers regardless of add_subdirectory order within this file.
+enable_testing()
+
 # Onyx_ExampleBox is unconditional (not gated by ONYX_BUILD_EXAMPLES): it is
 # a tiny static lib with no UI/GPU deps, and Tests/ links it to exercise the
 # module contracts (IGameModule, Workspace, DecoderRegistry) end to end.
@@ -448,9 +456,11 @@ if(ONYX_BUILD_EXAMPLES)
     add_subdirectory(Examples/OnyxCli)
 endif()
 
-if(ONYX_BUILD_TESTS)
-    enable_testing()
+# Tools/OnyxOracle -- the GL oracle renderer (M0). Unconditional: its
+# OracleGlSmoke ctest is part of the standard suite, not example-gated.
+add_subdirectory(Tools/OnyxOracle)
 
+if(ONYX_BUILD_TESTS)
     FetchContent_Declare(
         doctest
         GIT_REPOSITORY https://github.com/doctest/doctest.git
