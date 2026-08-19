@@ -1,4 +1,5 @@
 #include <Onyx/Rendering/SceneRenderer.h>
+#include <Onyx/Rendering/JointPalette.h>
 #include <Onyx/Rendering/ShaderManager.h>
 #include <Onyx/Services/AppConfig.h>
 #include <Onyx/Services/Logger.h>
@@ -253,90 +254,13 @@ void SceneRenderer::BuildFromMeshData(const Parsers::MeshData& data,
 }
 
 // ── Joint palette ───────────────────────────────────────────────────────────
-// Compute two arrays in parallel:
-//   m_jointPalette[i]  = skinning matrix  = worldRestPose[i] * bindToJointMat[i]
-//   m_jointWorldPos[i] = world-space joint origin (for skeleton debug draw)
-//
-// Port of GLTF export (obj/export_gltf.go):
-//   - Each GLTF joint node has Translation=Vectors4, Rotation=Vectors5, Scale=Vectors6.
-//   - InverseBindMatrix = BindToJointMat (= Matrixes3[invId]).
-//   - GLTF skinning: jointMatrix = globalTransform(node) * inverseBindMatrix.
-//
-// We reconstruct globalTransform by walking the parent chain and multiplying
-// local TRS matrices (built from Vectors4/5/6) — NOT from Matrixes1.
-// Matrixes1 is parentToJoint in the PS2 VU microcode sense and is NOT the same
-// as the GLTF-equivalent TRS local matrix; using it caused all verts to collapse.
-
-static glm::mat4 BuildLocalTRS(const Onyx::Parsers::ObjectData& obj, int i) {
-    // Port exato de obj/export_gltf.go + obj.go GetQuaterionLocalRotationForJoint:
-    //
-    // GOW2 (obj_gow2.go): IsQuaterion NUNCA é setado → sempre false.
-    // GOW1 (obj.go):      IsQuaterion = flags & 0x8000.
-    //
-    // Quando false (Euler):
-    //   euler_deg = {v5[0], v5[1], v5[2]} * (1/16384 * 360)  [graus]
-    //   rotation  = EulerToQuat(euler_deg)  — ZYX intrínseco
-    //
-    // Quando true (Quaternion):
-    //   quat = {v5[0], v5[1], v5[2], v5[3]} * (1/16384)  [normalizado]
-
-    const auto& v4 = obj.vectors4[i];  // local translation
-    const auto& v5 = obj.vectors5[i];  // rotation (Q.14 fixed-point)
-    const auto& v6 = obj.vectors6[i];  // local scale
-
-    const float Q14 = 1.0f / (1 << 14);
-
-    // ── Scale ───────────────────────────────────────────────────────────
-    glm::mat4 S = glm::scale(glm::mat4(1.0f),
-                             glm::vec3(v6.x != 0.0f ? v6.x : 1.0f,
-                                       v6.y != 0.0f ? v6.y : 1.0f,
-                                       v6.z != 0.0f ? v6.z : 1.0f));
-
-    // ── Rotation ──────────────────────────────────────────────────────────
-    glm::quat rot;
-    const bool& isQuat = obj.joints[i].isQuaternion;
-
-    if (isQuat) {
-        // Quaternion Q.14: {x,y,z,w} = v5[0..3] * Q14, depois normaliza
-        float qx = float(v5.x) * Q14;
-        float qy = float(v5.y) * Q14;
-        float qz = float(v5.z) * Q14;
-        float qw = float(v5.w) * Q14;
-        float qlen = std::sqrt(qx*qx + qy*qy + qz*qz + qw*qw);
-        if (qlen > 0.0001f) { qx/=qlen; qy/=qlen; qz/=qlen; qw/=qlen; }
-        else                 { qx=0; qy=0; qz=0; qw=1; }
-        rot = glm::quat(qw, qx, qy, qz);
-    } else {
-        // Euler ZYX intrínseco em graus (port de utils/math.go EulerToQuat)
-        // euler_deg = {v5[0],v5[1],v5[2]} * Q14 * 360
-        const float halfToRad = (0.5f * glm::pi<float>()) / 180.0f;
-        float ex = float(v5.x) * Q14 * 360.0f * halfToRad;  // ângulo X / 2
-        float ey = float(v5.y) * Q14 * 360.0f * halfToRad;  // ângulo Y / 2
-        float ez = float(v5.z) * Q14 * 360.0f * halfToRad;  // ângulo Z / 2
-        float sx = std::sin(ex), cx = std::cos(ex);
-        float sy = std::sin(ey), cy = std::cos(ey);
-        float sz = std::sin(ez), cz = std::cos(ez);
-        // ZYX: qx = sx*cy*cz - cx*sy*sz
-        //      qy = cx*sy*cz + sx*cy*sz
-        //      qz = cx*cy*sz - sx*sy*cz
-        //      qw = cx*cy*cz + sx*sy*sz
-        float qx = sx*cy*cz - cx*sy*sz;
-        float qy = cx*sy*cz + sx*cy*sz;
-        float qz = cx*cy*sz - sx*sy*cz;
-        float qw = cx*cy*cz + sx*sy*sz;
-        float qlen = std::sqrt(qx*qx + qy*qy + qz*qz + qw*qw);
-        if (qlen > 0.0001f) { qx/=qlen; qy/=qlen; qz/=qlen; qw/=qlen; }
-        else                 { qx=0; qy=0; qz=0; qw=1; }
-        rot = glm::quat(qw, qx, qy, qz);
-    }
-
-    glm::mat4 R = glm::mat4_cast(rot);
-
-    // ── Translation ───────────────────────────────────────────────────────
-    glm::mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(v4.x, v4.y, v4.z));
-
-    return T * R * S;
-}
+// BuildLocalTRS / the rest-pose walk (worldRestPose[i] * bindToJointMat[i])
+// / BuildBatchPalette's jointMap remap moved to Include/Onyx/Rendering/
+// JointPalette.h + Source/Rendering/JointPalette.cpp (task 6 of the M4
+// Vulkan plan) so SceneRendererVk.cpp can share the exact same math instead
+// of carrying its own copy — see that header's top comment for the full
+// GLTF-skinning derivation (Matrixes1 vs. the Vectors4/5/6 TRS chain) this
+// file's ComputeJointPalette()/BuildBatchPalette() members now delegate to.
 
 // ── Animation API ─────────────────────────────────────────────────────────────
 
@@ -429,21 +353,7 @@ void SceneRenderer::ComputeJointPalette() {
     // Matrixes3 (the inverse bind pose) was computed against the TRS pose,
     // so the TRS chain is the canonical one and Matrixes1 is the outlier.
 
-    m_jointPalette.resize(N);
-    m_jointWorldPos.resize(N);
-
-    std::vector<glm::mat4> globalMats(N, glm::mat4(1.0f));
-    for (size_t i = 0; i < N; ++i) {
-        const auto& j = sk.joints[i];
-        glm::mat4 local = BuildLocalTRS(sk, (int)i);
-        if (j.parent >= 0 && j.parent < (int)N) {
-            globalMats[i] = globalMats[j.parent] * local;
-        } else {
-            globalMats[i] = local;
-        }
-        m_jointPalette[i]  = globalMats[i] * j.bindToJointMat;
-        m_jointWorldPos[i] = glm::vec3(globalMats[i][3]);
-    }
+    m_jointPalette = Rendering::ComputeJointPalette(sk, &m_jointWorldPos);
 
     // DIAGNOSTIC — log first 3 joints once per scene load
     if (!m_diagDone) { m_diagDone = true;
@@ -468,18 +378,7 @@ void SceneRenderer::ComputeJointPalette() {
 // Build a remapped palette for a batch: local bone index → global palette matrix
 // Go equivalent: instanceJointsMap[jointIndexes[0]] in export_gltf.go:126
 std::vector<glm::mat4> SceneRenderer::BuildBatchPalette(const RenderBatch& batch) const {
-    if (batch.jointMap.empty() || m_jointPalette.empty()) return m_jointPalette;
-
-    // The remapped palette has one entry per local joint index.
-    // Local index i maps to global index jointMap[i], and we fetch the matrix from m_jointPalette.
-    std::vector<glm::mat4> remapped(batch.jointMap.size(), glm::mat4(1.0f));
-    for (size_t i = 0; i < batch.jointMap.size(); ++i) {
-        uint16_t globalIdx = batch.jointMap[i];
-        if (globalIdx < m_jointPalette.size()) {
-            remapped[i] = m_jointPalette[globalIdx];
-        }
-    }
-    return remapped;
+    return Rendering::BuildBatchPalette(m_jointPalette, batch.jointMap);
 }
 
 // ── Background gradient ─────────────────────────────────────────────────────

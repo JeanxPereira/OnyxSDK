@@ -353,6 +353,7 @@ set(ONYX_RENDER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/Camera.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/GpuMesh.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/GridRenderer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/JointPalette.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/SceneRenderer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/ShaderManager.cpp
 )
@@ -362,6 +363,7 @@ set(ONYX_MEDIA_SOURCES
 )
 
 set(ONYX_RENDERVK_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/JointPalette.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/OffscreenTarget.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/Pipelines.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/SceneRendererVk.cpp
@@ -369,6 +371,19 @@ set(ONYX_RENDERVK_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VkResources.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VmaImpl.cpp
 )
+# JointPalette.cpp is listed in BOTH ONYX_RENDER_SOURCES and
+# ONYX_RENDERVK_SOURCES above -- one physical source file, compiled twice
+# (once per static library, into each target's own object directory), not
+# a duplicated implementation. This is how GL and Vulkan share the exact
+# same joint-skinning math (Task 6's brief mandate) without Onyx_RenderVk
+# linking Onyx_Render: the completeness check below only requires every
+# Source/*.cpp appear in the merged list at least once, and CMake allows
+# the same source file to belong to more than one target's source list, so
+# each library gets its own private compiled copy of one shared source of
+# truth. Onyx_Render pulls in GL's glad/OpenGL link libs; Onyx_RenderVk
+# must not inherit those transitively just to reuse this pure, GL-free
+# math -- see SceneRendererVk.h's RenderBatch-reuse comment for the same
+# reasoning applied to a header-only case.
 
 set(ONYX_SHELL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Api/ToolkitApi.cpp
