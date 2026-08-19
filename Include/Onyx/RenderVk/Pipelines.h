@@ -73,6 +73,26 @@ namespace Onyx::RenderVk {
 // only background did.
 // ═══════════════════════════════════════════════════════════════════════
 
+// T7 rider (adjudicated fix round): the Y-flip above is a documented
+// CONTRACT every Vulkan draw call must honor, but until now it was only
+// prose -- no code named it, so T5/T6/T7's own Tools/OnyxOracle/Main.cpp
+// silently forgot to apply it at every one of its SceneRendererVk::
+// Render() call sites, and every scene rendered upside-down for an entire
+// milestone before T7's pixel-vs-GL-golden comparison caught it (see
+// task-7-report.md's "bug #1"). This function is the contract, named:
+// negates proj[1][1] in place. Every future Vulkan camera call site
+// (T9's viewport, T10, T14, ...) MUST route its projection matrix through
+// this before handing it to SceneRendererVk::Render() (or any other
+// Vulkan draw that consumes a projection matrix the scene.vert/grid.frag
+// convention above governs) -- SceneRendererVk::Render() itself asserts
+// (Debug builds only) that the projection it receives already has
+// proj[1][1] < 0, specifically to fail loudly at the call site that
+// forgot this, rather than silently rendering upside-down again.
+inline glm::mat4 VulkanProjection(glm::mat4 proj) {
+    proj[1][1] = -proj[1][1];
+    return proj;
+}
+
 // Fixed dynamic-rendering attachment formats for the whole milestone
 // (dynamic rendering needs format info at pipeline-creation time, not
 // draw time — VkPipelineRenderingCreateInfo below). Matches VkResources.h

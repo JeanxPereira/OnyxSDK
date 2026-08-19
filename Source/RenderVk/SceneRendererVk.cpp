@@ -6,6 +6,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <array>
+#include <cassert>
 #include <cmath>
 #include <cstring>
 
@@ -488,6 +489,21 @@ void SceneRendererVk::DrawBatch(VkCommandBuffer cmd, size_t index) const {
 void SceneRendererVk::Render(VkCommandBuffer cmd, const glm::mat4& view, const glm::mat4& proj,
                               ShadingMode mode, int viewportW, int viewportH) {
     if (m_batches.empty() || !m_pipelines) return;
+
+    // T7 rider (adjudicated fix round): every scene rendered upside-down
+    // for an entire milestone because no call site applied the documented
+    // Vulkan NDC Y-flip (Pipelines.h's "Camera convention" note,
+    // Onyx::RenderVk::VulkanProjection) before calling this function --
+    // see task-7-report.md's "bug #1". A flip-corrected projection always
+    // has proj[1][1] < 0 (glm::perspective's own [1][1] is always
+    // positive; VulkanProjection negates it). Debug-only: fails loudly at
+    // the call site that forgot the flip instead of silently rendering
+    // upside-down again. Not asserted in Release builds -- this is a
+    // caller-contract check, not a runtime safety net.
+    assert(proj[1][1] < 0.0f &&
+           "SceneRendererVk::Render: proj[1][1] >= 0 -- did you forget "
+           "Onyx::RenderVk::VulkanProjection()? See Pipelines.h's Camera "
+           "convention note.");
 
     VkViewport vp{};
     vp.x = 0.0f;

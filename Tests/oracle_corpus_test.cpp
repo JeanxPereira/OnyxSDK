@@ -459,7 +459,7 @@ TEST_CASE("OracleCorpus: JsonEqualMaskingPixelHash rejects a different line coun
     CHECK_FALSE(JsonEqualMaskingPixelHash(a, b));
 }
 
-// ── ImageCompare tests (task 7) ─────────────────────────────────────────────
+// ── ImageCompare tests (task 7, four-knob gate amended in the fix round) ───
 
 TEST_CASE("OracleCorpus: CompareRGBA reports zero delta for identical buffers") {
     std::vector<uint8_t> rgba = {10, 20, 30, 255, 40, 50, 60, 255};
@@ -468,8 +468,11 @@ TEST_CASE("OracleCorpus: CompareRGBA reports zero delta for identical buffers") 
     CHECK_FALSE(result.sizeMismatch);
     CHECK(result.maxChannelDelta == 0);
     CHECK(result.differingPixels == 0);
+    CHECK(result.highDeltaPixels == 0);
     CHECK(result.totalPixels == 2);
     CHECK(result.differingPct == doctest::Approx(0.0));
+    CHECK(result.highDeltaPct == doctest::Approx(0.0));
+    CHECK(result.mae == doctest::Approx(0.0));
 }
 
 TEST_CASE("OracleCorpus: CompareRGBA finds the single largest channel delta") {
@@ -497,6 +500,32 @@ TEST_CASE("OracleCorpus: CompareRGBA differingPct counts pixels, not channels") 
     CHECK(result.differingPct == doctest::Approx(25.0));
 }
 
+TEST_CASE("OracleCorpus: CompareRGBA highDeltaPct only counts deltas strictly above kHighDeltaThreshold") {
+    // Pixel 0: delta exactly kHighDeltaThreshold (8) on one channel -- NOT
+    // high (the threshold is exclusive: "> 8", matching WithinTolerance's
+    // own doc comment). Pixel 1: delta kHighDeltaThreshold+1 (9) -- high.
+    std::vector<uint8_t> a = {0, 0, 0, 0,   0, 0, 0, 0};
+    std::vector<uint8_t> b = {kHighDeltaThreshold, 0, 0, 0,   kHighDeltaThreshold + 1, 0, 0, 0};
+
+    auto result = CompareRGBA(2, 1, a, b);
+    CHECK(result.differingPixels == 2);  // both pixels have SOME nonzero delta
+    CHECK(result.highDeltaPixels == 1);  // only pixel 1 crosses the high-delta line
+    CHECK(result.highDeltaPct == doctest::Approx(50.0));
+}
+
+TEST_CASE("OracleCorpus: CompareRGBA mae is the max per-channel mean, not a global average") {
+    // 2 pixels. Channel 0 (R): deltas {10, 0} -> mean 5. Channel 1 (G):
+    // deltas {0, 0} -> mean 0. mae must report 5 (the worst channel's
+    // mean), not e.g. (10+0+0+0)/8 = 1.25 (a flattened all-channel
+    // average) -- this test has multiple channels precisely so a
+    // global-average implementation would disagree with the expected 5.
+    std::vector<uint8_t> a = {0, 0, 0, 255,   0, 0, 0, 255};
+    std::vector<uint8_t> b = {10, 0, 0, 255,  0, 0, 0, 255};
+
+    auto result = CompareRGBA(2, 1, a, b);
+    CHECK(result.mae == doctest::Approx(5.0));
+}
+
 TEST_CASE("OracleCorpus: CompareRGBA flags a size mismatch instead of diffing") {
     std::vector<uint8_t> a(2 * 2 * 4, 0);
     std::vector<uint8_t> b(3 * 3 * 4, 0); // buffer sized for a different width/height
@@ -509,18 +538,24 @@ TEST_CASE("OracleCorpus: CompareRGBA flags a size mismatch instead of diffing") 
     CHECK(shortResult.sizeMismatch);
     CHECK(shortResult.maxChannelDelta == 0);
     CHECK(shortResult.differingPixels == 0);
+    CHECK(shortResult.highDeltaPixels == 0);
+    CHECK(shortResult.mae == doctest::Approx(0.0));
 }
 
-TEST_CASE("OracleCorpus: WithinTolerance applies both bounds inclusively") {
+TEST_CASE("OracleCorpus: WithinTolerance applies all four bounds inclusively") {
     ImageCompareResult r;
     r.maxChannelDelta = 8;
     r.differingPct = 2.0;
+    r.highDeltaPct = 0.8;
+    r.mae = 1.0;
 
-    CHECK(WithinTolerance(r, 8, 2.0));       // exactly at both bounds -> pass
-    CHECK_FALSE(WithinTolerance(r, 7, 2.0)); // delta exceeds N
-    CHECK_FALSE(WithinTolerance(r, 8, 1.9)); // pct exceeds P
+    CHECK(WithinTolerance(r, 8, 2.0, 0.8, 1.0));       // exactly at all four bounds -> pass
+    CHECK_FALSE(WithinTolerance(r, 7, 2.0, 0.8, 1.0)); // maxChannelDelta exceeds the cap
+    CHECK_FALSE(WithinTolerance(r, 8, 1.9, 0.8, 1.0)); // differingPct exceeds its bound
+    CHECK_FALSE(WithinTolerance(r, 8, 2.0, 0.7, 1.0)); // highDeltaPct exceeds its bound
+    CHECK_FALSE(WithinTolerance(r, 8, 2.0, 0.8, 0.9)); // mae exceeds its bound
 
     ImageCompareResult mismatch;
     mismatch.sizeMismatch = true;
-    CHECK_FALSE(WithinTolerance(mismatch, 255, 100.0)); // size mismatch never passes
+    CHECK_FALSE(WithinTolerance(mismatch, 255, 100.0, 100.0, 255.0)); // size mismatch never passes
 }

@@ -76,32 +76,50 @@ set_tests_properties(OracleMatchesGolden PROPERTIES DEPENDS OracleReproducible
 # against the FROZEN GL goldens (Tests/Golden/corpus -- never regenerated;
 # see OracleMatchesGolden above, which pins the GL side byte-exact).
 #
-# STATUS: BLOCKED, not tuned-and-green. Measured on an AMD Radeon RX 6750
-# XT (Debug, MSVC/Ninja), stable across 3 consecutive runs (identical
-# pixelHash every time -- this is a deterministic renderer characteristic,
-# not flaky noise): after the task-7 mip remedy (Resources::CreateImage2D
-# generateMips + sampler maxLod, see VkResources.h), every one of the 5
-# scenes still needs maxChannelDelta in the 60-121 range to pass -- far
-# past the task-7 brief's own STOP ceiling of 8. Per-pixel diff heatmaps
-# (ImageMagick `compare -metric AE`) show the divergence is confined
-# EXCLUSIVELY to a 1-2px band along silhouette/geometric edges (sphere
-# rims, box outlines, the joint-chain-200 loop's contour) -- interior
-# shading, texturing, skinning, and blending are pixel-identical. This is
-# the signature of GL and Vulkan drivers using different, implementation-
-# defined 4x MSAA sample positions for the same triangle edges -- expected
-# cross-API rasterization noise, not a lighting/blend/pose bug -- but the
-# brief's STOP condition instructs reporting BLOCKED with evidence rather
-# than tuning past it, so these two values are pinned at the brief's own
-# ceiling (8, 2.0) -- deliberately NOT the ~121/1.5 values that would
-# actually make this test pass, which would defeat the point of the gate.
-# See task-7-report.md for the full per-scene numbers and diff evidence;
-# resolving this (VK_EXT_sample_locations to match GL's sample pattern, a
-# silhouette-aware compare mode, or an owner decision to widen these two
-# numbers with eyes open) is left to the milestone owner.
-set(ONYX_VK_PARITY_MAX_CHANNEL_DELTA 8 CACHE STRING
-    "VkOracleParity: max per-channel |a-b| tolerated against the GL goldens (task 7 BLOCKED -- see task-7-report.md)")
+# FOUR-KNOB GATE (T7 fix round, adjudicated): T7's original BLOCKED report
+# measured every corpus scene needing maxChannelDelta in the 60-121 range
+# to pass a single-pair (maxChannelDelta, differingPct) tolerance -- far
+# past that task's own STOP ceiling of 8. Adjudication (opus) POSITIVELY
+# identified the cause as 4x-MSAA coverage-quantization noise: worst-pixel
+# deltas land on exact k/4 fractions of each edge's local contrast, and
+# 100% of delta>8 pixels are edge-adjacent in all 5 scenes (ImageMagick
+# `compare -metric AE` diff heatmaps -- see task-7-report.md). A single
+# (maxChannelDelta, differingPct) pair cannot separate that expected,
+# harmless signature from a real whole-image regression (gamma/lighting/
+# mip-filter drift), so the gate is redefined onto four independent tiers
+# (Tools/OnyxOracle/ImageCompare.h has the full reasoning per tier):
+#   maxChannelDelta   hard-cap tripwire only, deliberately weak (coverage-
+#                     only deltas are bounded by local contrast, not
+#                     semantics -- a k=2/4-covered sample on a 255-
+#                     magnitude edge reads ~127, k=3/4 reads ~191)
+#   differingPct      fraction of pixels with ANY nonzero delta
+#   highDeltaPct       fraction of pixels with ANY channel delta > 8 --
+#                      isolates "a few pixels differ a lot" edge noise
+#   mae                per-channel mean absolute error, whole image, max
+#                      across channels -- "1.0" reads as one LSB of
+#                      uniform whole-image drift; catches what the two
+#                      percentage tiers structurally cannot
+#
+# Values measured on an AMD Radeon RX 6750 XT (Debug, MSVC/Ninja), stable
+# across 3 consecutive runs (identical pixelHash every time -- a
+# deterministic renderer characteristic, not flaky noise). ALL FOUR VALUES
+# ARE SINGLE-GPU POINT ESTIMATES: this milestone has been tuned and run on
+# exactly one machine/driver combination so far. Run-to-run variance on
+# THIS machine is zero, but MSAA sample positions are driver/hardware
+# implementation-defined, so a different GPU vendor (notably lavapipe, the
+# software Vulkan implementation CI is expected to use once Vulkan CI
+# lands) may need different values on every one of these four knobs -- the
+# first lavapipe CI run of VkOracleParity is a TUNING event for these
+# cache variables, not a pass/fail verdict on the renderer itself. See
+# task-7-report.md for the full per-scene numbers.
+set(ONYX_VK_PARITY_MAX_CHANNEL_DELTA 160 CACHE STRING
+    "VkOracleParity: hard-cap tripwire on the largest per-channel |a-b| against the GL goldens (weak by design -- see this block's comment)")
 set(ONYX_VK_PARITY_MAX_DIFFERING_PCT 2.0 CACHE STRING
-    "VkOracleParity: max fraction (%) of pixels allowed any nonzero delta against the GL goldens (task 7 BLOCKED -- see task-7-report.md)")
+    "VkOracleParity: max fraction (%) of pixels allowed any nonzero delta against the GL goldens")
+set(ONYX_VK_PARITY_MAX_HIGH_DELTA_PCT 0.8 CACHE STRING
+    "VkOracleParity: max fraction (%) of pixels allowed a channel delta > 8 against the GL goldens")
+set(ONYX_VK_PARITY_MAX_MAE 1.0 CACHE STRING
+    "VkOracleParity: max per-channel mean absolute error (whole image, max across channels) against the GL goldens")
 add_test(NAME VkOracleParity
          COMMAND ${CMAKE_COMMAND}
            -DORACLE=$<TARGET_FILE:onyx-oracle>
@@ -109,5 +127,7 @@ add_test(NAME VkOracleParity
            -DGOLDEN=${CMAKE_SOURCE_DIR}/Tests/Golden/corpus
            -DMAX_CHANNEL_DELTA=${ONYX_VK_PARITY_MAX_CHANNEL_DELTA}
            -DMAX_DIFFERING_PCT=${ONYX_VK_PARITY_MAX_DIFFERING_PCT}
+           -DMAX_HIGH_DELTA_PCT=${ONYX_VK_PARITY_MAX_HIGH_DELTA_PCT}
+           -DMAX_MAE=${ONYX_VK_PARITY_MAX_MAE}
            -P ${CMAKE_CURRENT_SOURCE_DIR}/VkParityTest.cmake)
 set_tests_properties(VkOracleParity PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")

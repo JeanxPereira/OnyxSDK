@@ -12,6 +12,8 @@
 #include <Onyx/RenderVk/VkContext.h>
 #include <Onyx/RenderVk/VkResources.h>
 
+#include <glm/gtc/matrix_transform.hpp>
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -44,7 +46,13 @@ void PrintHelp() {
         "      destroys it; creates a 64x64 OffscreenTarget (T4), renders and\n"
         "      reads back a full-clear frame asserting every pixel is\n"
         "      byte-exact, renders and reads back a TOP/BOTTOM-split frame\n"
-        "      asserting the readback is top-down, writes both as PNGs, tears\n"
+        "      asserting the readback is top-down, writes both as PNGs; draws\n"
+        "      ONE world-space triangle covering only the upper half of a\n"
+        "      second 64x64 target through SceneRendererVk::Render() with a\n"
+        "      convention projection (glm::perspective then\n"
+        "      Onyx::RenderVk::VulkanProjection), asserting row 0 is covered and\n"
+        "      the last row is not (T7 fix-round rider 3(b) -- the assertion\n"
+        "      that would have caught the missing NDC Y-flip at T5); tears\n"
         "      everything down. Exits 0 on success. Exit 1 if any validation\n"
         "      message was captured (Debug builds with the validation layer\n"
         "      present) or any of the above assertions fail. Exit 77 if no\n"
@@ -72,9 +80,10 @@ void PrintHelp() {
         "      actually deforms pixels) and joint-chain-200 (200 single-joint\n"
         "      batches, pinning per-batch palette remapping at scale). Also\n"
         "      exercises RenderBackground once, asserting a non-uniform,\n"
-        "      repeatable gradient. Writes PNGs for each. Exit 0 on success, 1\n"
-        "      on any assertion/GPU failure, 77 if no Vulkan-capable\n"
-        "      device/driver is found.\n"
+        "      repeatable gradient whose row 0 reads topColor and last row\n"
+        "      reads bottomColor (T7 fix-round rider 3(a)). Writes PNGs for\n"
+        "      each. Exit 0 on success, 1 on any assertion/GPU failure, 77 if\n"
+        "      no Vulkan-capable device/driver is found.\n"
         "\n"
         "  onyx-oracle render-corpus --out DIR [--renderer gl|vk]\n"
         "      Renders all 5 corpus scenes to DIR/<name>.png + DIR/<name>.json,\n"
@@ -95,14 +104,44 @@ void PrintHelp() {
         "      not exist at all (treat this as SKIP, not FAIL).\n"
         "\n"
         "  onyx-oracle compare DIR_A DIR_B [--max-channel-delta N] [--max-differing-pct P]\n"
-        "      Tolerant comparison of the same 10 corpus files, for comparing a\n"
-        "      Vulkan render-corpus run against the frozen GL goldens (or any\n"
-        "      two render-corpus output directories) where byte-exactness isn't\n"
-        "      expected. N and P default to 0 (byte-exact). PNGs are decoded\n"
-        "      (stb_image) and compared per-pixel, per-channel: |a-b| against N\n"
-        "      on every channel, and the fraction of pixels with any nonzero\n"
-        "      delta against P (0-100, a percentage). A PNG whose two files\n"
-        "      decode to different dimensions always fails, regardless of N/P.\n"
+        "                                    [--max-high-delta-pct P2] [--max-mae M] [--emit-metrics]\n"
+        "      Tolerant comparison of the same corpus files verify compares (PNG\n"
+        "      + JSON per scene, scene list taken from BuildCorpus() itself, not\n"
+        "      a hardcoded list -- a scene BuildCorpus grows to include is never\n"
+        "      silently left ungated), for comparing a Vulkan render-corpus run\n"
+        "      against the frozen GL goldens (or any two render-corpus output\n"
+        "      directories) where pixel-exactness isn't expected. All four\n"
+        "      numeric flags default to 0 (pixel-exact after PNG decode -- for\n"
+        "      an actual BYTE-exact comparison of the files themselves, use\n"
+        "      `verify` instead). PNGs are decoded (stb_image) and compared\n"
+        "      per-pixel, per-channel; a PNG whose two files decode to different\n"
+        "      dimensions always fails, regardless of the four flags below. Four\n"
+        "      independent tiers must all pass (T7 fix-round's amended gate --\n"
+        "      see Tools/OnyxOracle/ImageCompare.h for the full reasoning):\n"
+        "        --max-channel-delta N     largest |a-b| on any channel, any\n"
+        "                                  pixel (a hard-cap tripwire only --\n"
+        "                                  coverage-only edge deltas are bounded\n"
+        "                                  by local contrast, not semantics, so\n"
+        "                                  this tier's detection power is\n"
+        "                                  deliberately weak)\n"
+        "        --max-differing-pct P     fraction of pixels (0-100) with ANY\n"
+        "                                  nonzero delta on any channel\n"
+        "        --max-high-delta-pct P2   fraction of pixels (0-100) with ANY\n"
+        "                                  channel delta > 8 (isolates \"a few\n"
+        "                                  pixels differ a lot\" edge noise from\n"
+        "                                  \"everything differs a little\")\n"
+        "        --max-mae M               per-channel mean absolute error over\n"
+        "                                  the WHOLE image, max across channels\n"
+        "                                  -- catches uniform whole-image drift\n"
+        "                                  (gamma/lighting/mip-filter bias) the\n"
+        "                                  percentage tiers structurally cannot\n"
+        "      Alpha is compared like any other channel -- it is a real blend-\n"
+        "      parity signal (a batch rendering opaque in one API, blended in\n"
+        "      the other, shows up in alpha with identical RGB), not incidental.\n"
+        "      --emit-metrics additionally prints one machine-readable line per\n"
+        "      scene: `metrics <scene> maxDelta=<n> differingPct=<f>\n"
+        "      highDeltaPct=<f> mae=<f>` (default off) -- the substrate a future\n"
+        "      ratchet mode reads from, not itself a pass/fail signal.\n"
         "      JSONs are compared byte-exact EXCEPT the \"pixelHash\" line, which\n"
         "      is masked (skipped entirely, both sides) -- pixelHash is a hash of\n"
         "      the rendered pixel buffer itself, and two different rasterizers\n"
@@ -115,10 +154,18 @@ void PrintHelp() {
         "      not FAIL).\n");
 }
 
-// The 5 corpus scene names in BuildCorpus() order, times the 2 extensions
-// render-corpus writes per scene -- the fixed 10-file set verify compares.
-const char* kSceneNames[] = {"sphere-grid", "skinned-cube", "blend-stack", "joint-chain-200",
-                              "sphere-grid-textured"};
+// T7 fix round (item 5): scene names are derived from BuildCorpus() itself
+// at call time, never hardcoded -- a hardcoded list silently stops
+// covering a scene BuildCorpus grows to include (verify/compare would
+// just never check it, no error, no warning). BuildCorpus() is pure/
+// deterministic and cheap (CPU-only scene construction, no GL/Vulkan
+// calls -- CorpusScenes.h's own top comment), so recomputing this on
+// every call is not worth caching.
+std::vector<std::string> CorpusSceneNames() {
+    std::vector<std::string> names;
+    for (const CorpusScene& cs : Onyx::OracleTool::BuildCorpus()) names.push_back(cs.name);
+    return names;
+}
 const char* kExtensions[] = {".png", ".json"};
 
 // Reads a whole file into bytes. Returns false (leaving out empty) if the
@@ -159,10 +206,16 @@ bool ReadWholeFile(const fs::path& path, std::vector<char>& out) {
 // units of the camera, not fixed here since it is not exercised by this
 // corpus and this task's mandate is parity against the frozen goldens, not
 // a speculative camera-matrix rewrite.
+// T7 fix round (adjudicated): the correction itself now has a name --
+// Onyx::RenderVk::VulkanProjection (Include/Onyx/RenderVk/Pipelines.h,
+// right next to the Camera convention note this comment used to
+// duplicate) -- so every future Vulkan camera call site in this codebase
+// applies the SAME helper instead of each reinventing "negate [1][1]" on
+// its own (which is exactly how this file's call sites forgot it the
+// first time). VkProj is now a thin alias kept only so this file's two
+// call sites read the same as before.
 glm::mat4 VkProj(const glm::mat4& proj) {
-    glm::mat4 p = proj;
-    p[1][1] *= -1.0f;
-    return p;
+    return Onyx::RenderVk::VulkanProjection(proj);
 }
 
 // ── vk-scene-smoke (T5) ─────────────────────────────────────────────────
@@ -226,6 +279,38 @@ bool AllPixelsSameAsFirst(const std::vector<uint8_t>& rgba) {
 
 bool BytesIdentical(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
     return a.size() == b.size() && (a.empty() || std::memcmp(a.data(), b.data(), a.size()) == 0);
+}
+
+// T7 fix round, adjudicator-mandated rider 3(a): every pixel in `row` (0 =
+// top) must be within `tolerance` of `expectedRGB` on R/G/B (alpha not
+// checked -- background.frag always writes 1.0, not what this assertion
+// is pinning). Pins background.frag's row-orientation flip in isolation,
+// the same class of bug T7's bug #1 found in SceneRendererVk::Render()
+// (see task-7-report.md) -- if background.frag's own flip regressed, the
+// existing "non-uniform gradient" check would still pass (a flipped
+// gradient is still non-uniform), so it alone could never have caught
+// this; this can.
+bool RowApproxEquals(const std::vector<uint8_t>& rgba, int width, int height, int row,
+                     const uint8_t expectedRGB[3], int tolerance, std::string& detail) {
+    if (row < 0 || row >= height) {
+        detail = "row " + std::to_string(row) + " out of range for height " + std::to_string(height);
+        return false;
+    }
+    const size_t rowOffset = static_cast<size_t>(row) * width * 4;
+    for (int x = 0; x < width; ++x) {
+        const size_t i = rowOffset + static_cast<size_t>(x) * 4;
+        for (int c = 0; c < 3; ++c) {
+            const int got = rgba[i + static_cast<size_t>(c)];
+            const int want = expectedRGB[c];
+            if (std::abs(got - want) > tolerance) {
+                detail = "row " + std::to_string(row) + " x=" + std::to_string(x) + " channel " +
+                         std::to_string(c) + ": got " + std::to_string(got) + " want " +
+                         std::to_string(want) + " (+/-" + std::to_string(tolerance) + ")";
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 int RunVkSceneSmoke() {
@@ -447,8 +532,29 @@ int RunVkSceneSmoke() {
             std::fprintf(stderr, "vk-scene-smoke: background: two runs are not byte-identical\n");
             rc = 1;
         } else {
-            std::printf("vk-scene-smoke: background: %dx%d non-uniform gradient, byte-identical across "
-                        "2 runs -- OK\n", kW, kH);
+            // Rider 3(a): row 0 (top) must read topColor=red, the last row
+            // (bottom) must read bottomColor=blue -- pins background.frag's
+            // own top/bottom orientation, independent of anything
+            // SceneRendererVk::Render() does (RenderBackground never
+            // touches a projection matrix -- see Pipelines.h's Camera
+            // convention note on why background.vert/frag needed their own,
+            // separate flip fix).
+            const uint8_t kExpectedTop[3] = {255, 0, 0};    // topColor = (1,0,0)
+            const uint8_t kExpectedBottom[3] = {0, 0, 255}; // bottomColor = (0,0,1)
+            std::string rowErr;
+            if (!RowApproxEquals(a, kW, kH, 0, kExpectedTop, 2, rowErr)) {
+                std::fprintf(stderr, "vk-scene-smoke: background: row 0 does not read topColor: %s\n",
+                            rowErr.c_str());
+                rc = 1;
+            } else if (!RowApproxEquals(a, kW, kH, kH - 1, kExpectedBottom, 2, rowErr)) {
+                std::fprintf(stderr,
+                            "vk-scene-smoke: background: last row does not read bottomColor: %s\n",
+                            rowErr.c_str());
+                rc = 1;
+            } else {
+                std::printf("vk-scene-smoke: background: %dx%d non-uniform gradient, row0~=top "
+                            "last-row~=bottom, byte-identical across 2 runs -- OK\n", kW, kH);
+            }
         }
     }
 
@@ -716,9 +822,9 @@ int RunVerify(const fs::path& dirA, const fs::path& dirB) {
     bool anyMissing = false;
     bool anyDiffer = false;
 
-    for (const char* name : kSceneNames) {
+    for (const std::string& name : CorpusSceneNames()) {
         for (const char* ext : kExtensions) {
-            std::string fname = std::string(name) + ext;
+            std::string fname = name + ext;
             fs::path pathA = dirA / fname;
             fs::path pathB = dirB / fname;
 
@@ -751,18 +857,20 @@ int RunVerify(const fs::path& dirA, const fs::path& dirB) {
     return 0;
 }
 
-// ── compare (T7) ─────────────────────────────────────────────────────────
+// ── compare (T7, amended to the four-knob gate in the fix round) ──────────
 
-// Tolerant sibling of RunVerify above: same 10-file corpus shape, but PNGs
-// are decoded and compared per-pixel/per-channel within (maxChannelDelta,
-// maxDifferingPct) instead of demanded byte-identical, and JSONs are
-// compared with their "pixelHash" line masked (Onyx::OracleTool::
-// JsonEqualMaskingPixelHash) instead of raw byte-for-byte -- see
-// RenderReport.h's doc comment on that function for why pixelHash
+// Tolerant sibling of RunVerify above: same corpus-file shape (scene list
+// from CorpusSceneNames(), item 5 -- never a hardcoded array), but PNGs
+// are decoded and compared per-pixel/per-channel against four independent
+// tolerance tiers (Onyx::OracleTool::WithinTolerance -- see ImageCompare.h
+// for the full reasoning behind each) instead of demanded byte-identical,
+// and JSONs are compared with their "pixelHash" line masked (Onyx::
+// OracleTool::JsonEqualMaskingPixelHash) instead of raw byte-for-byte --
+// see RenderReport.h's doc comment on that function for why pixelHash
 // specifically is the one field two different renderers are never
 // expected to agree on.
 int RunCompare(const fs::path& dirA, const fs::path& dirB, int maxChannelDelta,
-                double maxDifferingPct) {
+                double maxDifferingPct, double maxHighDeltaPct, double maxMae, bool emitMetrics) {
     std::error_code ec;
     if (!fs::exists(dirB, ec) || !fs::is_directory(dirB, ec)) {
         std::fprintf(stderr, "compare: %s does not exist\n", dirB.string().c_str());
@@ -772,10 +880,10 @@ int RunCompare(const fs::path& dirA, const fs::path& dirB, int maxChannelDelta,
     bool anyMissing = false;
     bool anyFail = false;
 
-    for (const char* name : kSceneNames) {
+    for (const std::string& name : CorpusSceneNames()) {
         // -- PNG: decode + tolerant per-pixel/per-channel comparison --
         {
-            std::string fname = std::string(name) + ".png";
+            std::string fname = name + ".png";
             fs::path pathA = dirA / fname;
             fs::path pathB = dirB / fname;
 
@@ -799,17 +907,25 @@ int RunCompare(const fs::path& dirA, const fs::path& dirB, int maxChannelDelta,
 
             Onyx::OracleTool::ImageCompareResult result =
                 Onyx::OracleTool::CompareRGBA(wA, hA, rgbaA, rgbaB);
-            bool ok = Onyx::OracleTool::WithinTolerance(result, maxChannelDelta, maxDifferingPct);
-            std::printf("%s %s: maxChannelDelta=%d differingPct=%.4f%% "
-                        "(tolerance: maxChannelDelta<=%d differingPct<=%.4f%%)\n",
+            bool ok = Onyx::OracleTool::WithinTolerance(result, maxChannelDelta, maxDifferingPct,
+                                                        maxHighDeltaPct, maxMae);
+            std::printf("%s %s: maxChannelDelta=%d differingPct=%.4f%% highDeltaPct=%.4f%% mae=%.4f "
+                        "(tolerance: maxChannelDelta<=%d differingPct<=%.4f%% "
+                        "highDeltaPct<=%.4f%% mae<=%.4f)\n",
                         ok ? "OK" : "FAIL", fname.c_str(), result.maxChannelDelta,
-                        result.differingPct, maxChannelDelta, maxDifferingPct);
+                        result.differingPct, result.highDeltaPct, result.mae, maxChannelDelta,
+                        maxDifferingPct, maxHighDeltaPct, maxMae);
+            if (emitMetrics) {
+                std::printf("metrics %s maxDelta=%d differingPct=%.4f highDeltaPct=%.4f mae=%.4f\n",
+                            name.c_str(), result.maxChannelDelta, result.differingPct,
+                            result.highDeltaPct, result.mae);
+            }
             if (!ok) anyFail = true;
         }
 
         // -- JSON: byte-exact except the masked pixelHash line --
         {
-            std::string fname = std::string(name) + ".json";
+            std::string fname = name + ".json";
             fs::path pathA = dirA / fname;
             fs::path pathB = dirB / fname;
 
@@ -1056,6 +1172,128 @@ int main(int argc, char** argv) {
             target.Destroy(ctx);
         }
 
+        // T7 fix round, adjudicator-mandated rider 3(b): draw ONE world-
+        // space triangle covering only the upper half of a 64x64 target
+        // through a "convention projection" (glm::perspective, THEN
+        // Onyx::RenderVk::VulkanProjection -- the exact two-step sequence
+        // every real Vulkan camera call site must follow), and assert row
+        // 0 is covered by the triangle while the last row is not. This is
+        // the assertion that would have caught T5's missing NDC Y-flip --
+        // every earlier check in this binary (non-uniform output,
+        // run-to-run byte-identity) is orientation-blind by construction,
+        // which is exactly why that bug survived T5 and T6 undetected
+        // until T7's pixel comparison against the GL goldens (see
+        // task-7-report.md's "bug #1"). Uses SceneRendererVk::Render()
+        // itself (not a hand-rolled pipeline) so this test exercises the
+        // SAME code path that had the bug.
+        {
+            Onyx::RenderVk::ScenePipelines triPipes;
+            if (!Onyx::RenderVk::Pipelines::CreateScene(ctx, triPipes, err)) {
+                std::fprintf(stderr, "vk-smoke: orientation-triangle: %s\n", err.c_str());
+                ctx.Shutdown();
+                return 1;
+            }
+
+            // One huge, single triangle: base along y=0 spanning far beyond
+            // the visible frustum's width (x=+-1000), apex at y=1e6 -- at
+            // any y within the visible frustum (a handful of units, per
+            // fovy=90/near=0.1/far=100 at z=-5), the two slanted edges from
+            // base to apex stay pinned near x=-+1000, i.e. WAY outside the
+            // visible x range, so within the frustum this triangle reads
+            // as a solid fill for every y >= 0 and nothing for y < 0 --
+            // exactly a clean upper/lower half split from three vertices.
+            Onyx::Parsers::SceneData triScene;
+            triScene.flipZ = false; // keep the authored coordinates exactly as written
+            Onyx::Parsers::MeshPart triPart;
+            triPart.name = "orientation-triangle";
+            triPart.materialId = 0;
+            auto makeVert = [](glm::vec3 pos) {
+                Onyx::Domain::GpuVertex v{};
+                v.position = pos;
+                v.normal = glm::vec3(0.0f, 0.0f, 1.0f);
+                v.color = glm::vec4(1.0f);
+                return v;
+            };
+            triPart.vertices = {
+                makeVert(glm::vec3(-1000.0f, 0.0f, -5.0f)),
+                makeVert(glm::vec3(1000.0f, 0.0f, -5.0f)),
+                makeVert(glm::vec3(0.0f, 1.0e6f, -5.0f)),
+            };
+            triPart.indices = {0, 1, 2};
+            triScene.meshParts.push_back(std::move(triPart));
+
+            Onyx::Parsers::MaterialDesc triMat;
+            triMat.baseColor[0] = 1.0f;
+            triMat.baseColor[1] = 1.0f;
+            triMat.baseColor[2] = 0.0f; // bright yellow -- unmistakable against a black clear
+            triMat.baseColor[3] = 1.0f;
+            triMat.blendMode = Onyx::Parsers::BlendMode::Normal;
+            triScene.materials.push_back(triMat);
+
+            constexpr int kTriW = 64, kTriH = 64;
+            const float triClear[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+            const glm::mat4 triView(1.0f); // identity: camera at world origin, looking down -Z
+            const glm::mat4 triProj = Onyx::RenderVk::VulkanProjection(
+                glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 100.0f));
+
+            Onyx::RenderVk::OffscreenTarget triTarget;
+            bool triOk = triTarget.Create(ctx, kTriW, kTriH, err);
+            Onyx::RenderVk::SceneRendererVk triRenderer;
+            if (triOk) triOk = triRenderer.Build(ctx, triPipes, triScene, err);
+            std::vector<uint8_t> triRgba;
+            if (triOk) {
+                triOk = Onyx::RenderVk::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
+                    triTarget.BeginFrame(cmd, triClear);
+                    triRenderer.Render(cmd, triView, triProj, Onyx::Rendering::ShadingMode::Solid,
+                                       kTriW, kTriH);
+                    triTarget.EndFrame(cmd);
+                }, err);
+            }
+            if (triOk) triOk = triTarget.Readback(ctx, triRgba, err);
+
+            if (!triOk) {
+                std::fprintf(stderr, "vk-smoke: orientation-triangle: %s\n", err.c_str());
+                triRenderer.Clear(ctx);
+                triTarget.Destroy(ctx);
+                Onyx::RenderVk::Pipelines::Destroy(ctx, triPipes);
+                ctx.Shutdown();
+                return 1;
+            }
+
+            const uint8_t kTriColor[3] = {255, 255, 0};
+            const uint8_t kTriBg[3] = {0, 0, 0};
+            std::string rowErr;
+            bool row0Covered = RowApproxEquals(triRgba, kTriW, kTriH, 0, kTriColor, 4, rowErr);
+            std::string lastRowErr;
+            bool lastRowUncovered =
+                RowApproxEquals(triRgba, kTriW, kTriH, kTriH - 1, kTriBg, 4, lastRowErr);
+
+            if (!row0Covered || !lastRowUncovered) {
+                std::fprintf(stderr,
+                             "vk-smoke: orientation-triangle mismatch (row0Covered=%d "
+                             "lastRowUncovered=%d) -- row0: %s -- lastRow: %s -- expected the "
+                             "upper-half triangle to cover row 0 and leave the last row as "
+                             "background, which is exactly what a missing VulkanProjection() Y-flip "
+                             "would invert\n",
+                             row0Covered ? 1 : 0, lastRowUncovered ? 1 : 0, rowErr.c_str(),
+                             lastRowErr.c_str());
+                triRenderer.Clear(ctx);
+                triTarget.Destroy(ctx);
+                Onyx::RenderVk::Pipelines::Destroy(ctx, triPipes);
+                ctx.Shutdown();
+                return 1;
+            }
+            std::printf("orientation-triangle: row 0 covered, last row background -- verified\n");
+
+            std::string triPngErr;
+            Onyx::OracleTool::WritePng("vk-smoke-orientation-triangle.png", kTriW, kTriH, triRgba,
+                                       triPngErr);
+
+            triRenderer.Clear(ctx);
+            triTarget.Destroy(ctx);
+            Onyx::RenderVk::Pipelines::Destroy(ctx, triPipes);
+        }
+
         ctx.Shutdown();
 
         if (ctx.ValidationMessageCount() != 0) {
@@ -1183,14 +1421,24 @@ int main(int argc, char** argv) {
         fs::path dirB = argv[3];
         int maxChannelDelta = 0;
         double maxDifferingPct = 0.0;
+        double maxHighDeltaPct = 0.0;
+        double maxMae = 0.0;
+        bool emitMetrics = false;
         for (int i = 4; i < argc; ++i) {
             if (std::strcmp(argv[i], "--max-channel-delta") == 0 && i + 1 < argc) {
                 maxChannelDelta = std::atoi(argv[++i]);
             } else if (std::strcmp(argv[i], "--max-differing-pct") == 0 && i + 1 < argc) {
                 maxDifferingPct = std::atof(argv[++i]);
+            } else if (std::strcmp(argv[i], "--max-high-delta-pct") == 0 && i + 1 < argc) {
+                maxHighDeltaPct = std::atof(argv[++i]);
+            } else if (std::strcmp(argv[i], "--max-mae") == 0 && i + 1 < argc) {
+                maxMae = std::atof(argv[++i]);
+            } else if (std::strcmp(argv[i], "--emit-metrics") == 0) {
+                emitMetrics = true;
             }
         }
-        return RunCompare(dirA, dirB, maxChannelDelta, maxDifferingPct);
+        return RunCompare(dirA, dirB, maxChannelDelta, maxDifferingPct, maxHighDeltaPct, maxMae,
+                          emitMetrics);
     }
 
     if (argc >= 2 && (std::strcmp(argv[1], "--help") == 0 || std::strcmp(argv[1], "-h") == 0)) {
