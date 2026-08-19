@@ -12,8 +12,6 @@ namespace Onyx::Schema { class AssetNode; }
 namespace Onyx::Viewers { class IDocumentContent; }
 namespace Onyx::Parsers { struct SceneData; }
 namespace Onyx::Domain { struct AssetEntry; struct AssetContainer; }
-using AssetEntry     = Onyx::Domain::AssetEntry;
-using AssetContainer = Onyx::Domain::AssetContainer;
 
 namespace Onyx::Types {
 
@@ -42,13 +40,13 @@ public:
 
   /// Create a viewer for the given entry. Return nullptr if none.
   virtual std::shared_ptr<Viewers::IDocumentContent>
-  CreateViewer(const AssetEntry &entry, AssetContainer &wad) {
+  CreateViewer(const Domain::AssetEntry &entry, Domain::AssetContainer &wad) {
     (void)entry; (void)wad; return nullptr;
   }
 
   /// Extract scene data without generating a viewer.
   virtual std::unique_ptr<Onyx::Parsers::SceneData>
-  BuildSceneData(const AssetEntry &entry, AssetContainer &wad) {
+  BuildSceneData(const Domain::AssetEntry &entry, Domain::AssetContainer &wad) {
     (void)entry; (void)wad; return nullptr;
   }
 };

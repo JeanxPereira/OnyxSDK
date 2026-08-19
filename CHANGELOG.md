@@ -178,18 +178,19 @@
   `ProfileManager`, `AssetDatabase`, the Iso/Pak browsers and the
   raw-pointer asset events are gone. Consumers pinned to v0.6.x are
   unaffected until they port.
-- **BREAKING (M5 T8 fix round, spec §15/G5):** the global-scope
-  `::AssetEntry` backwards-compat alias is gone from both
-  `Include/Onyx/Domain/Entry.h` and `Include/Onyx/Services/
-  AssetVisibility.h` — use `Onyx::Domain::AssetEntry` (or
-  `Domain::AssetEntry` from inside any `Onyx::*` namespace) instead. Two
-  global-scope declarations of the same alias were a pre-1.0 hygiene leak
-  (audit gap G5); removing it now is a MINOR bump, the same fix after
-  v1.0.0 would need a MAJOR one for a pure namespace-hygiene change.
-  `Include/Onyx/Types/ITypeHandler.h` keeps its own, independent
-  global-scope `AssetEntry`/`AssetContainer` aliases — a third, unrelated
-  copy of the same pattern this fix did not touch; a follow-up should
-  fold it in too.
+- **BREAKING (M5 T8 fix round, spec §15/G5):** every global-scope
+  backwards-compat alias for `AssetEntry`/`AssetContainer` is gone —
+  `Include/Onyx/Domain/Entry.h`, `Include/Onyx/Domain/Wad.h`,
+  `Include/Onyx/Services/AssetVisibility.h`, and `Include/Onyx/Types/
+  ITypeHandler.h` each declared their own `using AssetEntry = ...`/
+  `using AssetContainer = ...` at global scope independently (three
+  copies of the `AssetEntry` alias, two of `AssetContainer`) — use
+  `Onyx::Domain::AssetEntry`/`Onyx::Domain::AssetContainer` (or
+  `Domain::AssetEntry`/`Domain::AssetContainer` from inside any
+  `Onyx::*` namespace) instead. G5 is fully closed: no global-scope
+  alias for either type remains anywhere in the public headers.
+  Removing them now is a MINOR bump; the same fix after v1.0.0 would
+  need a MAJOR one for a pure namespace-hygiene change.
 
 ### Known gaps — M4 Vulkan renderer
 Recorded here on purpose so nobody rediscovers these by surprise once the
