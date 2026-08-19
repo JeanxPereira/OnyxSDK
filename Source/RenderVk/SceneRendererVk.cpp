@@ -66,8 +66,9 @@ bool SceneRendererVk::Build(VkContext& ctx, const ScenePipelines& pipelines, con
     Clear(ctx);
     m_pipelines = &pipelines;
 
-    // GOW2 models face -Z, GOWR is already screen-correct -- identical to
-    // GL's SceneRenderer::Build.
+    // A per-game bind-pose orientation convention: some source formats author
+    // models facing -Z (scene.flipZ corrects it here), others are already
+    // screen-correct -- identical to GL's SceneRenderer::Build.
     m_instanceTransform = scene.flipZ
         ? glm::scale(scene.instanceTransform, glm::vec3(1.0f, 1.0f, -1.0f))
         : scene.instanceTransform;

@@ -13,8 +13,7 @@ struct TextureData {
     std::vector<uint8_t> pixels; // Raw pixel data
     
     bool isCompressed = false;
-    uint32_t glInternalFormat = 0x8058; // GL_RGBA8 by default
-    
+
     // Optional additional dimensions for block compressed
     uint32_t dataSize = 0;
     

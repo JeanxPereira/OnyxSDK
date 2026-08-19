@@ -40,12 +40,13 @@ namespace Onyx::Rendering {
 
 /// Builds the local TRS matrix for joint `i` of `obj`, from
 /// Vectors4/5/6 (idle local translation / Q.14 rotation / local scale) —
-/// a verbatim port of the Go reference's obj/export_gltf.go +
-/// obj.go GetQuaterionLocalRotationForJoint (see ComputeJointPalette's
-/// doc comment for the GLTF-skinning derivation this feeds).
+/// a verbatim port of the reference importer's object-parser local-rotation
+/// derivation (see ComputeJointPalette's doc comment for the GLTF-skinning
+/// derivation this feeds).
 ///
-/// GOW2 (obj_gow2.go) never sets IsQuaterion, so GOW2 skeletons always
-/// take the Euler path; GOW1 (obj.go) sets it from `flags & 0x8000`.
+/// A per-game bind-pose encoding: one game's object format never sets
+/// IsQuaterion, so its skeletons always take the Euler path; another game's
+/// format selects the path per joint from a flag bit (`flags & 0x8000`).
 ///   Euler:      euler_deg = Vectors5 * (1/16384 * 360), ZYX intrinsic
 ///   Quaternion: quat = Vectors5 * (1/16384), normalized
 glm::mat4 BuildLocalTRS(const Onyx::Parsers::ObjectData& obj, int i);

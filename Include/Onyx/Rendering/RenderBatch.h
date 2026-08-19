@@ -74,12 +74,15 @@ struct RenderBatch {
     std::shared_ptr<GpuMesh>    gpuMesh;
     GLuint                      texture0 = 0;       // Diffuse texture
     GLuint                      texture1 = 0;       // Environment map / layer 1
-    // PBR maps, in the layer order the GOWR loader stages them. Zero means the
-    // material ships none, and the shader falls back to a constant.
-    GLuint                      texNormal  = 0;     // layer 1  _0n_
-    GLuint                      texAO      = 0;     // layer 2  _0ao_
-    GLuint                      texGloss   = 0;     // layer 3  _0g_
-    GLuint                      texScatter = 0;     // layer 5  _0sc_
+    // PBR maps, in the texture layer order a role-suffixed texture naming
+    // convention assigns them (a loader recognizes a texture's role -- normal,
+    // ambient occlusion, gloss, subsurface scatter -- from a suffix on its
+    // name). Zero means the material ships none, and the shader falls back to
+    // a constant.
+    GLuint                      texNormal  = 0;     // layer 1 -- normal map
+    GLuint                      texAO      = 0;     // layer 2 -- ambient occlusion
+    GLuint                      texGloss   = 0;     // layer 3 -- gloss
+    GLuint                      texScatter = 0;     // layer 5 -- subsurface scatter
     float                       metallic   = 0.0f;
     float                       materialColor[4] = {1,1,1,1};
     float                       layerColor[4]    = {1,1,1,1};
@@ -91,7 +94,7 @@ struct RenderBatch {
     bool                        hasEnvmap  = false;
     bool                        hasSkeleton = false;
     bool                        isSky = false;
-    uint64_t                    meshHash = 0;       // GOWR LOD-blob id (0 = internal/embedded)
+    uint64_t                    meshHash = 0;       // container-specific LOD-blob id (0 = internal/embedded)
     int                         vertexCount = 0;    // cached for inspector
     int                         triangleCount = 0;
 };
