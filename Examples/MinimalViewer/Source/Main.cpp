@@ -135,12 +135,16 @@ static int RunGui(const char* optionalPath, bool uiTest, bool openFirstImage, bo
     // one-shot lifetime independently.
     Onyx::Services::Subscription debugTreeReadySub;
     Onyx::Services::Subscription debugTreeReadySceneSub;
+    // Owned here for the same reason as the two subscriptions above: the
+    // hex-tab fallback (see below) needs to react to this document's own
+    // TreeReady, one shot, and must outlive the registrar lambda to do it.
+    Onyx::Services::Subscription hexFallbackSub;
 
     // If a file was passed, queue a hex tab once the App is initialised. The
     // registrar runs inside App::init(), after the engine's generic panels.
     std::string path = optionalPath ? optionalPath : "";
-    window.app().SetRegistrar([&debugTreeReadySub, &debugTreeReadySceneSub, path, uiTest, openFirstImage,
-                                openFirstScene](Onyx::App::App& app) {
+    window.app().SetRegistrar([&debugTreeReadySub, &debugTreeReadySceneSub, &hexFallbackSub, path, uiTest,
+                                openFirstImage, openFirstScene](Onyx::App::App& app) {
         // OnyxBox (M3b): register the example module pre-init so the new
         // Workspace path can claim files it recognizes (e.g. .obx).
         app.AddModule(std::make_unique<OnyxBox::OnyxBoxModule>());
@@ -257,13 +261,51 @@ static int RunGui(const char* optionalPath, bool uiTest, bool openFirstImage, bo
                     });
         }
 
-        Onyx::Vfs::OsFile file(path);
-        if (!file.IsValid()) return;
-        std::vector<uint8_t> bytes = file.ReadAll();
-        constexpr size_t kMaxHexBytes = 64 * 1024; // demo hex view: cap to avoid OOM on large files
-        if (bytes.size() > kMaxHexBytes) bytes.resize(kMaxHexBytes);
-        auto viewer = std::make_shared<MinimalViewer::HexViewer>(path, std::move(bytes));
-        app.getDocumentWindow().AddTab(viewer);
+        // The legacy hex tab is a FALLBACK, not a companion: it used to be
+        // queued unconditionally, so opening a file a module DOES understand
+        // (e.g. cube.obx) showed a raw hex dump tab fighting the real
+        // viewer for attention -- exactly what confused a hands-on tester of
+        // the Vulkan viewport. Now it only opens when nothing claimed the
+        // file: either OpenAsync found no module willing to accept it at all
+        // (returns 0 -- "only when no module accepted the file", see
+        // Workspace::OpenAsync's own doc comment), or a module did claim it
+        // but the parse came back with an empty tree (TreeReady{ok=false},
+        // or ok=true with zero roots).
+        auto openHexTab = [&app](const std::string& p) {
+            Onyx::Vfs::OsFile file(p);
+            if (!file.IsValid()) return;
+            std::vector<uint8_t> bytes = file.ReadAll();
+            constexpr size_t kMaxHexBytes = 64 * 1024; // demo hex view: cap to avoid OOM on large files
+            if (bytes.size() > kMaxHexBytes) bytes.resize(kMaxHexBytes);
+            auto viewer = std::make_shared<MinimalViewer::HexViewer>(p, std::move(bytes));
+            app.getDocumentWindow().AddTab(viewer);
+        };
+
+        if (openedId == 0) {
+            // No module even claimed the file -- nothing to wait for.
+            LOG_INFO("[MinimalViewer] no module claimed '%s'; opening the hex tab as a fallback",
+                     path.c_str());
+            openHexTab(path);
+        } else {
+            hexFallbackSub = app.GetWorkspace().Events().On<Onyx::Modules::TreeReady>(
+                [&app, openedId, path, openHexTab](const Onyx::Modules::TreeReady& ev) {
+                    if (ev.id != openedId) return;
+
+                    const Onyx::Modules::Document* doc = nullptr;
+                    for (const auto& d : app.GetWorkspace().Documents()) {
+                        if (d->id == ev.id) { doc = d.get(); break; }
+                    }
+                    bool claimed = ev.ok && doc && !doc->roots.empty();
+                    if (claimed) {
+                        LOG_INFO("[MinimalViewer] a module claimed '%s'; skipping the hex fallback "
+                                 "tab", path.c_str());
+                        return;
+                    }
+                    LOG_INFO("[MinimalViewer] '%s' produced no content; opening the hex tab as a "
+                             "fallback", path.c_str());
+                    openHexTab(path);
+                });
+        }
     });
 
     window.run();
