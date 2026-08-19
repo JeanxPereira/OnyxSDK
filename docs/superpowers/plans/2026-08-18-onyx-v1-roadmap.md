@@ -28,6 +28,10 @@ alpha-blend stack, a 200-joint palette — to PNG + per-batch JSON.
 - **Deliverables:** the oracle tool (Examples/ or Tools/), the synthetic
   corpus generator (deterministic, no game data), reference images
   committed (small, synthetic — no licensing concern).
+- Carried from M3: mount-aware `extract` in the generic CLI, `ByteRange`
+  file identity, and uint32 offset widening — land here, where the first
+  mounted module and the oracle tool need them; the CLI `render` command
+  (moved out of M3's deliverable list) ships with the oracle tool.
 - **Gate:** corpus renders reproducibly twice with byte-identical reports
   and pixel-identical PNGs on the same machine.
 - A real-game corpus via the GoWToolkit headless harness is a post-v1
@@ -67,7 +71,7 @@ jobs plumbing in Core.
   TOML round-trip, diag salvage, bus subscription lifetime.
 - **Plan:** written at M1 gate.
 
-## M3 — Modules (spec W3) — M3a+M3b ✅ DONE 2026-08-18 (gate pending Jean's GUI eyeball) — M3 COMPLETE; next: M0 oracle, then M4 Vulkan
+## M3 — Modules (spec W3) — ✅ DONE 2026-08-18 (gate passed: contract tests green, example module end-to-end, Jean's GUI eyeball approved) — next: M0 oracle, then M4 Vulkan
 
 The contract swap: `IGameModule`, evidence-based probe, `DecoderRegistry`,
 `Workspace` as composition root; both GoW modules ported; the generic CLI.
@@ -76,9 +80,10 @@ The contract swap: `IGameModule`, evidence-based probe, `DecoderRegistry`,
   `ContainerContext`/`ModuleState`; `Workspace`+`Document` replacing
   AssetDatabase/registry singletons; TypeSpec data replacing ITypeHandler
   presentation virtuals; decoders keyed by output; the generic CLI
-  (`probe/list/extract/decode/render`); `MaterialDesc` with explicit
-  `TextureRole`s replacing positional layers + `pbrLayers`; a complete
-  example module (synthetic container format) exercising every contract.
+  (`probe/list/extract/decode`; render moved to M0 with the oracle
+  tool); `MaterialDesc` with explicit `TextureRole`s replacing
+  positional layers + `pbrLayers`; a complete example module (synthetic
+  container format) exercising every contract.
 - **Gate:** the example module drives browse/decode/CLI end-to-end;
   contract unit tests green; `IAssetProfile` and `ProfileManager` deleted
   from the SDK tree. (The gow2/gowr modules and the GoWToolkit port are
@@ -96,6 +101,11 @@ raw handles + `AddPass`). GL deleted after the gate.
   as the primary path; PBR pipeline on role materials; skinning; grid,
   skeleton overlay; pixel-compare harness running the M0 corpus; lavapipe
   job in CI; GL sources removed.
+- Carried from M3: (DocumentId, tab) association + close viewer tabs on
+  `DocumentClosed` (today no per-document close path exists, so the
+  regression is inert); async decode via JobQueue for heavy assets; a
+  Scene branch in CLI `decode` so CLI and GUI routing cannot diverge
+  (spec §11) once the first scene decoder exists.
 - **Gate:** corpus matches GL oracle within tolerance (`maxChannelDelta`,
   `%differingPixels` tuned on the corpus) on hardware **and** on lavapipe;
   GL is gone from the tree; CI runs the render compare on every PR.
