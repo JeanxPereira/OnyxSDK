@@ -25,7 +25,7 @@ Visibility AssetVisibility::GetCurrent(Types::TypeId id) const {
 }
 
 bool AssetVisibility::IsVisible(Types::TypeId id) const { return GetCurrent(id) == Visibility::Visible; }
-bool AssetVisibility::IsVisible(const AssetEntry& entry) const { return IsVisible(entry.typeId); }
+bool AssetVisibility::IsVisible(const Domain::AssetEntry& entry) const { return IsVisible(entry.typeId); }
 
 void AssetVisibility::SetUserOverride(Types::TypeId id, bool visible) {
     Visibility def = GetDefault(id);

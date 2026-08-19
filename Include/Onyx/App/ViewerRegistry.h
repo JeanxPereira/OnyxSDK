@@ -15,12 +15,12 @@ namespace Onyx::App {
 
 class ViewerRegistry {
 public:
-    using Factory = std::function<std::shared_ptr<Viewers::IDocumentContent>(const AssetEntry&, AssetContainer&)>;
+    using Factory = std::function<std::shared_ptr<Viewers::IDocumentContent>(const Domain::AssetEntry&, AssetContainer&)>;
 
     ViewerRegistry();
 
     bool CanHandle(Types::TypeId typeId) const;
-    std::shared_ptr<Viewers::IDocumentContent> Open(const AssetEntry& entry, AssetContainer& wad) const;
+    std::shared_ptr<Viewers::IDocumentContent> Open(const Domain::AssetEntry& entry, AssetContainer& wad) const;
 
 private:
     std::unordered_map<Domain::MediaKind, Factory> m_factories;

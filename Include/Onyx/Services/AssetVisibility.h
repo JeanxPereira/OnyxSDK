@@ -7,7 +7,6 @@
 #include <vector>
 
 namespace Onyx::Domain { struct AssetEntry; }
-using AssetEntry = Onyx::Domain::AssetEntry;
 
 namespace Onyx::Types { class TypeCatalog; }
 
@@ -32,7 +31,7 @@ public:
     static AssetVisibility& Get();
 
     bool IsVisible(Types::TypeId id) const;
-    bool IsVisible(const AssetEntry& entry) const;
+    bool IsVisible(const Domain::AssetEntry& entry) const;
 
     Visibility GetDefault(Types::TypeId id) const;
     Visibility GetCurrent(Types::TypeId id) const;
