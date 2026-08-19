@@ -84,6 +84,25 @@ public:
     /// Returns false and fills err if the target was never Create()'d, or
     /// if called without a completed EndFrame first (the resolve image is
     /// not sitting in TRANSFER_SRC_OPTIMAL).
+    ///
+    /// Fence discipline (T4-review rider): the check above is a CPU-side
+    /// layout flag on THIS object, not a GPU-side fact -- it only catches
+    /// "EndFrame was never called on this target." It cannot detect a
+    /// frame that was recorded but never submitted, or submitted but not
+    /// yet waited on: m_resolveLayout flips to TRANSFER_SRC_OPTIMAL the
+    /// instant EndFrame() finishes RECORDING the transition, regardless of
+    /// whether the command buffer holding it has actually reached the GPU
+    /// yet. Every caller in this codebase today (--vk-smoke, T5's
+    /// SceneRendererVk smoke path) goes through Resources::OneShot for the
+    /// BeginFrame/EndFrame command buffer, which blocks on a fence before
+    /// returning -- so by the time Readback() runs, completion is already
+    /// guaranteed and this is safe. A caller OUTSIDE that OneShot-per-frame
+    /// pattern (e.g. a persistent command buffer submitted once and reused
+    /// across frames) MUST fence-wait that frame's submission itself
+    /// before calling Readback(), or the copy races the render. The real
+    /// per-frame submit/fence-wait/present discipline lands with the Shell
+    /// swapchain integration (T9); until then, OneShot's blocking wait is
+    /// what keeps every existing caller correct.
     bool Readback(VkContext& ctx, std::vector<uint8_t>& rgbaTopDown, std::string& err);
 
     int Width()  const { return m_width; }

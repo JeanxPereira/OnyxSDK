@@ -211,6 +211,13 @@ bool OffscreenTarget::Readback(VkContext& ctx, std::vector<uint8_t>& rgbaTopDown
         err = "OffscreenTarget::Readback: target was not Create()'d";
         return false;
     }
+    // T4-review rider: this is a CPU-side bookkeeping check (has EndFrame()
+    // ever recorded the resolve-image transition on this object?), not a
+    // GPU-side completion check -- it cannot tell a submitted-and-finished
+    // frame apart from one that is merely recorded, or even submitted but
+    // still in flight. See the fence-discipline paragraph on the header
+    // declaration (OffscreenTarget.h) for what callers outside the
+    // OneShot-per-frame pattern this codebase uses today must do instead.
     if (m_resolveLayout != VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) {
         err = "OffscreenTarget::Readback: called without a completed EndFrame first "
               "(resolve image is not in TRANSFER_SRC_OPTIMAL)";
