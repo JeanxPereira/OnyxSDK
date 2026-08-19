@@ -1,4 +1,18 @@
 cmake_minimum_required(VERSION 3.20)
+
+# Force MSVC's diagnostics to English BEFORE project() runs its compiler
+# detection. CMake captures cl.exe's /showIncludes prefix once, at detection
+# time, and hands that exact string to Ninja as msvc_deps_prefix. On a
+# localized toolchain the captured prefix is localized too (this repo was
+# configured once on a pt-BR install and recorded "Observacao: incluindo
+# arquivo: "), and if the console code page or VS language pack later
+# disagrees with what was recorded, Ninja silently parses no dependencies at
+# all: editing a header rebuilds nothing, and ctest goes green over stale
+# objects. That failure is invisible -- there is no warning and no red test
+# -- which makes it worth one line to prevent rather than a debugging
+# session to discover. Harmless where the toolchain is already English.
+set(ENV{VSLANG} 1033)
+
 project(OnyxSDK VERSION 1.0.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
