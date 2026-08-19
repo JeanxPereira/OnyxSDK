@@ -321,9 +321,20 @@ set(ENABLE_GLSLANG_BINARIES ON  CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glslang)
 
 # ── Generated version header ──────────────────────────────────────────────
+# Writes DIRECTLY into Include/Onyx/Version.h (in the source tree, checked
+# into git with today's PROJECT_VERSION already baked in) rather than into
+# build/generated/ -- audit gap G3: Onyx.h's first include used to be a file
+# that existed nowhere in the source tree, so a consumer who only has
+# Include/ (no build directory, no CMake run) could not satisfy the umbrella
+# header at all. A real configure still overwrites this file with the
+# authoritative project() version on every run, so it can never drift out of
+# sync with CMakeLists.txt's version -- the checked-in copy only has to be
+# accurate at commit time (bump it alongside project(... VERSION) when
+# cutting a release) and is otherwise self-healing the moment anyone
+# configures the build.
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Version.h.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/generated/Onyx/Version.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Include/Onyx/Version.h"
     @ONLY)
 
 # ── Generated SF Symbols icon table ───────────────────────────────────────

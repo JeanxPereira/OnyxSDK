@@ -8,10 +8,10 @@
 // consumer who has only cloned the repository and never run CMake -- see
 // this file's own configure_file() call in the root CMakeLists.txt.
 
-#define ONYX_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
-#define ONYX_VERSION_MINOR @PROJECT_VERSION_MINOR@
-#define ONYX_VERSION_PATCH @PROJECT_VERSION_PATCH@
-#define ONYX_VERSION_STRING "@PROJECT_VERSION@"
+#define ONYX_VERSION_MAJOR 0
+#define ONYX_VERSION_MINOR 6
+#define ONYX_VERSION_PATCH 0
+#define ONYX_VERSION_STRING "0.6.0"
 
 namespace Onyx {
 
