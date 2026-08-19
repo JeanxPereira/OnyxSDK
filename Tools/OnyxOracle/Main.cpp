@@ -16,7 +16,6 @@ namespace fs = std::filesystem;
 using Onyx::OracleTool::CorpusScene;
 using Onyx::OracleTool::HeadlessGL;
 using Onyx::Rendering::SceneRenderer;
-using Onyx::Rendering::ShadingMode;
 
 namespace {
 
@@ -30,22 +29,23 @@ void PrintHelp() {
         "      success. Exit 77 if GL init fails (no display session).\n"
         "\n"
         "  onyx-oracle render-corpus --out DIR\n"
-        "      Renders all 4 corpus scenes to DIR/<name>.png + DIR/<name>.json,\n"
+        "      Renders all 5 corpus scenes to DIR/<name>.png + DIR/<name>.json,\n"
         "      printing one summary line per scene. Exit 0 on success. Exit 77\n"
         "      if GL init fails (no display session) -- treat this as SKIP, not\n"
         "      FAIL, in any automated caller.\n"
         "\n"
         "  onyx-oracle verify DIR_A DIR_B\n"
-        "      Byte-compares the 8 corpus files (4 PNG + 4 JSON) between two\n"
+        "      Byte-compares the 10 corpus files (5 PNG + 5 JSON) between two\n"
         "      render-corpus output directories and prints one verdict line per\n"
-        "      file. Exit 0 if all 8 files are byte-identical, 1 if any differ,\n"
+        "      file. Exit 0 if all 10 files are byte-identical, 1 if any differ,\n"
         "      2 if any file is missing from either directory, 77 if DIR_B does\n"
         "      not exist at all (treat this as SKIP, not FAIL).\n");
 }
 
-// The 4 corpus scene names in BuildCorpus() order, times the 2 extensions
-// render-corpus writes per scene -- the fixed 8-file set verify compares.
-const char* kSceneNames[] = {"sphere-grid", "skinned-cube", "blend-stack", "joint-chain-200"};
+// The 5 corpus scene names in BuildCorpus() order, times the 2 extensions
+// render-corpus writes per scene -- the fixed 10-file set verify compares.
+const char* kSceneNames[] = {"sphere-grid", "skinned-cube", "blend-stack", "joint-chain-200",
+                              "sphere-grid-textured"};
 const char* kExtensions[] = {".png", ".json"};
 
 // Reads a whole file into bytes. Returns false (leaving out empty) if the
@@ -99,7 +99,12 @@ int RunRenderCorpus(const fs::path& outDir) {
             // Source/Viewers/Viewport3D.h: `shadingMode = ShadingMode::Solid`)
             // -- the oracle renders with exactly the mode a freshly opened
             // viewport would use, so this corpus is what a user actually sees.
-            renderer.Render(cs.view, cs.proj, ShadingMode::Solid, cs.width, cs.height);
+            // Solid's shader path pins geometry/skinning/blend but never reads
+            // uMetallic/normal/AO/gloss/scatter (ShaderManager.cpp gates that
+            // block behind mode == Textured), so the sphere-grid-textured
+            // scene overrides cs.mode to ShadingMode::Textured instead --
+            // that's the variant that pins the PBR material path.
+            renderer.Render(cs.view, cs.proj, cs.mode, cs.width, cs.height);
 
             std::vector<uint8_t> rgba;
             if (!gl.EndFrame(rgba, err)) {

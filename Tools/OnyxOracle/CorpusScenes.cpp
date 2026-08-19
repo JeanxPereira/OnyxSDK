@@ -482,6 +482,17 @@ std::vector<CorpusScene> BuildCorpus() {
     corpus.push_back(BuildSkinnedCube());
     corpus.push_back(BuildBlendStack());
     corpus.push_back(BuildJointChain200());
+
+    // Fifth scene: the same sphere grid, rendered in ShadingMode::Textured
+    // instead of Solid so the goldens actually pin the PBR path (Solid's
+    // shader path never reads uMetallic/normal/AO/gloss/scatter -- see
+    // Source/Rendering/ShaderManager.cpp). Reuses BuildSphereGrid() rather
+    // than duplicating the builder; only name and mode differ.
+    CorpusScene textured = BuildSphereGrid();
+    textured.name = "sphere-grid-textured";
+    textured.mode = Rendering::ShadingMode::Textured;
+    corpus.push_back(std::move(textured));
+
     return corpus;
 }
 

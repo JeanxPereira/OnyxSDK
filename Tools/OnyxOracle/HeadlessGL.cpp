@@ -5,6 +5,9 @@
 
 #include <Onyx/Rendering/ShaderManager.h>
 
+#include <algorithm> // std::copy (used below); MSVC supplies it transitively,
+                      // libstdc++ (M4's lavapipe CI, Linux) may not.
+
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 

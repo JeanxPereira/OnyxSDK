@@ -131,14 +131,25 @@ TEST_CASE("OracleCorpus: generators are deterministic across repeated calls") {
 using Onyx::Parsers::BlendMode;
 using Onyx::Parsers::TextureRole;
 
-TEST_CASE("OracleCorpus: BuildCorpus returns the four scenes in canonical order") {
+TEST_CASE("OracleCorpus: BuildCorpus returns the five scenes in canonical order") {
     auto corpus = BuildCorpus();
 
-    REQUIRE(corpus.size() == 4);
+    REQUIRE(corpus.size() == 5);
     CHECK(corpus[0].name == "sphere-grid");
     CHECK(corpus[1].name == "skinned-cube");
     CHECK(corpus[2].name == "blend-stack");
     CHECK(corpus[3].name == "joint-chain-200");
+    CHECK(corpus[4].name == "sphere-grid-textured");
+
+    // The first four scenes pin geometry/skinning/blend in Solid mode;
+    // sphere-grid-textured is the sole Textured-mode scene, pinning the
+    // PBR/metallic path Solid's shader never exercises.
+    using Onyx::Rendering::ShadingMode;
+    CHECK(corpus[0].mode == ShadingMode::Solid);
+    CHECK(corpus[1].mode == ShadingMode::Solid);
+    CHECK(corpus[2].mode == ShadingMode::Solid);
+    CHECK(corpus[3].mode == ShadingMode::Solid);
+    CHECK(corpus[4].mode == ShadingMode::Textured);
 }
 
 TEST_CASE("OracleCorpus: sphere-grid has 9 parts/materials and a 10-entry texture pool") {
