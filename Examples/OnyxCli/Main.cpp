@@ -2,32 +2,49 @@
 // the OnyxBox example module. Proves Task 6's probe/list/extract/decode
 // commands end to end without depending on any real game format.
 //
-// Task 14 (M4) adds two more subcommands, handled here rather than inside
-// Onyx::Cli::Run() (Source/Cli/Commands.cpp, which compiles into the
-// Vulkan-free Onyx_Core -- see Include/Onyx/Cli/Render.h's top comment for
-// why `render` cannot live there):
-//   render <container> <entry> --out out.png [--width N] [--height N]
-//       Decodes `entry` through the Scene capability and rasterizes it
-//       headlessly via Onyx::Cli::CmdRender (Examples/OnyxCli/Render.cpp, linked
-//       into this executable's own target, which is the one place
-//       Onyx_Core and Onyx::Rendering may meet without a link cycle).
-//   write-render-fixture <path>
-//       Writes a canonical OBX1 file holding one kind=3 (mesh) entry named
-//       "cube" -- the fixture Examples/OnyxCli/RenderTest.cmake's
-//       OnyxCliRender ctest feeds to `render`. Kept as a CLI subcommand
-//       (Core-only, no Vulkan) rather than a checked-in binary fixture so
-//       the exact bytes are visible in this file and never go stale
-//       relative to OnyxBoxModule's TOC format.
+// `render` (M4 Task 14) used to be handled here, apart from
+// Onyx::Cli::Run()'s own argv parsing, because Run() compiles into
+// Onyx_Core, which must stay Vulkan-free. M5 Task 6 moved that argv
+// parsing INTO Run() itself (Source/Cli/Commands.cpp) -- Run() reaches the
+// actual renderer through an injected `RenderFn` hook (Include/Onyx/Cli/
+// Commands.h's own doc comment explains why this stays a hook rather than
+// a direct call) instead of implementing it locally. This file's only job
+// for `render` now is supplying that hook: `Onyx::Cli::CmdRender` itself
+// (Include/Onyx/Cli/Render.h), passed straight through with no wrapper --
+// CmdRender's own parameter list already matches RenderFn's, since
+// Onyx_CliRender (root CMakeLists.txt) ships CmdRender as a real linkable
+// symbol now (the public-surface-audit's G1 fix; see Render.h's top
+// comment for the full history). A second toolkit that links
+// Onyx::CliRender and calls `Onyx::Cli::Run(ws, argc, argv, ..., exportFn,
+// Onyx::Cli::CmdRender)` gets `render` -- flags, canonical views, --strict,
+// entry resolution, everything -- with no local parsing of its own,
+// exactly like this file now has none.
 //
-// M5 Task 5 adds `decode ... --to gltf --out <path>` -- unlike `render`
-// this one DOES go through Onyx::Cli::Run() below (Commands.cpp's own
-// CmdDecode already parses `--to`/`--out`, see Commands.h), just with an
-// `exportFn` hook passed in: Onyx::Cli::MakeGltfExportFn (Include/Onyx/
-// Cli/Gltf.h, implemented in Examples/OnyxCli/Gltf.cpp, this executable's
-// own home for the identical Onyx_Core/Onyx_Exchange link-cycle reason
-// `render`/CmdRender lives here instead of Source/Cli/). Passed on every
-// invocation, not just ones that use --to: CmdDecode only ever calls the
-// hook when --to was actually given, so there is nothing to gate here.
+// write-render-fixture / write-render-strict-fixture <path>
+//     Writes a canonical OBX1 fixture (Core-only, no Vulkan) rather than a
+//     checked-in binary, so the exact bytes stay visible in this file and
+//     never go stale relative to OnyxBoxModule's TOC format.
+//       write-render-fixture: one kind=3 (mesh) entry named "cube" -- the
+//         fixture Examples/OnyxCli/RenderTest.cmake and RenderViewsTest.cmake
+//         feed to `render`.
+//       write-render-strict-fixture: the same "cube" entry PLUS a "bad"
+//         entry whose declared payload range is out of bounds -- OnyxBox-
+//         Module's own TOC walk flags that Failed and reports an
+//         "obx.entry.range" Error diag for the whole document (same shape
+//         Tests/cli_test.cpp's WriteSampleBox uses for `decode --strict`'s
+//         own test), regardless of which entry `render` is later asked to
+//         decode. RenderStrictTest.cmake feeds this to `render --strict`.
+//
+// M5 Task 5 adds `decode ... --to gltf --out <path>` through Onyx::Cli::
+// Run() the same way (Commands.cpp's own CmdDecode already parses
+// `--to`/`--out`, see Commands.h), with an `exportFn` hook: Onyx::Cli::
+// MakeGltfExportFn (Include/Onyx/Cli/Gltf.h, implemented in
+// Examples/OnyxCli/Gltf.cpp -- see Gltf.h's own top comment for why THAT
+// hook still needs a wrapper where CmdRender does not: Gltf.cpp is this
+// executable's only home for Onyx::Exchange::ExportSceneData, never a
+// shipped SDK library of its own). Passed on every invocation, not just
+// ones that use --to: CmdDecode only ever calls the hook when --to was
+// actually given, so there is nothing to gate here.
 
 #include <Onyx/Cli/Commands.h>
 #include <Onyx/Cli/Gltf.h>
@@ -38,7 +55,6 @@
 #include <OnyxBoxModule.h>
 
 #include <cstdint>
-#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -75,17 +91,36 @@ void PutTocHeader(std::vector<uint8_t>& buf, const std::string& name, uint8_t ki
     PutU32LE(buf, payloadSize);
 }
 
-// One kind=3 (mesh) entry named "cube": an orange-ish opaque box centered
-// at the origin, half-extents (1,1,1) -- see Examples/OnyxBox/
-// OnyxBoxModule.h's top comment for the 12-float payload layout.
-int WriteRenderFixture(const std::string& path) {
+// The kind=3 (mesh) "cube" payload both fixtures below share: an
+// orange-ish opaque box centered at the origin, half-extents (1,1,1) --
+// see Examples/OnyxBox/OnyxBoxModule.h's top comment for the 12-float
+// payload layout.
+std::vector<uint8_t> CubeMeshPayload() {
     std::vector<uint8_t> payload;
     PutF32LE(payload, 0.85f); PutF32LE(payload, 0.35f);  // baseColor.rg
     PutF32LE(payload, 0.20f); PutF32LE(payload, 1.00f);  // baseColor.ba
     PutF32LE(payload, 0.0f);  PutF32LE(payload, 0.0f);   PutF32LE(payload, 0.0f); // position xyz
     PutF32LE(payload, 1.0f);  PutF32LE(payload, 1.0f);   PutF32LE(payload, 1.0f); // half-extents xyz
     PutF32LE(payload, 0.0f);  PutF32LE(payload, 0.0f);   // padding
+    return payload;
+}
 
+bool WriteObxFile(const std::string& path, const std::vector<uint8_t>& buf, const char* subcommand) {
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (!f) {
+        std::cerr << subcommand << ": cannot open " << path << " for writing\n";
+        return false;
+    }
+    f.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
+    if (!f) {
+        std::cerr << subcommand << ": write failed for " << path << "\n";
+        return false;
+    }
+    return true;
+}
+
+int WriteRenderFixture(const std::string& path) {
+    const std::vector<uint8_t> payload = CubeMeshPayload();
     const std::string name = "cube";
     const uint32_t headerSize = 4 + 4 + uint32_t(2 + name.size() + 1 + 4 + 4);
     const uint32_t payloadOffset = headerSize;
@@ -97,55 +132,41 @@ int WriteRenderFixture(const std::string& path) {
     PutTocHeader(buf, name, /*kind=*/3, payloadOffset, payloadSize);
     buf.insert(buf.end(), payload.begin(), payload.end());
 
-    std::ofstream f(path, std::ios::binary | std::ios::trunc);
-    if (!f) {
-        std::cerr << "write-render-fixture: cannot open " << path << " for writing\n";
-        return Onyx::Cli::kUsage;
-    }
-    f.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
-    if (!f) {
-        std::cerr << "write-render-fixture: write failed for " << path << "\n";
-        return Onyx::Cli::kUsage;
-    }
+    if (!WriteObxFile(path, buf, "write-render-fixture")) return Onyx::Cli::kUsage;
     std::cout << "wrote " << path << " (" << buf.size() << " bytes, 1 entry: cube)\n";
     return Onyx::Cli::kOk;
 }
 
-// Parses `render <container> <entry> --out out.png [--width N] [--height
-// N] [--game <hint>]` and dispatches to Onyx::Cli::CmdRender. Kept apart
-// from Onyx::Cli::Run()'s own argv parsing (Source/Cli/Commands.cpp) since
-// Run() must stay Vulkan-free -- see this file's top comment.
-int RunRender(Onyx::Modules::Workspace& ws, int argc, char** argv) {
-    std::vector<std::string> positional;
-    std::string outPath, gameHint;
-    int width = 512, height = 512;
+// See this file's top comment for why this fixture exists: a good "cube"
+// entry (kind=3) that `render` decodes fine, PLUS a "bad" entry whose
+// declared payload range is deliberately beyond EOF, so OnyxBoxModule's
+// TOC walk flags it Failed and reports an "obx.entry.range" Error diag
+// for the WHOLE document -- present in doc->diags regardless of which
+// entry is later rendered, exactly what `render --strict` needs to prove
+// its exit code changes without the render itself failing.
+int WriteRenderStrictFixture(const std::string& path) {
+    const std::vector<uint8_t> cubePayload = CubeMeshPayload();
+    const std::string cubeName = "cube";
+    const std::string badName = "bad";
 
-    for (int i = 2; i < argc; ++i) {
-        const std::string a = argv[i];
-        if (a == "--out" && i + 1 < argc) {
-            outPath = argv[++i];
-        } else if (a == "--width" && i + 1 < argc) {
-            width = std::atoi(argv[++i]);
-        } else if (a == "--height" && i + 1 < argc) {
-            height = std::atoi(argv[++i]);
-        } else if (a == "--game" && i + 1 < argc) {
-            gameHint = argv[++i];
-        } else {
-            positional.push_back(a);
-        }
-    }
+    const uint32_t headerSize =
+        4 + 4 + uint32_t(2 + cubeName.size() + 1 + 4 + 4) + uint32_t(2 + badName.size() + 1 + 4 + 4);
+    const uint32_t cubeOffset = headerSize;
+    const uint32_t cubeSize = uint32_t(cubePayload.size());
+    const uint32_t fileEnd = cubeOffset + cubeSize;
+    const uint32_t badOffset = fileEnd + 1000; // deliberately beyond EOF -- see this function's own comment
+    const uint32_t badSize = 4;
 
-    if (positional.size() < 2 || outPath.empty()) {
-        std::cerr << "usage: render <container> <entry> --out out.png [--width N] [--height N] "
-                     "[--game <hint>]\n"
-                     "  Entry resolution: first name match, pre-order depth-first search over\n"
-                     "  the opened document's tree (same rule `decode` uses).\n"
-                     "  Exit 77 (not a usage error) when no Vulkan-capable device/driver is found.\n";
-        return Onyx::Cli::kUsage;
-    }
+    std::vector<uint8_t> buf;
+    buf.insert(buf.end(), {uint8_t('O'), uint8_t('B'), uint8_t('X'), uint8_t('1')});
+    PutU32LE(buf, 2);
+    PutTocHeader(buf, cubeName, /*kind=*/3, cubeOffset, cubeSize);
+    PutTocHeader(buf, badName, /*kind=*/0, badOffset, badSize);
+    buf.insert(buf.end(), cubePayload.begin(), cubePayload.end());
 
-    return Onyx::Cli::CmdRender(ws, positional[0], positional[1], outPath, width, height, std::cout,
-                                gameHint);
+    if (!WriteObxFile(path, buf, "write-render-strict-fixture")) return Onyx::Cli::kUsage;
+    std::cout << "wrote " << path << " (" << buf.size() << " bytes, 2 entries: cube, bad)\n";
+    return Onyx::Cli::kOk;
 }
 
 } // namespace
@@ -158,14 +179,18 @@ int main(int argc, char** argv) {
         }
         return WriteRenderFixture(argv[2]);
     }
+    if (argc >= 2 && std::strcmp(argv[1], "write-render-strict-fixture") == 0) {
+        if (argc < 3) {
+            std::cerr << "usage: write-render-strict-fixture <path>\n";
+            return Onyx::Cli::kUsage;
+        }
+        return WriteRenderStrictFixture(argv[2]);
+    }
 
     Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
     ws.AddModule(std::make_unique<OnyxBox::OnyxBoxModule>());
 
-    if (argc >= 2 && std::strcmp(argv[1], "render") == 0) {
-        return RunRender(ws, argc, argv);
-    }
-
     return Onyx::Cli::Run(ws, argc, argv, std::cout, std::cerr,
-                          Onyx::Cli::MakeGltfExportFn(/*embedBuffers=*/true, /*includeSkin=*/true));
+                          Onyx::Cli::MakeGltfExportFn(/*embedBuffers=*/true, /*includeSkin=*/true),
+                          Onyx::Cli::CmdRender);
 }

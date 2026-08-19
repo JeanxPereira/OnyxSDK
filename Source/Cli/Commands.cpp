@@ -12,6 +12,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cstdio>       // SEEK_SET
+#include <cstdlib>      // std::atoi -- render's --width/--height
 #include <exception>    // std::exception, contains module IFile calls in ExtractEntries
 #include <filesystem>
 #include <fstream>
@@ -82,6 +83,37 @@ bool AnyError(const std::vector<Diag>& diags) {
         if (d.severity == Severity::Error) return true;
     }
     return false;
+}
+
+// Splits `--views a,b,c` on commas. Empty segments (leading/trailing/
+// doubled commas) are dropped rather than turned into an empty-string
+// view name CmdRender would just reject as unknown -- a caller's "iso,,
+// front" gets the two names they clearly meant, not a spurious failure.
+std::vector<std::string> SplitViews(const std::string& csv) {
+    std::vector<std::string> out;
+    size_t start = 0;
+    while (start <= csv.size()) {
+        size_t comma = csv.find(',', start);
+        std::string_view piece(csv.data() + start,
+                                (comma == std::string::npos ? csv.size() : comma) - start);
+        if (!piece.empty()) out.emplace_back(piece);
+        if (comma == std::string::npos) break;
+        start = comma + 1;
+    }
+    return out;
+}
+
+// Inserts `view` before outPng's extension: "out.png" + "front" ->
+// "out.front.png"; an extension-less "out" + "front" -> "out.front". Used
+// only when --views was actually given (Run()'s own doc comment on the
+// header explains why the no-flag path never renames --out's own path).
+std::filesystem::path DerivePerViewPath(const std::filesystem::path& outPng, std::string_view view) {
+    std::filesystem::path withView = outPng;
+    withView.replace_extension();
+    withView += ".";
+    withView += view;
+    withView += outPng.extension();
+    return withView;
 }
 
 const Domain::AssetEntry* FindEntryByName(const std::vector<Domain::AssetEntry>& entries,
@@ -378,9 +410,9 @@ int CmdDecode(Workspace& ws, const std::filesystem::path& path, std::string_view
     // Onyx_Core-only CLI command has no business depending on (Commands.cpp
     // compiles into Onyx_Core, which links no renderer at all -- see
     // Include/Onyx/Cli/Render.h's top comment for the full boundary
-    // writeup). `render` (Examples/OnyxCli/Render.cpp) is the one Cli-side
-    // surface that actually touches rendering, and it writes its OWN
-    // separate minimal report shape for the identical reason.
+    // writeup). `render` (Source/Cli/Render.cpp, Onyx_CliRender) is the one
+    // Cli-side surface that actually touches rendering, and it writes its
+    // OWN separate minimal report shape for the identical reason.
     if (reg.HasScene(entry->typeId)) {
         hadCapability = true;
         DecodeContext ctx{*doc, *entry, doc->diags, progress};
@@ -461,9 +493,9 @@ int CmdDecode(Workspace& ws, const std::filesystem::path& path, std::string_view
 }
 
 int Run(Workspace& ws, int argc, char** argv, std::ostream& out, std::ostream& err,
-        const SceneExportFn& exportFn) {
+        const SceneExportFn& exportFn, const RenderFn& renderFn) {
     if (argc < 2) {
-        err << "usage: onyxbox-cli <probe|list|extract|decode> <file> [options]\n";
+        err << "usage: onyxbox-cli <probe|list|extract|decode|render> <file> [options]\n";
         return kUsage;
     }
 
@@ -474,6 +506,8 @@ int Run(Workspace& ws, int argc, char** argv, std::ostream& out, std::ostream& e
     std::string gameHint;
     std::string toFormat;
     std::string toOut;
+    std::string viewsArg;
+    int width = 512, height = 512;
     for (int i = 2; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--json") {
@@ -495,8 +529,26 @@ int Run(Workspace& ws, int argc, char** argv, std::ostream& out, std::ostream& e
                 toFormat = argv[++i];
             }
         } else if (a == "--out") {
+            // decode --to's export path, or render's output PNG (see
+            // Run()'s own header doc comment) -- both subcommands treat
+            // "the thing --out names" as their one output path, so one
+            // variable serves either meaning depending on `cmd`.
             if (i + 1 < argc) {
                 toOut = argv[++i];
+            }
+        } else if (a == "--width") {
+            // render-only; silently ignored (parsed, unused) on any other
+            // subcommand, same convention as --to/--json above.
+            if (i + 1 < argc) {
+                width = std::atoi(argv[++i]);
+            }
+        } else if (a == "--height") {
+            if (i + 1 < argc) {
+                height = std::atoi(argv[++i]);
+            }
+        } else if (a == "--views") {
+            if (i + 1 < argc) {
+                viewsArg = argv[++i];
             }
         } else {
             args.push_back(a);
@@ -531,6 +583,46 @@ int Run(Workspace& ws, int argc, char** argv, std::ostream& out, std::ostream& e
             return kUsage;
         }
         return CmdDecode(ws, args[0], args[1], strict, out, gameHint, toFormat, toOut, exportFn);
+    }
+    if (cmd == "render") {
+        // See this function's own header doc comment (Include/Onyx/Cli/
+        // Commands.h) for --views' per-file naming rule and the
+        // 77/kUsage/kNoModule vs. kStrictErrors short-circuit rules below.
+        if (args.size() < 2 || toOut.empty()) {
+            std::string viewNames;
+            for (size_t i = 0; i < kCanonicalViews.size(); ++i) {
+                if (i) viewNames += ",";
+                viewNames += kCanonicalViews[i];
+            }
+            err << "usage: render <file> <entryName> --out <path.png> [--width N] "
+                   "[--height N] [--views a,b,c] [--strict] [--game <hint>]\n"
+                   "  Canonical views: " << viewNames << " (\"iso\" is the default when "
+                   "--views is not given).\n";
+            return kUsage;
+        }
+        if (!renderFn) {
+            err << "render: no renderer available -- the composition root did not supply a "
+                   "RenderFn (Include/Onyx/Cli/Commands.h's RenderFn doc comment; a caller "
+                   "that links Onyx_CliRender can pass Onyx::Cli::CmdRender itself)\n";
+            return kUsage;
+        }
+
+        std::vector<std::string> views = viewsArg.empty() ? std::vector<std::string>{"iso"}
+                                                            : SplitViews(viewsArg);
+        if (views.empty()) {
+            err << "render: --views produced no view names\n";
+            return kUsage;
+        }
+
+        int result = kOk;
+        for (const std::string& v : views) {
+            const std::filesystem::path outPath =
+                viewsArg.empty() ? std::filesystem::path(toOut) : DerivePerViewPath(toOut, v);
+            int rc = renderFn(ws, args[0], args[1], outPath, width, height, out, gameHint, v, strict);
+            if (rc == 77 || rc == kUsage || rc == kNoModule) return rc; // stop immediately
+            if (rc == kStrictErrors) result = kStrictErrors;             // keep rendering the rest
+        }
+        return result;
     }
 
     err << "unknown command: " << cmd << "\n";

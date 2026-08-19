@@ -402,6 +402,25 @@ set(ONYX_EXCHANGE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Exchange/GltfExport.cpp
 )
 
+# ── Onyx::CliRender — CmdRender, the one Cli surface that touches the
+# renderer (M5 Task 6, fixes public-surface-audit finding G1) ─────────────
+# `Onyx::Cli::CmdRender` (Include/Onyx/Cli/Render.h) needs both Onyx_Core
+# (Workspace/DecoderRegistry/SceneData) and Onyx_Render (VkContext,
+# Pipelines, SceneRendererVk, OffscreenTarget) -- a real dependency neither
+# Onyx_Core nor Onyx_Render may carry themselves: Onyx_Render already links
+# Onyx_Core PUBLIC (below), so Onyx_Core linking back to reach the
+# renderer would be a real CMake cycle, not just a layering smell. Before
+# this task, Render.cpp's only home was compiled straight into the
+# onyxbox-cli executable (Examples/OnyxCli/), which meant the public
+# header's declared symbol shipped in no library at all -- see Render.h's
+# own top comment for the audit's cold-start proof. This target is the
+# "fourth library above both" the audit itself proposed: it depends on
+# Onyx_Core and Onyx_Render, and nothing in either of them depends back on
+# it, so the cycle simply cannot form.
+set(ONYX_CLIRENDER_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Cli/Render.cpp
+)
+
 set(ONYX_MEDIA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/TexturePool.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/VideoPlayer.cpp
@@ -510,7 +529,7 @@ file(GLOB_RECURSE _onyx_all_cpp CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp")
 set(_onyx_listed ${ONYX_CORE_SOURCES}
                  ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES} ${ONYX_RENDER_SOURCES}
-                 ${ONYX_TESTKIT_SOURCES} ${ONYX_EXCHANGE_SOURCES})
+                 ${ONYX_TESTKIT_SOURCES} ${ONYX_EXCHANGE_SOURCES} ${ONYX_CLIRENDER_SOURCES})
 foreach(_f ${_onyx_all_cpp})
     if(NOT _f IN_LIST _onyx_listed)
         message(FATAL_ERROR "Source file not assigned to a layer: ${_f}")
@@ -562,11 +581,11 @@ target_include_directories(Onyx_TestKit PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/thir
 # ── Onyx::Exchange — glTF export; Core ONLY, never the renderer ─────────
 # T5 (M5, spec §9). Links Onyx_Core alone -- NOT Onyx_Render, deliberately:
 # Onyx_Render already links Onyx_Core PUBLIC (below), so the reverse link
-# would be a real CMake cycle (the exact reason CmdRender lives outside
-# Onyx_Core in Examples/OnyxCli/Render.cpp instead of Source/Cli/
-# Commands.cpp -- see Include/Onyx/Cli/Render.h's top comment for the
-# fully-written-out precedent this target's own placement in Source/Cli/
-# Gltf.h follows). GltfExport.cpp reads Parsers::SceneData/ObjectData
+# would be a real CMake cycle (the exact reason CmdRender's own Run()
+# dispatch stays in Onyx_Core via an injected RenderFn hook rather than a
+# direct call -- see Include/Onyx/Cli/Render.h's top comment for the
+# fully-written-out precedent this target's own placement in
+# Include/Onyx/Cli/Gltf.h follows). GltfExport.cpp reads Parsers::SceneData/ObjectData
 # fields directly (the same ones Source/Rendering/JointPalette.cpp reads
 # to skin the mesh at draw time) and re-derives the rest-pose local TRS +
 # reuses the file's own inverse-bind matrices verbatim -- see that file's
@@ -651,6 +670,21 @@ onyx_add_spirv(Onyx_Render
     Source/RenderVk/Shaders/background.frag
     Source/RenderVk/Shaders/overlay.vert
     Source/RenderVk/Shaders/overlay.frag)
+
+# ── Onyx::CliRender — CmdRender; links Core + Render, nothing links back
+# into it (M5 Task 6) ─────────────────────────────────────────────────────
+# See ONYX_CLIRENDER_SOURCES' own comment above for why this needs to be a
+# separate target at all. No LayerGuard ctest entry for the same reason
+# Onyx_Exchange has none (see that target's own comment above): CMake's
+# target graph already makes the forbidden cycle unbuildable -- Onyx_Core
+# and Onyx_Render both link PUBLIC away from this target, never toward it,
+# so there is nothing a grep-based guard would need to catch that the
+# configure step would not already refuse to build.
+add_library(Onyx_CliRender STATIC ${ONYX_CLIRENDER_SOURCES})
+add_library(Onyx::CliRender ALIAS Onyx_CliRender)
+onyx_apply_common(Onyx_CliRender)
+target_link_libraries(Onyx_CliRender PUBLIC Onyx_Core Onyx_Render)
+target_include_directories(Onyx_CliRender PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
 
 # ── Onyx::Shell — the ImGui application framework ────────────────────────
 add_library(Onyx_Shell STATIC
