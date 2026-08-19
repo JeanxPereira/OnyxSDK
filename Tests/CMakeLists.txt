@@ -39,6 +39,7 @@ add_executable(onyx_tests
     statusbarformat_test.cpp
     infotabfilter_test.cpp
     oracle_corpus_test.cpp
+    animclip_test.cpp
     rendervk_test.cpp
     testkit_test.cpp
     gltf_test.cpp
@@ -102,6 +103,7 @@ add_test(NAME OnyxCli             COMMAND onyx_tests "--test-case=*cli probe pri
 add_test(NAME OnyxStatusBarFormat COMMAND onyx_tests "--test-case=*StatusBarFormat:*")
 add_test(NAME OnyxInfoTabFilter   COMMAND onyx_tests "--test-case=*InfoTabFilter:*")
 add_test(NAME OnyxOracleCorpus    COMMAND onyx_tests "--test-case=*OracleCorpus:*")
+add_test(NAME OnyxAnimClip        COMMAND onyx_tests "--test-case=*AnimClip:*")
 add_test(NAME OnyxTestKit         COMMAND onyx_tests "--test-case=*TestKit:*")
 add_test(NAME OnyxRenderVkSpirv   COMMAND onyx_tests "--test-case=*RenderVkSpirv:*")
 add_test(NAME OnyxRenderContext   COMMAND onyx_tests "--test-case=*RenderContext:*")
