@@ -16,7 +16,7 @@ M1 Targets ──► M2 Identity ──► M3 Modules ──► M4 Vulkan ──
               M0 Oracle corpus ───────────┘   (side-track, GoWToolkit repo)
 ```
 
-## M0 — Oracle corpus (side-track, before M4)
+## M0 — Oracle corpus — ✅ DONE 2026-08-18 (gate passed: corpus byte-identical twice + goldens committed + obxpak mount proven end to end) — next: M4 Vulkan
 
 The GL renderer's reference output against which the Vulkan renderer is
 proven. v1 is SDK-first (decision 2026-08-18: the GoWToolkit port follows

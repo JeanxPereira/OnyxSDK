@@ -3,6 +3,32 @@
 ## Unreleased
 
 ### Added
+- **M0 GL oracle corpus** -- the reference the Vulkan renderer must match:
+  `onyx-oracle` (Tools/OnyxOracle) renders four deterministic synthetic
+  scenes (PBR sphere grid binding all nine texture roles, skinned cube
+  posed rest-vs-bind, alpha-blend stack, 200-joint spiral) offscreen to
+  PNG plus a canonical byte-stable JSON report (`std::to_chars`
+  formatting, locale-proof); golden references live in
+  `Tests/Golden/corpus` and ctest gates prove render-twice byte-identity
+  (`OracleReproducible`, `OracleMatchesGolden`, `SKIP_RETURN_CODE 77`
+  when no GL).
+- **Mounts at open** (v1 spec §5.2) -- a module's `MountSpec` now runs:
+  the Workspace mounts matching archives at open, documents own a file
+  table (slot 0 = the container) plus the mounted VFS, and module-thrown
+  mount exceptions are contained as diags with a flat-file fallback.
+  OnyxBox gains a mounted `.obxpak` archive proving the chain end to end
+  through the CLI, including decode disambiguation across same-named
+  inner entries.
+- `Parsers::MaterialDesc` carries a PBR `metallic` factor and the
+  renderer flows it into batches.
+
+### Changed
+- **BREAKING:** entries address their payload through
+  `Domain::ByteRange` (`source.fileIndex/offset/size`, 64-bit) instead
+  of raw `uint32_t offset/size` fields (v1 spec §5.4); mounted entries
+  extract into per-file-index subdirectories.
+
+### Added
 - **M3b Shell on the Workspace** — documents open through GameModules
   end to end in the GUI: generic Documents browser (TypeSpec-driven tree,
   Failed tint, positional selection paths), viewers routed by decoder
