@@ -30,8 +30,11 @@ namespace Onyx::OracleTool {
 // 64-bit FNV-1a (offset basis 14695981039346656037, prime 1099511628211).
 uint64_t Fnv1a(const void* data, size_t len);
 
-// Fixed 6-decimal formatting ("%.6f"), with negative zero normalized to
-// "0.000000" so -0.0f and 0.0f never diverge in the report.
+// Fixed 6-decimal formatting via std::to_chars(..., std::chars_format::fixed,
+// 6) -- locale-independent by the standard's specification, unlike
+// snprintf("%.6f")/ostream, which read LC_NUMERIC and would render a comma
+// decimal separator under e.g. a "de-DE" locale. Negative zero is normalized
+// to "0.000000" so -0.0f and 0.0f never diverge in the report.
 std::string FormatFloat(float v);
 
 // One JSON document describing a rendered scene: scene name, width,

@@ -10,6 +10,7 @@
 #include <CorpusTextures.h>
 #include <RenderReport.h>
 
+#include <clocale>
 #include <cmath>
 #include <cstring>
 
@@ -341,4 +342,55 @@ TEST_CASE("OracleCorpus: BuildReport is byte-identical across repeated calls") {
     std::string report2 = BuildReport("solo-scene", 8, 8, 42ull, batches, paletteJointCounts);
 
     CHECK(report1 == report2);
+}
+
+namespace {
+
+// Restores whatever LC_NUMERIC was in effect before the test flipped it,
+// on every exit path (normal return, early return on a missing locale, or
+// a failed REQUIRE unwinding the stack) -- so a locale change here can
+// never leak into any other test case.
+struct LocaleNumericGuard {
+    std::string saved = [] {
+        const char* cur = std::setlocale(LC_NUMERIC, nullptr);
+        return std::string(cur ? cur : "C");
+    }();
+    ~LocaleNumericGuard() { std::setlocale(LC_NUMERIC, saved.c_str()); }
+};
+
+} // namespace
+
+TEST_CASE("OracleCorpus: FormatFloat stays locale-independent under LC_NUMERIC de-DE") {
+    LocaleNumericGuard guard;
+
+    if (std::setlocale(LC_NUMERIC, "de-DE") == nullptr) {
+        // de-DE isn't installed on this machine/CI image. Can't exercise
+        // the comma-decimal failure mode here, but a missing locale isn't
+        // itself a bug -- warn instead of failing the suite.
+        WARN("de-DE locale not available; skipping locale-independence check");
+        return;
+    }
+
+    // std::to_chars must ignore the flipped LC_NUMERIC entirely: dot, not
+    // comma, exactly like FormatFloat's other tests expect under "C".
+    CHECK(FormatFloat(0.25f) == "0.250000");
+    CHECK(FormatFloat(-0.0f) == "0.000000");
+
+    // Re-run the metallic/materialColor lines from the verbatim BuildReport
+    // case above under the flipped locale: if FormatFloat ever regressed to
+    // a locale-sensitive formatter, these would start containing commas.
+    RenderBatch alpha;
+    alpha.name = "batch_alpha";
+    alpha.metallic = 0.25f;
+    alpha.materialColor[0] = 0.1f;
+    alpha.materialColor[1] = 0.2f;
+    alpha.materialColor[2] = 0.3f;
+    alpha.materialColor[3] = 0.4f;
+    std::vector<RenderBatch> batches = {alpha};
+    std::vector<size_t> paletteJointCounts = {0};
+
+    std::string report = BuildReport("test-scene", 64, 32, 0ull, batches, paletteJointCounts);
+    CHECK(report.find("\"metallic\": 0.250000,\n") != std::string::npos);
+    CHECK(report.find("\"materialColor\": [0.100000, 0.200000, 0.300000, 0.400000],\n") !=
+          std::string::npos);
 }

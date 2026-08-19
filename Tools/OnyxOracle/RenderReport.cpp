@@ -1,6 +1,8 @@
 #include "RenderReport.h"
 
+#include <charconv>
 #include <cstdio>
+#include <system_error>
 
 namespace Onyx::OracleTool {
 
@@ -19,20 +21,31 @@ uint64_t Fnv1a(const void* data, size_t len) {
 
 std::string FormatFloat(float v) {
     char buf[64];
-    std::snprintf(buf, sizeof(buf), "%.6f", static_cast<double>(v));
+    // std::to_chars is locale-independent by the standard's specification
+    // (unlike snprintf("%.6f"), which reads LC_NUMERIC and would emit
+    // "0,250000" under a comma-decimal locale) -- exactly the failure
+    // this report's byte-stability contract exists to prevent.
+    auto result = std::to_chars(buf, buf + sizeof(buf), v, std::chars_format::fixed, 6);
+    if (result.ec != std::errc()) {
+        // Practically unreachable at the value ranges this report ever
+        // sees (material colors, metallic factors) -- fail safe instead
+        // of reading past an unterminated buffer.
+        return "0.000000";
+    }
 
-    // snprintf renders -0.0f (and any value that rounds to all-zero digits
-    // at 6 decimals) as "-0.000000". Normalize that to "0.000000" so the
-    // report never encodes sign-of-zero, which is not itself deterministic
-    // across platforms/compilers for float arithmetic that lands on zero.
+    // to_chars renders -0.0f (and any value that rounds to all-zero digits
+    // at 6 decimals) as "-0.000000", same as printf would. Normalize that
+    // to "0.000000" so the report never encodes sign-of-zero, which is not
+    // itself deterministic across platforms/compilers for float arithmetic
+    // that lands on zero.
     if (buf[0] == '-') {
         bool allZero = true;
-        for (const char* p = buf + 1; *p != '\0'; ++p) {
+        for (const char* p = buf + 1; p != result.ptr; ++p) {
             if (*p != '0' && *p != '.') { allZero = false; break; }
         }
-        if (allZero) return std::string(buf + 1);
+        if (allZero) return std::string(buf + 1, result.ptr);
     }
-    return std::string(buf);
+    return std::string(buf, result.ptr);
 }
 
 namespace {
