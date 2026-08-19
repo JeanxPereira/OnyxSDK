@@ -210,8 +210,24 @@ constexpr ViewAngles kViewAngles[] = {
     {"right",  90.0f,  0.0f},
     {"top",     0.0f, 89.0f},
 };
-static_assert(sizeof(kViewAngles) / sizeof(kViewAngles[0]) == kCanonicalViews.size(),
-              "kViewAngles must define exactly one entry per Commands.h kCanonicalViews name");
+
+// T6-review rider: a SIZE-only check (the two arrays merely have the same
+// element count) compiles clean even when a name is renamed in one list but
+// not the other -- the usage text (kCanonicalViews) would still advertise a
+// name FindView() below can no longer resolve, surfacing only at runtime as
+// an "unknown view" for a name the --help output still shows. Check the
+// correspondence name-for-name instead, so a drift between this array and
+// Commands.h's kCanonicalViews is a compile error, not a runtime surprise.
+constexpr bool ViewNamesMatchCanonical() {
+    if (sizeof(kViewAngles) / sizeof(kViewAngles[0]) != kCanonicalViews.size()) return false;
+    for (size_t i = 0; i < kCanonicalViews.size(); ++i) {
+        if (kViewAngles[i].name != kCanonicalViews[i]) return false;
+    }
+    return true;
+}
+static_assert(ViewNamesMatchCanonical(),
+              "kViewAngles must define, in the same order, exactly the names in "
+              "Commands.h's kCanonicalViews -- a size match alone is not enough");
 
 const ViewAngles* FindView(std::string_view name) {
     for (const ViewAngles& v : kViewAngles) {
