@@ -176,13 +176,16 @@ public:
     /// the shared Rendering::ComputeJointPalette (JointPalette.h/.cpp),
     /// baked through m_instanceTransform exactly like GL bakes it into
     /// every point before pushing it to its own line buffer. Colors use
-    /// GL's own hardcoded fallback constants (SceneRenderer.cpp's
-    /// `cfg ? ... : glm::vec4(...)` branch) unconditionally -- RenderVk has
-    /// no dependency on Onyx::Services::AppConfig (its Get() definition
-    /// lives in Onyx_Shell, which this target deliberately never links; see
-    /// Tools/OnyxOracle/AppConfigStub.cpp's comment for the same
-    /// constraint applied to onyx-oracle), and every context this milestone
-    /// runs in (the oracle, onyx_tests) has no AppConfig instance anyway,
+    /// GL's own hardcoded fallback constants (the now-deleted GL
+    /// SceneRenderer.cpp's `cfg ? ... : glm::vec4(...)` branch)
+    /// unconditionally -- RenderVk has no dependency on
+    /// Onyx::Services::AppConfig at all (its Get() definition lives in
+    /// Onyx_Shell, which this target never links; Task 11 closed the two
+    /// gaps that used to make an AppConfig stub necessary anywhere in this
+    /// tree -- Onyx::Rendering::Camera's own former AppConfig read moved to
+    /// Onyx::Viewers::Viewport3D, and Onyx::Rendering::ResolveRoleIndices
+    /// moved out of the GL-only SceneRenderer.cpp -- so neither onyx-oracle
+    /// nor onyxbox-cli carry a per-executable AppConfigStub.cpp any more),
     /// so GL's own cfg-null fallback is the only value that could ever be
     /// observed here. A no-op (returns true without touching `cmd`) if
     /// Build() built no skeleton, matching GL's own early-return.

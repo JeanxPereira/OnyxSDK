@@ -612,8 +612,10 @@ set(ONYX_FONTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts" CACHE INTERNA
 # add_test() -- CMake only emits a CTestTestfile.cmake for a subdirectory
 # that was added after testing was enabled in its parent scope. Hoisted here,
 # ahead of Examples/Tools/OnyxOracle, rather than left inside the
-# ONYX_BUILD_TESTS block below (where it used to live) so OracleGlSmoke
-# registers regardless of add_subdirectory order within this file.
+# ONYX_BUILD_TESTS block below (where it used to live) so Tools/OnyxOracle's
+# ctest entries (VkBootSmoke, VkOracleParity, ...; OracleGlSmoke itself
+# died with the GL renderer at Task 11) register regardless of
+# add_subdirectory order within this file.
 enable_testing()
 
 # Onyx_ExampleBox is unconditional (not gated by ONYX_BUILD_EXAMPLES): it is
@@ -628,8 +630,9 @@ if(ONYX_BUILD_EXAMPLES)
     add_subdirectory(Examples/OnyxCli)
 endif()
 
-# Tools/OnyxOracle -- the GL oracle renderer (M0). Unconditional: its
-# OracleGlSmoke ctest is part of the standard suite, not example-gated.
+# Tools/OnyxOracle -- the headless Vulkan oracle renderer (M0; GL deleted
+# at Task 11). Unconditional: its ctest entries (VkBootSmoke,
+# VkOracleParity, ...) are part of the standard suite, not example-gated.
 add_subdirectory(Tools/OnyxOracle)
 
 if(ONYX_BUILD_TESTS)

@@ -948,7 +948,11 @@ void VideoPlayer::DrawInspector() {
 
   if (ImGui::CollapsingHeader("Playback Engine",
                               ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::Text("Hardware: OpenGL / SWS_POINT");
+    // T11-review minor: this used to say "Hardware: OpenGL / SWS_POINT",
+    // false since Task 10 moved frame upload onto Onyx::App::TexturePool
+    // (Vulkan) -- SWS_POINT itself is accurate (still the sws_scale filter
+    // used above), only the "OpenGL" half was stale.
+    ImGui::Text("Hardware: Vulkan / SWS_POINT");
     ImGui::Text("File Size: %lld bytes", m_fileSize);
     ImGui::Text("Duration: %.2f sec", m_duration);
     ImGui::Text("A/V Desync: %.3f s",
