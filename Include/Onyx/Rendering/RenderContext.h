@@ -40,7 +40,7 @@ struct FrameHandles {
 ///
 /// Exception containment (spec §7.1): a pass callback that throws is caught
 /// inside Execute() -- both a `catch (const std::exception&)` arm and a
-/// bare `catch (...)` arm -- logged via the existing Logger (LOG_WARN,
+/// bare `catch (...)` arm -- logged via the existing Logger (ONYX_LOGF_WARN,
 /// naming the pass), and SKIPPED for this frame only. The pass is NOT
 /// removed: a transient throw (e.g. one frame's worth of bad data) must not
 /// silently unregister a pass that could succeed on the next frame. Every

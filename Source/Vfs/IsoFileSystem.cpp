@@ -43,7 +43,7 @@ bool IsoFileSystem::Initialize() {
     // ── Layer 1 ─────────────────────────────────────────────────────────────
     uint32_t rootLBA = 0, rootSize = 0, volumeSize = 0;
     if (!ReadPVD(file, 0, rootLBA, rootSize, volumeSize)) {
-        LOG_ERR("Invalid ISO9660 signature.");
+        ONYX_LOGF_ERR("Invalid ISO9660 signature.");
         return false;
     }
 
@@ -62,7 +62,7 @@ bool IsoFileSystem::Initialize() {
         if ((int64_t)(secondLayerBase + 17 * 2048) <= fileSize) {
             uint32_t rootLBA2 = 0, rootSize2 = 0, volSize2 = 0;
             if (ReadPVD(file, secondLayerBase, rootLBA2, rootSize2, volSize2)) {
-                LOG_INFO("[ISO] Detected second layer. Base: 0x%llX", (unsigned long long)secondLayerBase);
+                ONYX_LOGF_INFO("[ISO] Detected second layer. Base: 0x%llX", (unsigned long long)secondLayerBase);
                 ParseDirectoryRecord(rootLBA2, rootSize2, "/", secondLayerBase);
             }
         }

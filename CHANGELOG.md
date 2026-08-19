@@ -282,6 +282,20 @@ below and `.github/workflows/ci.yml`'s own header comment).
   compilable, and still reachable by its own `#include`. Caught by the
   final whole-branch review before the tag was pushed, so no released
   version ever carried the trap.
+- **Every logging macro is `ONYX_`-prefixed** (M5, final review) —
+  `Services/Logger.h` is reachable from `<Onyx/Onyx.h>`, so until now every
+  consumer of the umbrella inherited four unprefixed global macros
+  (`LOG_DEBUG`/`LOG_INFO`/`LOG_WARN`/`LOG_ERR` — among the most commonly
+  `#define`d identifiers in C++, claimed by glog, plog, easylogging and most
+  engine loggers) plus a `GOW_LOG_*` family marked "preferred", i.e. a God
+  of War name on the main logging API of an SDK whose premise is that it
+  knows nothing about any specific game (v1 spec §13, in the one place §13's
+  letter did not reach). Now: `ONYX_LOG_TRACE/DEBUG/INFO/WARN/ERROR(cat,
+  fmt, ...)` for the category-aware set, `ONYX_LOGF_DEBUG/INFO/WARN/ERR(fmt,
+  ...)` for the printf-style one. The short spellings still exist but only
+  behind `#define ONYX_LEGACY_LOG_MACROS` — **opt-in, never on by default**,
+  so Onyx can no longer silently capture a consumer's own `LOG_INFO`.
+  ~150 mechanical edits today; a 2.0.0 bump if it had shipped.
 - **`Onyx::Modules::TextOut` renamed to `DecodedText`** (M5, final review) —
   `TextOut` is a macro on Windows (`<wingdi.h>` defines it as
   `TextOutA`/`TextOutW`), and `<Onyx/Onyx.h>` reaches `<windows.h>` through

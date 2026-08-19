@@ -175,7 +175,7 @@ TEST_CASE("[SessionLog] Install writes records through, flushed line by line") {
     SL::Session session = SL::Install(dir.path);
     REQUIRE(session.ok());
 
-    GOW_LOG_INFO("wad", "loaded {} entries", 42);
+    ONYX_LOG_INFO("wad", "loaded {} entries", 42);
 
     // Read while the sink is still installed: a crash must not cost the log.
     std::string contents = ReadWholeFile(session.path);
@@ -203,8 +203,8 @@ TEST_CASE("[SessionLog] The session file keeps a finer level than the screen") {
     SL::Session session = SL::Install(dir.path, /*keep=*/10, /*minLevel=*/L::Level::Debug);
     REQUIRE(session.ok());
 
-    GOW_LOG_TRACE("cat", "below the file floor");
-    GOW_LOG_DEBUG("cat", "into the file");
+    ONYX_LOG_TRACE("cat", "below the file floor");
+    ONYX_LOG_DEBUG("cat", "into the file");
 
     std::string contents = ReadWholeFile(session.path);
     CHECK(contents.find("into the file")        != std::string::npos);
@@ -240,7 +240,7 @@ TEST_CASE("[SessionLog] InstallAt honours an exact path, with no date in the nam
     REQUIRE(session.ok());
     CHECK(std::filesystem::path(session.path).filename().string() == "run.log");
 
-    GOW_LOG_INFO("cli", "headless render");
+    ONYX_LOG_INFO("cli", "headless render");
     CHECK(ReadWholeFile(session.path).find("headless render") != std::string::npos);
 
     SL::Uninstall(session);
@@ -266,9 +266,9 @@ TEST_CASE("[SessionLog] Uninstall detaches the sink and stops writing") {
     REQUIRE(session.ok());
     std::string path = session.path;
 
-    GOW_LOG_INFO("cat", "while attached");
+    ONYX_LOG_INFO("cat", "while attached");
     SL::Uninstall(session);
-    GOW_LOG_INFO("cat", "after detach");
+    ONYX_LOG_INFO("cat", "after detach");
 
     std::string contents = ReadWholeFile(path);
     CHECK(contents.find("while attached") != std::string::npos);

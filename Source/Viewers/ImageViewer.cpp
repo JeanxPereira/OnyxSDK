@@ -43,7 +43,7 @@ void ImageViewer::UploadToGPU() {
   // channel-swizzle to Vulkan for a path nothing calls, this stays a
   // logged no-op -- disclosed in task-10-report.md, not silently dropped.
   if (m_texture->isCompressed) {
-    LOG_WARN("[ImageViewer] '%s': compressed texture upload not ported to Vulkan "
+    ONYX_LOGF_WARN("[ImageViewer] '%s': compressed texture upload not ported to Vulkan "
              "(dead code path, no producer sets isCompressed=true) -- not displayed",
              m_name.c_str());
     return;
@@ -51,7 +51,7 @@ void ImageViewer::UploadToGPU() {
 
   Onyx::Rendering::VkContext* ctx = Onyx::Rendering::GetGlobalContext();
   if (!ctx) {
-    LOG_ERR("[ImageViewer] '%s': no live VkContext -- cannot upload texture", m_name.c_str());
+    ONYX_LOGF_ERR("[ImageViewer] '%s': no live VkContext -- cannot upload texture", m_name.c_str());
     return;
   }
   if (!m_texPool) {
@@ -61,11 +61,11 @@ void ImageViewer::UploadToGPU() {
   std::string err;
   m_texId = m_texPool->Create(m_texture->width, m_texture->height, m_texture->pixels.data(), err);
   if (m_texId == ImTextureID_Invalid) {
-    LOG_ERR("[ImageViewer] '%s': TexturePool::Create failed: %s", m_name.c_str(), err.c_str());
+    ONYX_LOGF_ERR("[ImageViewer] '%s': TexturePool::Create failed: %s", m_name.c_str(), err.c_str());
     return;
   }
 
-  LOG_INFO("[ImageViewer] '%s': uploaded %ux%u, imtex=0x%llx", m_name.c_str(),
+  ONYX_LOGF_INFO("[ImageViewer] '%s': uploaded %ux%u, imtex=0x%llx", m_name.c_str(),
            m_texture->width, m_texture->height, (unsigned long long)m_texId);
 }
 
@@ -92,7 +92,7 @@ void ImageViewer::ApplyAlphaToggle() {
 
   std::string err;
   if (!m_texPool->Update(m_texId, display.data(), err)) {
-    LOG_ERR("[ImageViewer] '%s': TexturePool::Update (alpha toggle) failed: %s",
+    ONYX_LOGF_ERR("[ImageViewer] '%s': TexturePool::Update (alpha toggle) failed: %s",
             m_name.c_str(), err.c_str());
   }
 }

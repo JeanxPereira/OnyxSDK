@@ -2,10 +2,10 @@
 
 // Structured logging surface for Onyx.
 //
-// New (M0.T5) call sites use the category-aware macros below and produce
-// output via a configurable chain of sinks:
+// Call sites use the category-aware macros at the bottom of this file and
+// produce output via a configurable chain of sinks:
 //
-//   GOW_LOG_INFO("wad", "loaded {} entries", count);
+//   ONYX_LOG_INFO("wad", "loaded {} entries", count);
 //
 // The default stderr sink renders one line per record in the canonical
 // shape `[LEVEL][category] message`. Additional sinks (file, in-memory,
@@ -13,12 +13,35 @@
 // rotating file sink can be installed once with
 // `Log::InstallRotatingFileSink(path, maxBytes, rotations)`.
 //
-// Legacy printf-style call sites (`LOG_DEBUG`, `LOG_INFO`, `LOG_WARN`,
-// `LOG_ERR`) and the older `Onyx::Logger` facade (with `LogEntry`,
-// `GetEntries`, `Clear`) are retained so existing callers (StatusBar,
-// many parser TUs) keep working while we migrate the codebase
-// category-by-category. Both legacy and new paths funnel through the
-// same sink chain, so the UI sees a unified log stream.
+// The printf-style set (`ONYX_LOGF_DEBUG`/`INFO`/`WARN`/`ERR`) and the
+// older `Onyx::Services::Logger` facade (with `LogEntry`, `GetEntries`,
+// `Clear`) are retained so existing callers (StatusBar, many parser TUs)
+// keep working while the codebase migrates category-by-category. Both
+// paths funnel through the same sink chain, so the UI sees a unified log
+// stream.
+//
+// ── Why every macro here is ONYX_-prefixed (v1.0.0) ──────────────────────
+// Until the v1.0.0 final review these were `GOW_LOG_*` (category-aware)
+// and bare `LOG_DEBUG`/`LOG_INFO`/`LOG_WARN`/`LOG_ERR` (printf-style).
+// Both were wrong to freeze into a public surface, for different reasons:
+//
+//   - `LOG_INFO` and friends are among the most commonly #defined
+//     identifiers in C++ -- glog, plog, easylogging and most engine
+//     loggers claim at least one. This header is reachable from
+//     <Onyx/Onyx.h>, so every consumer of the umbrella inherited them: a
+//     redefinition warning at best, silent capture of THEIR logging at
+//     worst.
+//   - `GOW_LOG_*` put a God of War name on the main logging API of an SDK
+//     whose whole premise is that it knows nothing about any specific game
+//     (v1 spec §13). It was also marked "preferred", i.e. the single
+//     most-typed public identifier a module author would reach for.
+//
+// Renaming after the 1.0 tag would have been a MAJOR-class change under
+// README's own stability policy; renaming before it cost ~150 mechanical
+// edits. The bare `LOG_*` spellings are still available, but only to a
+// consumer who asks for them by defining ONYX_LEGACY_LOG_MACROS before
+// including this header -- opt-in, never by default, so no third-party
+// macro is ever silently displaced.
 
 #include <cstdarg>
 #include <cstdint>
@@ -111,15 +134,37 @@ inline void Log(Level lvl, std::string_view category,
 
 } // namespace Onyx::Services
 
-// ── New category-aware macros (preferred) ────────────────────────────────
-#define GOW_LOG_TRACE(cat, ...) ::Onyx::Services::Log::Log(::Onyx::Services::Log::Level::Trace, (cat), __VA_ARGS__)
-#define GOW_LOG_DEBUG(cat, ...) ::Onyx::Services::Log::Log(::Onyx::Services::Log::Level::Debug, (cat), __VA_ARGS__)
-#define GOW_LOG_INFO(cat, ...)  ::Onyx::Services::Log::Log(::Onyx::Services::Log::Level::Info,  (cat), __VA_ARGS__)
-#define GOW_LOG_WARN(cat, ...)  ::Onyx::Services::Log::Log(::Onyx::Services::Log::Level::Warn,  (cat), __VA_ARGS__)
-#define GOW_LOG_ERROR(cat, ...) ::Onyx::Services::Log::Log(::Onyx::Services::Log::Level::Error, (cat), __VA_ARGS__)
+// ── Category-aware macros (preferred) ────────────────────────────────────
+#define ONYX_LOG_TRACE(cat, ...) ::Onyx::Services::Log::Log(::Onyx::Services::Log::Level::Trace, (cat), __VA_ARGS__)
+#define ONYX_LOG_DEBUG(cat, ...) ::Onyx::Services::Log::Log(::Onyx::Services::Log::Level::Debug, (cat), __VA_ARGS__)
+#define ONYX_LOG_INFO(cat, ...)  ::Onyx::Services::Log::Log(::Onyx::Services::Log::Level::Info,  (cat), __VA_ARGS__)
+#define ONYX_LOG_WARN(cat, ...)  ::Onyx::Services::Log::Log(::Onyx::Services::Log::Level::Warn,  (cat), __VA_ARGS__)
+#define ONYX_LOG_ERROR(cat, ...) ::Onyx::Services::Log::Log(::Onyx::Services::Log::Level::Error, (cat), __VA_ARGS__)
 
-// ── Legacy printf-style macros (no category) ─────────────────────────────
-#define LOG_DEBUG(...) ::Onyx::Services::Logger::Get().Log(::Onyx::Services::LogLevel::Debug,   __VA_ARGS__)
-#define LOG_INFO(...)  ::Onyx::Services::Logger::Get().Log(::Onyx::Services::LogLevel::Info,    __VA_ARGS__)
-#define LOG_WARN(...)  ::Onyx::Services::Logger::Get().Log(::Onyx::Services::LogLevel::Warning, __VA_ARGS__)
-#define LOG_ERR(...)   ::Onyx::Services::Logger::Get().Log(::Onyx::Services::LogLevel::Error,   __VA_ARGS__)
+// ── printf-style macros (no category) ────────────────────────────────────
+// The F is for "format string", and keeps these from colliding with the
+// category-aware set above -- ONYX_LOG_INFO(cat, fmt, ...) and
+// ONYX_LOGF_INFO(fmt, ...) are different call shapes, not two spellings of
+// one macro.
+#define ONYX_LOGF_DEBUG(...) ::Onyx::Services::Logger::Get().Log(::Onyx::Services::LogLevel::Debug,   __VA_ARGS__)
+#define ONYX_LOGF_INFO(...)  ::Onyx::Services::Logger::Get().Log(::Onyx::Services::LogLevel::Info,    __VA_ARGS__)
+#define ONYX_LOGF_WARN(...)  ::Onyx::Services::Logger::Get().Log(::Onyx::Services::LogLevel::Warning, __VA_ARGS__)
+#define ONYX_LOGF_ERR(...)   ::Onyx::Services::Logger::Get().Log(::Onyx::Services::LogLevel::Error,   __VA_ARGS__)
+
+// ── Opt-in short spellings ───────────────────────────────────────────────
+// Off by default on purpose: LOG_DEBUG/LOG_INFO/LOG_WARN/LOG_ERR are
+// unprefixed global macros that collide with glog, plog and most engine
+// loggers, and this header is reachable from <Onyx/Onyx.h>. A consumer who
+// wants the short spellings asks for them:
+//
+//   #define ONYX_LEGACY_LOG_MACROS
+//   #include <Onyx/Onyx.h>
+//
+// Nothing in this repository defines it -- the whole tree uses the
+// prefixed names.
+#ifdef ONYX_LEGACY_LOG_MACROS
+#  define LOG_DEBUG(...) ONYX_LOGF_DEBUG(__VA_ARGS__)
+#  define LOG_INFO(...)  ONYX_LOGF_INFO(__VA_ARGS__)
+#  define LOG_WARN(...)  ONYX_LOGF_WARN(__VA_ARGS__)
+#  define LOG_ERR(...)   ONYX_LOGF_ERR(__VA_ARGS__)
+#endif

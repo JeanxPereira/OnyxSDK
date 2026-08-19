@@ -57,7 +57,7 @@ constexpr uint32_t kFramesInFlight = Onyx::Rendering::kFramesInFlight;
 
 void ImGuiVulkanCheckResult(VkResult err) {
     if (err == VK_SUCCESS) return;
-    LOG_ERR("[Vulkan][imgui] backend call failed (VkResult %d)", static_cast<int>(err));
+    ONYX_LOGF_ERR("[Vulkan][imgui] backend call failed (VkResult %d)", static_cast<int>(err));
 }
 } // namespace
 
@@ -141,12 +141,12 @@ Window::Window()
     // once panels consume these events directly.
     m_onDocumentOpened = m_workspace.Events().On<Onyx::Modules::DocumentOpened>(
         [](const Onyx::Modules::DocumentOpened& ev) {
-            LOG_INFO("[Workspace] document opened id=%llu",
+            ONYX_LOGF_INFO("[Workspace] document opened id=%llu",
                      (unsigned long long)ev.id);
         });
     m_onTreeReady = m_workspace.Events().On<Onyx::Modules::TreeReady>(
         [](const Onyx::Modules::TreeReady& ev) {
-            LOG_INFO("[Workspace] tree ready id=%llu ok=%d",
+            ONYX_LOGF_INFO("[Workspace] tree ready id=%llu ok=%d",
                      (unsigned long long)ev.id, ev.ok ? 1 : 0);
         });
 
@@ -161,7 +161,7 @@ Window::Window()
     // init() has long since returned.
     m_onDocumentClosed = m_workspace.Events().On<Onyx::Modules::DocumentClosed>(
         [this](const Onyx::Modules::DocumentClosed& ev) {
-            LOG_INFO("[Workspace] document closed id=%llu", (unsigned long long)ev.id);
+            ONYX_LOGF_INFO("[Workspace] document closed id=%llu", (unsigned long long)ev.id);
             m_app.getDocumentWindow().CloseTabsForDocument(ev.id);
         });
 
@@ -358,10 +358,10 @@ void Window::initVulkan() {
     std::string err;
     if (!m_vkContext->Init(/*presentSupport=*/true, err, requiredInstanceExtensions)) {
         fprintf(stderr, "Failed to initialize Vulkan context: %s\n", err.c_str());
-        LOG_ERR("[Vulkan] VkContext::Init failed: %s", err.c_str());
+        ONYX_LOGF_ERR("[Vulkan] VkContext::Init failed: %s", err.c_str());
         std::exit(-1);
     }
-    LOG_INFO("[Vulkan] device=\"%s\" apiVersion=%u.%u.%u validation=%d",
+    ONYX_LOGF_INFO("[Vulkan] device=\"%s\" apiVersion=%u.%u.%u validation=%d",
              m_vkContext->Info().deviceName.c_str(),
              VK_API_VERSION_MAJOR(m_vkContext->Info().apiVersion),
              VK_API_VERSION_MINOR(m_vkContext->Info().apiVersion),
@@ -371,7 +371,7 @@ void Window::initVulkan() {
     VkResult vr = glfwCreateWindowSurface(m_vkContext->Instance(), m_window, nullptr, &m_vk->surface);
     if (vr != VK_SUCCESS) {
         fprintf(stderr, "Failed to create Vulkan surface (VkResult %d)\n", static_cast<int>(vr));
-        LOG_ERR("[Vulkan] glfwCreateWindowSurface failed (VkResult %d)", static_cast<int>(vr));
+        ONYX_LOGF_ERR("[Vulkan] glfwCreateWindowSurface failed (VkResult %d)", static_cast<int>(vr));
         std::exit(-1);
     }
 
@@ -387,7 +387,7 @@ void Window::initVulkan() {
     vkGetPhysicalDeviceSurfaceSupportKHR(m_vkContext->Physical(), m_vkContext->GraphicsFamily(),
                                           m_vk->surface, &presentSupported);
     if (!presentSupported) {
-        LOG_ERR("[Vulkan] chosen graphics queue family cannot present to the real surface "
+        ONYX_LOGF_ERR("[Vulkan] chosen graphics queue family cannot present to the real surface "
                  "(VkContext's platform pre-check said it could)");
     }
 
@@ -405,7 +405,7 @@ void Window::initVulkan() {
             w->m_vk->framebufferResized = true;
     });
 
-    LOG_INFO("[Vulkan] swapchain init: %ux%u, %zu image(s), format=%d, FIFO present, "
+    ONYX_LOGF_INFO("[Vulkan] swapchain init: %ux%u, %zu image(s), format=%d, FIFO present, "
              "%u frame(s) in flight",
              m_vk->swapchainExtent.width, m_vk->swapchainExtent.height, m_vk->images.size(),
              static_cast<int>(m_vk->swapchainFormat), kFramesInFlight);
@@ -506,7 +506,7 @@ void Window::createSwapchain(uint32_t width, uint32_t height) {
     VkResult vr = vkCreateSwapchainKHR(ctx.Device(), &info, nullptr, &newSwapchain);
     if (vr != VK_SUCCESS) {
         fprintf(stderr, "vkCreateSwapchainKHR failed (VkResult %d)\n", static_cast<int>(vr));
-        LOG_ERR("[Vulkan] vkCreateSwapchainKHR failed (VkResult %d)", static_cast<int>(vr));
+        ONYX_LOGF_ERR("[Vulkan] vkCreateSwapchainKHR failed (VkResult %d)", static_cast<int>(vr));
         std::exit(-1);
     }
 
@@ -546,7 +546,7 @@ void Window::createSwapchain(uint32_t width, uint32_t height) {
         if (vr != VK_SUCCESS) {
             fprintf(stderr, "vkCreateImageView failed for swapchain image %u (VkResult %d)\n", i,
                     static_cast<int>(vr));
-            LOG_ERR("[Vulkan] vkCreateImageView failed for swapchain image %u (VkResult %d)", i,
+            ONYX_LOGF_ERR("[Vulkan] vkCreateImageView failed for swapchain image %u (VkResult %d)", i,
                     static_cast<int>(vr));
             std::exit(-1);
         }
@@ -555,7 +555,7 @@ void Window::createSwapchain(uint32_t width, uint32_t height) {
         if (vr != VK_SUCCESS) {
             fprintf(stderr, "vkCreateSemaphore (renderFinished[%u]) failed (VkResult %d)\n", i,
                     static_cast<int>(vr));
-            LOG_ERR("[Vulkan] vkCreateSemaphore (renderFinished[%u]) failed (VkResult %d)", i,
+            ONYX_LOGF_ERR("[Vulkan] vkCreateSemaphore (renderFinished[%u]) failed (VkResult %d)", i,
                     static_cast<int>(vr));
             std::exit(-1);
         }
@@ -635,7 +635,7 @@ void Window::createFrameSync() {
         VkResult vr = vkCreateCommandPool(device, &poolInfo, nullptr, &m_vk->commandPools[i]);
         if (vr != VK_SUCCESS) {
             fprintf(stderr, "vkCreateCommandPool failed (VkResult %d)\n", static_cast<int>(vr));
-            LOG_ERR("[Vulkan] vkCreateCommandPool failed (VkResult %d)", static_cast<int>(vr));
+            ONYX_LOGF_ERR("[Vulkan] vkCreateCommandPool failed (VkResult %d)", static_cast<int>(vr));
             std::exit(-1);
         }
 
@@ -647,7 +647,7 @@ void Window::createFrameSync() {
         vr = vkAllocateCommandBuffers(device, &allocInfo, &m_vk->commandBuffers[i]);
         if (vr != VK_SUCCESS) {
             fprintf(stderr, "vkAllocateCommandBuffers failed (VkResult %d)\n", static_cast<int>(vr));
-            LOG_ERR("[Vulkan] vkAllocateCommandBuffers failed (VkResult %d)", static_cast<int>(vr));
+            ONYX_LOGF_ERR("[Vulkan] vkAllocateCommandBuffers failed (VkResult %d)", static_cast<int>(vr));
             std::exit(-1);
         }
 
@@ -655,7 +655,7 @@ void Window::createFrameSync() {
         if (vr != VK_SUCCESS) {
             fprintf(stderr, "vkCreateSemaphore (imageAvailable[%u]) failed (VkResult %d)\n", i,
                     static_cast<int>(vr));
-            LOG_ERR("[Vulkan] vkCreateSemaphore (imageAvailable[%u]) failed (VkResult %d)", i,
+            ONYX_LOGF_ERR("[Vulkan] vkCreateSemaphore (imageAvailable[%u]) failed (VkResult %d)", i,
                     static_cast<int>(vr));
             std::exit(-1);
         }
@@ -663,7 +663,7 @@ void Window::createFrameSync() {
         vr = vkCreateFence(device, &fenceInfo, nullptr, &m_vk->inFlightFences[i]);
         if (vr != VK_SUCCESS) {
             fprintf(stderr, "vkCreateFence failed (VkResult %d)\n", static_cast<int>(vr));
-            LOG_ERR("[Vulkan] vkCreateFence failed (VkResult %d)", static_cast<int>(vr));
+            ONYX_LOGF_ERR("[Vulkan] vkCreateFence failed (VkResult %d)", static_cast<int>(vr));
             std::exit(-1);
         }
     }
@@ -819,10 +819,10 @@ void Window::exitVulkan() {
     m_vkContext->Shutdown();
     const uint32_t validationCount = m_vkContext->ValidationMessageCount();
     if (validationCount != 0) {
-        LOG_ERR("[Vulkan] shutdown: %u validation message(s); last: %s", validationCount,
+        ONYX_LOGF_ERR("[Vulkan] shutdown: %u validation message(s); last: %s", validationCount,
                  m_vkContext->LastValidationMessage().c_str());
     } else {
-        LOG_INFO("[Vulkan] shutdown: %u validation message(s)", validationCount);
+        ONYX_LOGF_INFO("[Vulkan] shutdown: %u validation message(s)", validationCount);
     }
 
     m_renderContext.reset();
@@ -1015,7 +1015,7 @@ void Window::presentFrame() {
         return; // try again next frame
     }
     if (vr != VK_SUCCESS && vr != VK_SUBOPTIMAL_KHR) {
-        LOG_ERR("[Vulkan] vkAcquireNextImageKHR failed (VkResult %d)", static_cast<int>(vr));
+        ONYX_LOGF_ERR("[Vulkan] vkAcquireNextImageKHR failed (VkResult %d)", static_cast<int>(vr));
         return;
     }
 
@@ -1162,7 +1162,7 @@ void Window::presentFrame() {
 
     vr = vkQueueSubmit2(m_vkContext->GraphicsQueue(), 1, &submit, vk.inFlightFences[vk.currentFrame]);
     if (vr != VK_SUCCESS)
-        LOG_ERR("[Vulkan] vkQueueSubmit2 failed (VkResult %d)", static_cast<int>(vr));
+        ONYX_LOGF_ERR("[Vulkan] vkQueueSubmit2 failed (VkResult %d)", static_cast<int>(vr));
 
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -1176,7 +1176,7 @@ void Window::presentFrame() {
     if (vr == VK_ERROR_OUT_OF_DATE_KHR || vr == VK_SUBOPTIMAL_KHR || vk.framebufferResized) {
         recreateSwapchain();
     } else if (vr != VK_SUCCESS) {
-        LOG_ERR("[Vulkan] vkQueuePresentKHR failed (VkResult %d)", static_cast<int>(vr));
+        ONYX_LOGF_ERR("[Vulkan] vkQueuePresentKHR failed (VkResult %d)", static_cast<int>(vr));
     }
 
     vk.currentFrame = (vk.currentFrame + 1) % kFramesInFlight;

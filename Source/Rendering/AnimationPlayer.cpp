@@ -45,11 +45,11 @@ void AnimationPlayer::SetAnimation(const Parsers::AnimationData* anim, int group
     BakedAnimation* baked = EnsureBaked();
     if (baked) {
         ApplyBakedAt(0.0f);
-        LOG_INFO("[AnimPlayer] Playing '%s: %s' duration=%.3fs frames=%d frameTime=%.4f stateIdx=%d",
+        ONYX_LOGF_INFO("[AnimPlayer] Playing '%s: %s' duration=%.3fs frames=%d frameTime=%.4f stateIdx=%d",
                  m_currentGroupName.c_str(), m_currentActName.c_str(),
                  m_currentAct->duration, baked->frameCount, baked->frameTime, m_stateIndex);
     } else {
-        LOG_WARN("[AnimPlayer] Bake produced no frames for '%s: %s'",
+        ONYX_LOGF_WARN("[AnimPlayer] Bake produced no frames for '%s: %s'",
                  m_currentGroupName.c_str(), m_currentActName.c_str());
     }
 
@@ -82,7 +82,7 @@ void AnimationPlayer::Reset() {
     if (jointCount > 2) {
         const auto& v5 = m_skeleton->vectors5[2];
         const auto& joint = m_skeleton->joints[2];
-        LOG_INFO("[BindDiag] pelvis(j2) bindRot=(%d,%d,%d,%d) isQuat=%d name='%s'",
+        ONYX_LOGF_INFO("[BindDiag] pelvis(j2) bindRot=(%d,%d,%d,%d) isQuat=%d name='%s'",
                  v5.x, v5.y, v5.z, v5.w, (int)joint.isQuaternion, joint.name.c_str());
     }
 }
@@ -223,11 +223,11 @@ BakedAnimation* AnimationPlayer::EnsureBaked() {
     const auto& sd = m_currentAct->stateDescrs[m_stateIndex];
     float frameTime = sd.frameTime > 0.0f ? sd.frameTime : (1.0f / 30.0f);
 
-    LOG_INFO("[BakeDiag] act='%s' states=%zu", m_currentActName.c_str(),
+    ONYX_LOGF_INFO("[BakeDiag] act='%s' states=%zu", m_currentActName.c_str(),
              sd.skinningStates.size());
     for (size_t si = 0; si < sd.skinningStates.size() && si < 4; ++si) {
         const auto& ss = sd.skinningStates[si];
-        LOG_INFO("  state[%zu] rotRawCnt=%u rotAddSub=%zu rotRoughSub=%zu posRawCnt=%u posAddSub=%zu posRoughSub=%zu",
+        ONYX_LOGF_INFO("  state[%zu] rotRawCnt=%u rotAddSub=%zu rotRoughSub=%zu posRawCnt=%u posAddSub=%zu posRoughSub=%zu",
                  si, ss.rotationStream.manager.count,
                  ss.rotationSubStreamsAdd.size(), ss.rotationSubStreamsRough.size(),
                  ss.positionStream.manager.count,
@@ -297,7 +297,7 @@ BakedAnimation* AnimationPlayer::EnsureBaked() {
         prev = curr;
     }
 
-    LOG_INFO("[AnimBake] '%s' frames=%d joints=%d mem=%zu KB",
+    ONYX_LOGF_INFO("[AnimBake] '%s' frames=%d joints=%d mem=%zu KB",
              m_currentActName.c_str(), frameCount, baked->jointCount,
              (baked->rotations.size() + baked->positions.size() + baked->scales.size())
                  * sizeof(glm::vec4) / 1024);

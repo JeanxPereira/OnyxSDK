@@ -48,10 +48,10 @@ void RenderContext::Execute(const FrameHandles& handles) {
             // "Skipped" is about what happens after the throw: any command
             // the pass already recorded into handles.cmd before throwing
             // is NOT rolled back (see RenderContext.h's class doc comment).
-            LOG_WARN("[RenderContext] pass '%s' threw and was skipped this frame: %s",
+            ONYX_LOGF_WARN("[RenderContext] pass '%s' threw and was skipped this frame: %s",
                       passName.c_str(), e.what());
         } catch (...) {
-            LOG_WARN("[RenderContext] pass '%s' threw (non-std::exception) and was skipped "
+            ONYX_LOGF_WARN("[RenderContext] pass '%s' threw (non-std::exception) and was skipped "
                       "this frame", passName.c_str());
         }
     }

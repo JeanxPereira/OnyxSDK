@@ -9,7 +9,7 @@ TypeRegistrar::TypeRegistrar(TypeCatalog& catalog, std::string moduleId)
 
 TypeId TypeRegistrar::Add(const TypeInfo& spec) {
     if (spec.key.find('.') != std::string::npos) {
-        LOG_ERR("[TypeRegistrar] '%s': bare keys only (got '%s')",
+        ONYX_LOGF_ERR("[TypeRegistrar] '%s': bare keys only (got '%s')",
                 m_moduleId.c_str(), spec.key.c_str());
         return {};
     }

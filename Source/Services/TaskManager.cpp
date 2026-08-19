@@ -157,7 +157,7 @@ namespace Onyx::Services {
     void TaskManager::init() {
         const auto threadCount = std::max(2u, std::thread::hardware_concurrency());
 
-        LOG_INFO("[TaskManager] Initializing thread pool with %u workers", threadCount);
+        ONYX_LOGF_INFO("[TaskManager] Initializing thread pool with %u workers", threadCount);
 
         s_shouldStop.store(false);
 
@@ -181,15 +181,15 @@ namespace Onyx::Services {
 
                     try {
                         task->m_function(*task);
-                        LOG_DEBUG("[TaskManager] Task '%s' finished", task->getName().c_str());
+                        ONYX_LOGF_DEBUG("[TaskManager] Task '%s' finished", task->getName().c_str());
                     } catch (const TaskInterruptor&) {
                         task->interruption();
                     } catch (const std::exception& e) {
-                        LOG_ERR("[TaskManager] Exception in task '%s': %s",
+                        ONYX_LOGF_ERR("[TaskManager] Exception in task '%s': %s",
                                 task->getName().c_str(), e.what());
                         task->exception(e.what());
                     } catch (...) {
-                        LOG_ERR("[TaskManager] Unknown exception in task '%s'",
+                        ONYX_LOGF_ERR("[TaskManager] Unknown exception in task '%s'",
                                 task->getName().c_str());
                         task->exception("Unknown Exception");
                     }
@@ -240,26 +240,26 @@ namespace Onyx::Services {
 
     TaskHolder TaskManager::createTask(const std::string& name, uint64_t maxValue,
                                        std::function<void(Task&)> function) {
-        LOG_INFO("[TaskManager] Creating task '%s'", name.c_str());
+        ONYX_LOGF_INFO("[TaskManager] Creating task '%s'", name.c_str());
         return createTask(name, maxValue, false, std::move(function));
     }
 
     TaskHolder TaskManager::createTask(const std::string& name, uint64_t maxValue,
                                        std::function<void()> function) {
-        LOG_INFO("[TaskManager] Creating task '%s'", name.c_str());
+        ONYX_LOGF_INFO("[TaskManager] Creating task '%s'", name.c_str());
         return createTask(name, maxValue, false,
             [function = std::move(function)](Task&) { function(); });
     }
 
     TaskHolder TaskManager::createBackgroundTask(const std::string& name,
                                                   std::function<void(Task&)> function) {
-        LOG_DEBUG("[TaskManager] Creating background task '%s'", name.c_str());
+        ONYX_LOGF_DEBUG("[TaskManager] Creating background task '%s'", name.c_str());
         return createTask(name, 0, true, std::move(function));
     }
 
     TaskHolder TaskManager::createBackgroundTask(const std::string& name,
                                                   std::function<void()> function) {
-        LOG_DEBUG("[TaskManager] Creating background task '%s'", name.c_str());
+        ONYX_LOGF_DEBUG("[TaskManager] Creating background task '%s'", name.c_str());
         return createTask(name, 0, true,
             [function = std::move(function)](Task&) { function(); });
     }

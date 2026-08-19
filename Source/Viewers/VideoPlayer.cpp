@@ -102,7 +102,7 @@ VideoPlayer::VideoPlayer(const std::string &name, std::shared_ptr<Vfs::IFile> fi
     : m_name(name), m_ifile(std::move(file)) {
   m_isOpen = FinishOpen();
   if (!m_isOpen) {
-    LOG_ERR("[VideoPlayer] Initialization failed for %s", m_name.c_str());
+    ONYX_LOGF_ERR("[VideoPlayer] Initialization failed for %s", m_name.c_str());
     Close();
   }
 }
@@ -131,12 +131,12 @@ bool VideoPlayer::FinishOpen() {
   m_fmtCtx->flags |= AVFMT_FLAG_CUSTOM_IO;
 
   if (avformat_open_input(&m_fmtCtx, "custom_io", nullptr, nullptr) < 0) {
-    LOG_ERR("[VideoPlayer] Failed to open input format");
+    ONYX_LOGF_ERR("[VideoPlayer] Failed to open input format");
     return false;
   }
 
   if (avformat_find_stream_info(m_fmtCtx, nullptr) < 0) {
-    LOG_ERR("[VideoPlayer] Failed to find stream info");
+    ONYX_LOGF_ERR("[VideoPlayer] Failed to find stream info");
     return false;
   }
 
@@ -146,7 +146,7 @@ bool VideoPlayer::FinishOpen() {
                                       m_videoStream, nullptr, 0);
 
   if (m_videoStream < 0) {
-    LOG_ERR("[VideoPlayer] No video stream found");
+    ONYX_LOGF_ERR("[VideoPlayer] No video stream found");
     return false;
   }
 
@@ -159,7 +159,7 @@ bool VideoPlayer::FinishOpen() {
   m_videoCtx->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
 
   if (avcodec_open2(m_videoCtx, vCodec, nullptr) < 0) {
-    LOG_ERR("[VideoPlayer] Failed to open video codec");
+    ONYX_LOGF_ERR("[VideoPlayer] Failed to open video codec");
     return false;
   }
 
@@ -183,7 +183,7 @@ bool VideoPlayer::FinishOpen() {
     m_sarDen = 1;
     m_displayAspect = (double)m_videoWidth / (double)m_videoHeight;
   }
-  LOG_INFO("[VideoPlayer] %dx%d SAR=%d:%d DAR=%.3f",
+  ONYX_LOGF_INFO("[VideoPlayer] %dx%d SAR=%d:%d DAR=%.3f",
            m_videoWidth, m_videoHeight, m_sarNum, m_sarDen, m_displayAspect);
 
   m_videoTimeBase = av_q2d(vStream->time_base);
@@ -207,7 +207,7 @@ bool VideoPlayer::FinishOpen() {
         m_audioTimeBase = av_q2d(aStream->time_base);
         m_hasAudio = true;
       } else {
-        LOG_ERR("[VideoPlayer] Failed to open audio codec, video only mode");
+        ONYX_LOGF_ERR("[VideoPlayer] Failed to open audio codec, video only mode");
         m_hasAudio = false;
       }
     }
@@ -236,12 +236,12 @@ bool VideoPlayer::FinishOpen() {
     if (ma_device_init(NULL, &config, &m_audioDevice) == MA_SUCCESS) {
       m_audioInit = true;
     } else {
-      LOG_ERR("[VideoPlayer] MiniAudio init failed");
+      ONYX_LOGF_ERR("[VideoPlayer] MiniAudio init failed");
       m_hasAudio = false;
     }
   }
 
-  LOG_INFO("[VideoPlayer] Initialized. Video=%s Audio=%s",
+  ONYX_LOGF_INFO("[VideoPlayer] Initialized. Video=%s Audio=%s",
            m_videoCtx ? "Yes" : "No", m_hasAudio ? "Yes" : "No");
 
   m_duration = (double)m_fmtCtx->duration / AV_TIME_BASE;
@@ -611,7 +611,7 @@ void VideoPlayer::UploadFrame(const FrameData &fd) {
   if (!m_texPool) {
     Onyx::Rendering::VkContext* ctx = Onyx::Rendering::GetGlobalContext();
     if (!ctx) {
-      LOG_ERR("[VideoPlayer] '%s': no live VkContext -- cannot upload frame", m_name.c_str());
+      ONYX_LOGF_ERR("[VideoPlayer] '%s': no live VkContext -- cannot upload frame", m_name.c_str());
       return;
     }
     m_texPool = std::make_unique<Onyx::App::TexturePool>(*ctx);
@@ -629,7 +629,7 @@ void VideoPlayer::UploadFrame(const FrameData &fd) {
     m_texId = m_texPool->Create(static_cast<uint32_t>(m_texW), static_cast<uint32_t>(m_texH),
                                  fd.pixels.data(), err);
     if (m_texId == ImTextureID_Invalid) {
-      LOG_ERR("[VideoPlayer] '%s': TexturePool::Create failed: %s", m_name.c_str(), err.c_str());
+      ONYX_LOGF_ERR("[VideoPlayer] '%s': TexturePool::Create failed: %s", m_name.c_str(), err.c_str());
     }
     return;
   }
@@ -639,7 +639,7 @@ void VideoPlayer::UploadFrame(const FrameData &fd) {
   // see task-10-report.md) rather than tearing down and recreating a new
   // image/descriptor every single frame.
   if (!m_texPool->Update(m_texId, fd.pixels.data(), err)) {
-    LOG_ERR("[VideoPlayer] '%s': TexturePool::Update failed: %s", m_name.c_str(), err.c_str());
+    ONYX_LOGF_ERR("[VideoPlayer] '%s': TexturePool::Update failed: %s", m_name.c_str(), err.c_str());
   }
 }
 

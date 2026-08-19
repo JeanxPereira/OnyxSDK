@@ -46,11 +46,11 @@ void TextEditorViewer::ExportAs() {
     if (path.empty()) return;
     std::ofstream out(path, std::ios::binary);
     if (!out.is_open()) {
-        LOG_ERR("[TextEditorViewer] Cannot open %s for write", path.c_str());
+        ONYX_LOGF_ERR("[TextEditorViewer] Cannot open %s for write", path.c_str());
         return;
     }
     out.write(m_text.data(), (std::streamsize)m_text.size());
-    LOG_INFO("[TextEditorViewer] Exported %s (%zu bytes)", path.c_str(), m_text.size());
+    ONYX_LOGF_INFO("[TextEditorViewer] Exported %s (%zu bytes)", path.c_str(), m_text.size());
 }
 
 void TextEditorViewer::CopyAll() {

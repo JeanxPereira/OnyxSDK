@@ -57,13 +57,13 @@ TEST_CASE("[Logger] FormatLine emits the canonical [LEVEL][cat] msg shape") {
     CHECK(L::FormatLine(L::Level::Error, "", "boom")        == "[ERROR][] boom");
 }
 
-TEST_CASE("[Logger] GOW_LOG_INFO routes to sinks with formatted message") {
+TEST_CASE("[Logger] ONYX_LOG_INFO routes to sinks with formatted message") {
     IsolatedLog iso;
 
     CaptureBuffer cap;
     L::AddSink(cap.AsSink());
 
-    GOW_LOG_INFO("test", "hello {}", 42);
+    ONYX_LOG_INFO("test", "hello {}", 42);
 
     REQUIRE(cap.lines.size() == 1);
     CHECK(cap.lines[0].level    == L::Level::Info);
@@ -82,11 +82,11 @@ TEST_CASE("[Logger] SetMinLevel drops records below the threshold") {
     L::AddSink(cap.AsSink());
     L::SetMinLevel(L::Level::Warn);
 
-    GOW_LOG_TRACE("test", "trace");
-    GOW_LOG_DEBUG("test", "debug");
-    GOW_LOG_INFO("test",  "info");
-    GOW_LOG_WARN("test",  "warn");
-    GOW_LOG_ERROR("test", "error");
+    ONYX_LOG_TRACE("test", "trace");
+    ONYX_LOG_DEBUG("test", "debug");
+    ONYX_LOG_INFO("test",  "info");
+    ONYX_LOG_WARN("test",  "warn");
+    ONYX_LOG_ERROR("test", "error");
 
     REQUIRE(cap.lines.size() == 2);
     CHECK(cap.lines[0].level == L::Level::Warn);
@@ -94,8 +94,8 @@ TEST_CASE("[Logger] SetMinLevel drops records below the threshold") {
 
     // Bumping the threshold up at runtime takes effect immediately.
     L::SetMinLevel(L::Level::Error);
-    GOW_LOG_WARN("test", "warn after rethreshold");
-    GOW_LOG_ERROR("test", "error after rethreshold");
+    ONYX_LOG_WARN("test", "warn after rethreshold");
+    ONYX_LOG_ERROR("test", "error after rethreshold");
     REQUIRE(cap.lines.size() == 3);
     CHECK(cap.lines[2].message == "error after rethreshold");
 }
@@ -107,29 +107,29 @@ TEST_CASE("[Logger] AddSink/RemoveSink with token controls fan-out") {
     auto t1 = L::AddSink(cap1.AsSink());
     auto t2 = L::AddSink(cap2.AsSink());
 
-    GOW_LOG_INFO("cat", "both");
+    ONYX_LOG_INFO("cat", "both");
     CHECK(cap1.lines.size() == 1);
     CHECK(cap2.lines.size() == 1);
 
     L::RemoveSink(t1);
 
-    GOW_LOG_INFO("cat", "only cap2");
+    ONYX_LOG_INFO("cat", "only cap2");
     CHECK(cap1.lines.size() == 1);
     CHECK(cap2.lines.size() == 2);
 
     L::RemoveSink(t2);
-    GOW_LOG_INFO("cat", "no one");
+    ONYX_LOG_INFO("cat", "no one");
     CHECK(cap1.lines.size() == 1);
     CHECK(cap2.lines.size() == 2);
 }
 
-TEST_CASE("[Logger] Legacy LOG_INFO funnels through the new pipeline") {
+TEST_CASE("[Logger] Legacy ONYX_LOGF_INFO funnels through the new pipeline") {
     IsolatedLog iso;
 
     CaptureBuffer cap;
     L::AddSink(cap.AsSink());
 
-    LOG_INFO("legacy %d %s", 7, "rocks");
+    ONYX_LOGF_INFO("legacy %d %s", 7, "rocks");
 
     REQUIRE(cap.lines.size() == 1);
     CHECK(cap.lines[0].level    == L::Level::Info);
@@ -141,8 +141,8 @@ TEST_CASE("[Logger] Memory ring backs Logger::GetEntries for the UI") {
     IsolatedLog iso;
 
     Onyx::Services::Logger::Get().Clear();
-    GOW_LOG_INFO("ui", "first");
-    GOW_LOG_WARN("ui", "second");
+    ONYX_LOG_INFO("ui", "first");
+    ONYX_LOG_WARN("ui", "second");
 
     auto entries = Onyx::Services::Logger::Get().GetEntries();
     REQUIRE(entries.size() >= 2);
@@ -161,9 +161,9 @@ TEST_CASE("[Logger] AddSink honours a per-sink minimum level") {
     L::AddSink(verbose.AsSink(), L::Level::Debug);
     L::AddSink(quiet.AsSink(),   L::Level::Warn);
 
-    GOW_LOG_TRACE("cat", "below both");
-    GOW_LOG_DEBUG("cat", "fine grained");
-    GOW_LOG_ERROR("cat", "boom");
+    ONYX_LOG_TRACE("cat", "below both");
+    ONYX_LOG_DEBUG("cat", "fine grained");
+    ONYX_LOG_ERROR("cat", "boom");
 
     // The verbose sink sees Debug and Error; Trace is below its own floor.
     REQUIRE(verbose.lines.size() == 2);
@@ -180,8 +180,8 @@ TEST_CASE("[Logger] The memory ring keeps a minimum level of its own") {
     L::SetMemoryMinLevel(L::Level::Info);
 
     Onyx::Services::Logger::Get().Clear();
-    GOW_LOG_DEBUG("ui", "too noisy for the panel");
-    GOW_LOG_INFO("ui",  "belongs on screen");
+    ONYX_LOG_DEBUG("ui", "too noisy for the panel");
+    ONYX_LOG_INFO("ui",  "belongs on screen");
 
     // A file sink capturing Debug must not drag Debug onto the UI.
     auto entries = Onyx::Services::Logger::Get().GetEntries();
