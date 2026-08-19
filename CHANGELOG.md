@@ -52,7 +52,9 @@ below and `.github/workflows/ci.yml`'s own header comment).
   `Onyx::Core`): none of Goldens/DecodeSmoke/RenderCompare needs a GPU
   context or a renderer type, so there is no headless/render split to
   make. Consumed by the SDK's own suite (`OnyxTestKit` ctest entry) and
-  green in both CI jobs (no `-R` filter — every registered test runs).
+  covered by both CI jobs' unfiltered `ctest` (no `-R` filter — every
+  registered test runs), though see the Linux note below: neither job has
+  ever executed on a runner.
 - **`Onyx::Exchange`** (`Include/Onyx/Exchange/GltfExport.h`, M5) — glTF
   2.0 export of `SceneData` via cgltf v1.15 (write side), wired to
   `onyxbox-cli decode <container> <entry> --to gltf --out model.gltf`.
@@ -144,10 +146,14 @@ below and `.github/workflows/ci.yml`'s own header comment).
   **Windows** is verified end to end (this is where the GUI has actually
   been run). **Linux** is implemented (`VkContext::Init` takes the
   caller's `glfwGetRequiredInstanceExtensions()` result and requests
-  those instance extensions) and builds green in CI (`linux-lavapipe`),
-  but nobody has run the GUI against a real Linux window in this
-  milestone — "implemented and builds" is not the same claim as
-  "verified," and earlier drafts of this entry conflated the two.
+  those instance extensions) and has a CI job written for it
+  (`linux-lavapipe`), but **that workflow has never run**: this history has
+  never been pushed to a remote, so no execution of it exists to be green
+  or red (`.github/workflows/ci.yml`'s own header says so, and the first
+  push is what would exercise it). Nobody has run the GUI against a real
+  Linux window in this milestone either — "implemented" is not the same
+  claim as "builds", which is not the same claim as "verified", and
+  earlier drafts of this entry conflated all three.
   **macOS is unsupported** for M4: `Source/App/Platform/Window_macos.mm`
   and `NativeWindow_macos.mm` still drive a `GLFW_NO_API` window through
   `glfwMakeContextCurrent`/`NSOpenGLContext` (leftover OpenGL-context

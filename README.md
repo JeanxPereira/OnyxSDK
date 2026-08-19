@@ -43,7 +43,7 @@ Stated as verified, not as intended:
 | Platform | Status |
 |---|---|
 | **Windows** | Verified end to end — this is where the GUI actually runs. |
-| **Linux** | Implemented and green in CI (`linux-lavapipe`, software Vulkan). Presentation has never been run against a real window. |
+| **Linux** | Implemented; a CI job is written (`linux-lavapipe`, software Vulkan) but **has never executed** — this history has never been pushed, so no run of that workflow exists. Presentation has never been run against a real window either. |
 | **macOS** | **Unsupported.** The platform window code still drives `NSOpenGLContext` from the deleted GL renderer, and `VkContext` enables neither `VK_KHR_portability_enumeration` nor `VK_EXT_metal_surface`. Real, unstarted work — see `CHANGELOG.md`'s "Known gaps". |
 
 ## Quick Start
