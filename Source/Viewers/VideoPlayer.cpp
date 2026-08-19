@@ -1,4 +1,6 @@
 #include <Onyx/Viewers/VideoPlayer.h>
+#include <Onyx/App/TexturePool.h>
+#include <Onyx/RenderVk/VkContext.h>
 #include <Onyx/Services/Logger.h>
 #include <Onyx/Services/ThemeManager.h>
 #include <Onyx/App/Widgets.h>
@@ -6,7 +8,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <glad/glad.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 
@@ -298,10 +299,12 @@ void VideoPlayer::Close() {
   if (m_swrCtx)
     swr_free(&m_swrCtx);
 
-  if (m_pbo[0])
-    glDeleteBuffers(2, m_pbo);
-  if (m_glTexture)
-    glDeleteTextures(1, &m_glTexture);
+  // m_texPool's own destructor carries the shutdown-order guard (see
+  // Onyx/App/TexturePool.h) -- safe whether the app is still fully live or
+  // mid full-shutdown.
+  m_texPool.reset();
+  m_texId = 0;
+  m_texW = m_texH = 0;
 
   m_isOpen = false;
 }
@@ -605,30 +608,39 @@ void VideoPlayer::AudioCallback(ma_device *pDevice, void *pOutput,
 // ─── UI & Presentation ──────────────────────────────────────────────────────
 
 void VideoPlayer::UploadFrame(const FrameData &fd) {
-  if (m_texW != fd.width || m_texH != fd.height || !m_glTexture) {
-    if (m_pbo[0]) {
-      glDeleteBuffers(2, m_pbo);
-      m_pbo[0] = m_pbo[1] = 0;
+  if (!m_texPool) {
+    Onyx::RenderVk::VkContext* ctx = Onyx::RenderVk::GetGlobalContext();
+    if (!ctx) {
+      LOG_ERR("[VideoPlayer] '%s': no live VkContext -- cannot upload frame", m_name.c_str());
+      return;
     }
-    if (m_glTexture)
-      glDeleteTextures(1, &m_glTexture);
+    m_texPool = std::make_unique<Onyx::App::TexturePool>(*ctx);
+  }
 
+  std::string err;
+  if (m_texW != fd.width || m_texH != fd.height || m_texId == ImTextureID_Invalid) {
+    if (m_texId != ImTextureID_Invalid) {
+      m_texPool->Remove(m_texId);
+      m_texId = 0;
+    }
     m_texW = fd.width;
     m_texH = fd.height;
 
-    glGenTextures(1, &m_glTexture);
-    glBindTexture(GL_TEXTURE_2D, m_glTexture);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, m_texW, m_texH, 0, GL_RGBA,
-                 GL_UNSIGNED_BYTE, nullptr);
+    m_texId = m_texPool->Create(static_cast<uint32_t>(m_texW), static_cast<uint32_t>(m_texH),
+                                 fd.pixels.data(), err);
+    if (m_texId == ImTextureID_Invalid) {
+      LOG_ERR("[VideoPlayer] '%s': TexturePool::Create failed: %s", m_name.c_str(), err.c_str());
+    }
+    return;
   }
 
-  glBindTexture(GL_TEXTURE_2D, m_glTexture);
-  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, m_texW, m_texH, GL_RGBA,
-                  GL_UNSIGNED_BYTE, fd.pixels.data());
+  // Same size as the pooled image -- re-upload into it (TexturePool::Update,
+  // T10's disclosed addition beyond the plan's own "upload RGBA" wording;
+  // see task-10-report.md) rather than tearing down and recreating a new
+  // image/descriptor every single frame.
+  if (!m_texPool->Update(m_texId, fd.pixels.data(), err)) {
+    LOG_ERR("[VideoPlayer] '%s': TexturePool::Update failed: %s", m_name.c_str(), err.c_str());
+  }
 }
 
 void VideoPlayer::DrawVideo() {
@@ -714,7 +726,7 @@ void VideoPlayer::DrawVideo() {
 
   // ─── Render Texture ────────────────────────────────────────────────────
   const ImVec2 avail = ImGui::GetContentRegionAvail();
-  if (avail.x > 0 && avail.y > 0 && m_glTexture) {
+  if (avail.x > 0 && avail.y > 0 && m_texId != ImTextureID_Invalid) {
     const float darWH = m_displayAspect > 0.0
                             ? (float)m_displayAspect
                             : ((float)m_texW / (float)m_texH);
@@ -727,7 +739,7 @@ void VideoPlayer::DrawVideo() {
 
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail.x - drawW) * 0.5f);
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (avail.y - drawH) * 0.5f);
-    ImGui::Image((void *)(intptr_t)m_glTexture, ImVec2(drawW, drawH));
+    ImGui::Image(m_texId, ImVec2(drawW, drawH));
 
     if (ImGui::IsItemHovered() &&
         ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
@@ -736,7 +748,7 @@ void VideoPlayer::DrawVideo() {
       else
         Play();
     }
-  } else if (!m_glTexture) {
+  } else if (m_texId == ImTextureID_Invalid) {
     const char *msg = "Buffering...";
     ImVec2 ts = ImGui::CalcTextSize(msg);
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail.x - ts.x) * 0.5f);
@@ -967,6 +979,8 @@ void VideoPlayer::Draw() {
 
   ImGui::Separator();
   DrawControlBar();
+
+  if (m_texPool) m_texPool->AdvanceFrame();
 }
 
 } // namespace Onyx::Viewers

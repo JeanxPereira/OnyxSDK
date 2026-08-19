@@ -26,6 +26,15 @@ void DocumentWindow::AddTab(std::shared_ptr<IDocumentContent> tab) {
     }
 }
 
+void DocumentWindow::Shutdown() {
+    // Order doesn't matter between the two -- both are just shared_ptr
+    // vectors going to zero refcount, destroying every IDocumentContent
+    // they hold right here, synchronously, on this call.
+    m_pendingDelete.clear();
+    m_tabs.clear();
+    m_activeTabIndex = -1;
+}
+
 void DocumentWindow::CloseAll() {
     // Defer destruction to the next Draw() so GL resources (FBO textures
     // referenced by ImGui::Image in the current frame) live until after

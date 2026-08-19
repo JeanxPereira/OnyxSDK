@@ -112,4 +112,30 @@ private:
     std::string      m_lastValidationMessage;
 };
 
+// ── Process-wide "reach the live context" accessor (T10) ────────────────
+// The Shell (Window, T9) owns the one VkContext that actually presents;
+// Window.h already exposes it to code that HOLDS a Window& (Window::
+// vkContext()). What T10 adds is a second, narrower need: viewers
+// (Viewport3D/ImageViewer/UiGallery, in Onyx_Shell) and VideoPlayer (in
+// Onyx_Media, a target Onyx_Shell itself links -- see that target's own
+// CMakeLists.txt comment for why it cannot link back to Onyx_Shell/
+// Onyx::Api to reach a Window&) are constructed with no reference to the
+// owning Window at all (Viewport3D's sole real construction site,
+// DocumentBrowser.cpp, takes just a name -- matches every other viewer).
+// Threading a VkContext& through every one of those constructors would
+// touch call sites well outside this task's file list for zero benefit
+// over the pattern this codebase already uses for the exact same problem
+// (Onyx::Api's global facade over AppConfig/ViewerRegistry/DocumentWindow)
+// -- this is that same idiom, just placed low enough (Onyx_RenderVk, the
+// one layer both Onyx_Shell and Onyx_Media already link) to be reachable
+// from both without recreating Onyx::Api's link-cycle problem.
+//
+// A plain raw pointer, not a reference or shared_ptr: nothing here owns
+// the VkContext (Window does, exclusively) and nothing here extends its
+// lifetime -- a caller that reads GetGlobalContext() after Window has
+// begun ~Window() (which clears this before m_vkContext is destroyed; see
+// Window::exitVulkan()) gets nullptr, not a dangling pointer.
+void       SetGlobalContext(VkContext* ctx);
+VkContext* GetGlobalContext();
+
 } // namespace Onyx::RenderVk

@@ -14,6 +14,22 @@ public:
     void Draw();
     void CloseAll();
     void CloseActiveTab();
+
+    // T10: immediately destroys every open tab (and anything still in
+    // CloseAll()'s one-frame m_pendingDelete grace period) -- unlike
+    // CloseAll(), which defers actual destruction to the NEXT Draw() so a
+    // GL/Vulkan resource a just-submitted ImGui draw list still references
+    // survives until that submission completes, this runs no such Draw()
+    // and does not wait for one. Only safe to call once the caller has
+    // already otherwise guaranteed no more frames will be drawn AND the
+    // GPU has gone idle (Window::~Window() calls this after its own
+    // vkDeviceWaitIdle, before tearing down the VkContext/ImGui backend
+    // any tab's own Vulkan resources -- Viewport3D/ImageViewer/VideoPlayer
+    // TexturePool instances -- still need alive to unwind cleanly). Not
+    // calling this before the VkContext goes away is exactly the shutdown-
+    // order gap those classes' own destructors otherwise have to leak
+    // around (see Include/Onyx/App/TexturePool.h's class doc comment).
+    void Shutdown();
     
     std::shared_ptr<IDocumentContent> GetActiveDocument() const;
     bool HasActiveDocument() const;

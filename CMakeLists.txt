@@ -370,8 +370,21 @@ set(ONYX_RENDER_SOURCES
 )
 
 set(ONYX_MEDIA_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/TexturePool.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/VideoPlayer.cpp
 )
+# Source/App/TexturePool.cpp is listed in BOTH ONYX_SHELL_SOURCES and
+# ONYX_MEDIA_SOURCES (T10) -- same precedent as JointPalette.cpp above: one
+# physical source file, compiled independently into each target's own
+# object directory. Necessary because Onyx_Shell already links Onyx_Media
+# (VideoPlayer.cpp -- see that target's own comment), so Onyx_Media linking
+# back to Onyx_Shell to reach a single shared TexturePool would be a real
+# link cycle, not just an ugly one. Nothing is actually shared between the
+# two compiled copies at runtime (each viewer owns its own TexturePool
+# instance either way -- see that file's header comment), so the only
+# process-wide resource in play (imgui_impl_vulkan's own descriptor pool,
+# T9's DescriptorPoolSize=64) stays correctly singular regardless of which
+# copy's code path calls into it.
 
 set(ONYX_RENDERVK_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/JointPalette.cpp
@@ -379,6 +392,7 @@ set(ONYX_RENDERVK_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/Pipelines.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/RenderContext.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/SceneRendererVk.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/TexturePool.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VkContext.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VkResources.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VmaImpl.cpp
@@ -438,6 +452,7 @@ set(ONYX_SHELL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Appearance.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/ScaleManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/ThemeManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/TexturePool.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/DocumentWindow.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/ImageViewer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/TextEditorViewer.cpp
@@ -570,7 +585,13 @@ if(ONYX_COMPONENT_MEDIA)
     add_library(Onyx_Media STATIC ${ONYX_MEDIA_SOURCES})
     add_library(Onyx::Media ALIAS Onyx_Media)
     onyx_apply_common(Onyx_Media)
-    target_link_libraries(Onyx_Media PUBLIC Onyx_Core imgui_lib miniaudio ffmpeg_lib)
+    # Onyx_RenderVk (T10): VideoPlayer's own compiled copy of
+    # Source/App/TexturePool.cpp (see ONYX_MEDIA_SOURCES' comment above)
+    # needs Onyx::RenderVk::Resources/VkContext to upload frames as Vulkan
+    # textures -- Onyx_Media cannot link Onyx_Shell to reach the same
+    # symbols (that would be the real link cycle the dual-compile avoids),
+    # but linking the lower RenderVk layer directly is cycle-free.
+    target_link_libraries(Onyx_Media PUBLIC Onyx_Core Onyx_RenderVk imgui_lib miniaudio ffmpeg_lib)
     target_link_libraries(Onyx_Shell PUBLIC Onyx_Media)
 endif()
 

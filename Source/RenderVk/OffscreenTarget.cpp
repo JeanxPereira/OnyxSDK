@@ -59,9 +59,16 @@ bool OffscreenTarget::Create(VkContext& ctx, int w, int h, std::string& err) {
         return false;
     }
 
+    // SAMPLED_BIT (T10 addition): every existing caller (Readback(), the
+    // oracle's parity harness) only ever reads this image back to the CPU
+    // via TRANSFER_SRC, so adding SAMPLED here changes nothing for them --
+    // it exists so a caller can also bind this image as a descriptor (T10's
+    // Viewport3D, via PrepareForSampling() + ImGui_ImplVulkan_AddTexture())
+    // without a second, parallel-owned image.
     m_resolveColor = Resources::CreateImage2D(
         ctx, static_cast<uint32_t>(w), static_cast<uint32_t>(h), kColorFormat,
-        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+            VK_IMAGE_USAGE_SAMPLED_BIT,
         VK_SAMPLE_COUNT_1_BIT, err);
     if (m_resolveColor.img == VK_NULL_HANDLE) {
         err = "OffscreenTarget::Create: resolve color image: " + err;
@@ -204,6 +211,25 @@ void OffscreenTarget::EndFrame(VkCommandBuffer cmd) {
     vkCmdPipelineBarrier2(cmd, &dep);
 
     m_resolveLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+}
+
+void OffscreenTarget::PrepareForSampling(VkCommandBuffer cmd) {
+    if (m_resolveLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+        return; // already there -- no-op barrier avoided entirely, not just skipped
+
+    VkImageMemoryBarrier2 toShaderRead;
+    FillBarrier(toShaderRead, m_resolveColor.img, VK_IMAGE_ASPECT_COLOR_BIT, m_resolveLayout,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                VK_ACCESS_2_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+                VK_ACCESS_2_SHADER_READ_BIT);
+
+    VkDependencyInfo dep{};
+    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep.imageMemoryBarrierCount = 1;
+    dep.pImageMemoryBarriers = &toShaderRead;
+    vkCmdPipelineBarrier2(cmd, &dep);
+
+    m_resolveLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 }
 
 bool OffscreenTarget::Readback(VkContext& ctx, std::vector<uint8_t>& rgbaTopDown, std::string& err) {

@@ -105,6 +105,31 @@ public:
     /// what keeps every existing caller correct.
     bool Readback(VkContext& ctx, std::vector<uint8_t>& rgbaTopDown, std::string& err);
 
+    /// Transitions the resolve image from whatever EndFrame() last left it
+    /// in (TRANSFER_SRC_OPTIMAL) to SHADER_READ_ONLY_OPTIMAL, recorded onto
+    /// `cmd` -- for a caller that wants to SAMPLE this frame's resolve
+    /// image (T10's Viewport3D, registering it with imgui_impl_vulkan as
+    /// an ImTextureID) rather than Readback() it. Must be called on the
+    /// same command buffer, after EndFrame() has already run on it (both
+    /// being part of one recorded scope) -- like EndFrame's own
+    /// transition, this only records a barrier; the same fence-discipline
+    /// caveat documented on Readback() above applies equally here: the
+    /// caller must not sample the result (bind the descriptor, submit a
+    /// draw that reads it) until the command buffer holding this
+    /// transition has actually finished on the GPU.
+    ///
+    /// Safe to call more than once in a row with no BeginFrame() between
+    /// (a no-op barrier, oldLayout == newLayout) -- not something any
+    /// caller in this codebase does today, but a caller does not need to
+    /// track whether it already called this since the last EndFrame().
+    void PrepareForSampling(VkCommandBuffer cmd);
+
+    /// The single-sample resolve image's own view -- what PrepareForSampling
+    /// prepares for sampling and what a caller registers with
+    /// ImGui_ImplVulkan_AddTexture(). VK_NULL_HANDLE before Create() (or
+    /// after Destroy()).
+    VkImageView ResolveView() const { return m_resolveColor.view; }
+
     int Width()  const { return m_width; }
     int Height() const { return m_height; }
 

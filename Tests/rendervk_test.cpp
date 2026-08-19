@@ -18,6 +18,7 @@
 #include <doctest/doctest.h>
 
 #include <Onyx/RenderVk/RenderContext.h>
+#include <Onyx/RenderVk/TexturePool.h>
 
 #include "scene_vert_spv.h"
 #include "scene_frag_spv.h"
@@ -204,4 +205,86 @@ TEST_CASE("RenderContext: a pass that throws a non-std::exception is also caught
     REQUIRE(order.size() == 2);
     CHECK(order[0] == 1);
     CHECK(order[1] == 3);
+}
+
+// ── DeferredDestroyQueue: pure N-frames-in-flight bookkeeping (T10) ─────
+
+TEST_CASE("DeferredDestroyQueue: an entry does not run before framesInFlight frames elapse") {
+    Onyx::RenderVk::DeferredDestroyQueue q;
+    int destroyedCount = 0;
+    q.Retire(/*retiredFrame=*/10, [&] { ++destroyedCount; });
+
+    // Same frame as retirement: not safe yet.
+    q.Collect(10, /*framesInFlight=*/2);
+    CHECK(destroyedCount == 0);
+    CHECK(q.PendingCount() == 1);
+
+    // One frame later: distance is 1 < framesInFlight(2) -- still not safe.
+    q.Collect(11, 2);
+    CHECK(destroyedCount == 0);
+    CHECK(q.PendingCount() == 1);
+
+    // Two frames later: distance is exactly framesInFlight -- now safe.
+    q.Collect(12, 2);
+    CHECK(destroyedCount == 1);
+    CHECK(q.PendingCount() == 0);
+}
+
+TEST_CASE("DeferredDestroyQueue: Collect is idempotent once an entry has already run") {
+    Onyx::RenderVk::DeferredDestroyQueue q;
+    int destroyedCount = 0;
+    q.Retire(0, [&] { ++destroyedCount; });
+
+    q.Collect(100, 2); // way past due -- runs immediately
+    CHECK(destroyedCount == 1);
+
+    // Calling again must not re-run the same (already-removed) entry.
+    q.Collect(200, 2);
+    CHECK(destroyedCount == 1);
+}
+
+TEST_CASE("DeferredDestroyQueue: entries run in Retire() order, only the ones that are due") {
+    Onyx::RenderVk::DeferredDestroyQueue q;
+    std::vector<int> ranOrder;
+    q.Retire(0, [&] { ranOrder.push_back(1); });
+    q.Retire(5, [&] { ranOrder.push_back(2); }); // not due yet at currentFrame=6, framesInFlight=2
+    q.Retire(0, [&] { ranOrder.push_back(3); });
+
+    q.Collect(6, 2);
+
+    REQUIRE(ranOrder.size() == 2);
+    CHECK(ranOrder[0] == 1);
+    CHECK(ranOrder[1] == 3);
+    REQUIRE(q.PendingCount() == 1); // entry retired at frame 5 is still pending
+}
+
+TEST_CASE("DeferredDestroyQueue: framesInFlight == 0 fires as soon as currentFrame reaches retiredFrame") {
+    Onyx::RenderVk::DeferredDestroyQueue q;
+    int destroyedCount = 0;
+    q.Retire(3, [&] { ++destroyedCount; });
+
+    q.Collect(2, 0);
+    CHECK(destroyedCount == 0);
+
+    q.Collect(3, 0);
+    CHECK(destroyedCount == 1);
+}
+
+TEST_CASE("DeferredDestroyQueue: CollectAll runs every pending entry unconditionally") {
+    Onyx::RenderVk::DeferredDestroyQueue q;
+    int destroyedCount = 0;
+    q.Retire(1000, [&] { ++destroyedCount; }); // would never be due at currentFrame=0
+    q.Retire(2000, [&] { ++destroyedCount; });
+
+    CHECK(q.PendingCount() == 2);
+    q.CollectAll();
+    CHECK(destroyedCount == 2);
+    CHECK(q.PendingCount() == 0);
+}
+
+TEST_CASE("DeferredDestroyQueue: a queue with nothing retired is a no-op on Collect/CollectAll") {
+    Onyx::RenderVk::DeferredDestroyQueue q;
+    CHECK_NOTHROW(q.Collect(42, 2));
+    CHECK_NOTHROW(q.CollectAll());
+    CHECK(q.PendingCount() == 0);
 }

@@ -338,4 +338,11 @@ VkBool32 VKAPI_CALL VkContext::DebugCallback(VkDebugUtilsMessageSeverityFlagBits
     return VK_FALSE;
 }
 
+namespace {
+VkContext* g_globalContext = nullptr;
+} // namespace
+
+void SetGlobalContext(VkContext* ctx) { g_globalContext = ctx; }
+VkContext* GetGlobalContext() { return g_globalContext; }
+
 } // namespace Onyx::RenderVk

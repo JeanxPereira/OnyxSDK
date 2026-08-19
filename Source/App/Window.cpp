@@ -204,6 +204,27 @@ Window::~Window() {
     if (m_vkContext && m_vkContext->Device() != VK_NULL_HANDLE)
         vkDeviceWaitIdle(m_vkContext->Device());
 
+    // T10 fix: destroy every open document tab's OWN Vulkan resources
+    // (Viewport3D/ImageViewer/VideoPlayer TexturePool instances) while the
+    // VkContext and ImGui's Vulkan backend are BOTH still fully alive --
+    // m_app (and the DocumentWindow tabs it owns) is not destroyed by C++
+    // member-destruction order until AFTER this whole ~Window() body
+    // finishes (m_app is declared below m_vkContext/m_vk in this class),
+    // which is AFTER exitVulkan() would otherwise have already cleared
+    // Onyx::RenderVk::GetGlobalContext() and torn down the device --
+    // caught live: without this call, a still-open ImageViewer/Viewport3D
+    // tab's TexturePool-owned VkImage was never destroyed before
+    // vmaDestroyAllocator() ran, tripping VMA's own
+    // "Some allocations were not freed before destruction of this memory
+    // block!" debug assertion (a blocking MessageBox with nothing to click
+    // it in an automated run -- looked exactly like a hang). See
+    // DocumentWindow::Shutdown()'s own doc comment for why this is safe
+    // here specifically (GPU already idle, no more Draw() coming) and not
+    // a substitute for TexturePool's own shutdown-order guard (a document
+    // opened AFTER this point, or any consumer that doesn't route through
+    // DocumentWindow, still needs that guard).
+    m_app.getDocumentWindow().Shutdown();
+
     // exitVulkan() itself must finish (surface destroyed) BEFORE exitGLFW()
     // destroys the window whose native handle that surface was created
     // from.
@@ -344,6 +365,15 @@ void Window::initVulkan() {
              "%u frame(s) in flight",
              m_vk->swapchainExtent.width, m_vk->swapchainExtent.height, m_vk->images.size(),
              static_cast<int>(m_vk->swapchainFormat), kFramesInFlight);
+
+    // T10: publish this Window's VkContext through the process-wide
+    // accessor (Onyx::RenderVk::GetGlobalContext()) so viewers constructed
+    // with no reference back to this Window (Viewport3D/ImageViewer/
+    // VideoPlayer -- see that function's own doc comment) can still reach
+    // it. Set only after Init() has fully succeeded (every early-exit
+    // above calls std::exit(-1) rather than returning, so this line is
+    // only ever reached with a live context).
+    Onyx::RenderVk::SetGlobalContext(m_vkContext.get());
 }
 
 // -- createSwapchain / destroySwapchain / recreateSwapchain --------------------
@@ -718,6 +748,13 @@ void Window::exitImGui() {
 
 void Window::exitVulkan() {
     if (!m_vkContext) return;
+
+    // Clear the global accessor before touching a single Vulkan handle:
+    // any viewer's TexturePool that fetches Onyx::RenderVk::GetGlobalContext()
+    // from here on gets nullptr (its own lazy-init check treats that as
+    // "no Vulkan available yet/anymore"), never a context mid-teardown.
+    Onyx::RenderVk::SetGlobalContext(nullptr);
+
     VkDevice device = m_vkContext->Device();
     if (device != VK_NULL_HANDLE)
         vkDeviceWaitIdle(device);

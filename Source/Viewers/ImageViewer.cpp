@@ -1,10 +1,12 @@
 #include <Onyx/Viewers/ImageViewer.h>
+#include <Onyx/App/TexturePool.h>
+#include <Onyx/RenderVk/VkContext.h>
 #include <Onyx/Fonts/SFSymbols.h>
+#include <Onyx/Services/Logger.h>
 #include <Onyx/Services/ThemeManager.h>
 #include <Onyx/App/Widgets.h>
 #include <algorithm>
 #include <cmath>
-#include <glad/glad.h>
 #include <imgui.h>
 
 
@@ -19,9 +21,8 @@ ImageViewer::ImageViewer(const std::string &name,
 }
 
 ImageViewer::~ImageViewer() {
-  if (m_glTexture) {
-    glDeleteTextures(1, &m_glTexture);
-  }
+  // m_texPool's own destructor carries the shutdown-order guard (see
+  // TexturePool.h) -- nothing extra needed here.
 }
 
 std::string ImageViewer::GetName() const { return m_name; }
@@ -30,54 +31,70 @@ void ImageViewer::UploadToGPU() {
   if (!m_texture || !m_texture->IsValid())
     return;
 
-  glGenTextures(1, &m_glTexture);
-  glBindTexture(GL_TEXTURE_2D, m_glTexture);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  // Compressed (block-compressed, GL-swizzle-driven) textures: verified
+  // dead code before this task started (grep across the repo -- no loader
+  // anywhere ever sets TextureData::isCompressed = true; Tests/
+  // oracle_corpus_test.cpp even asserts isCompressed == false on its own
+  // corpus). TextureData.h's own doc comment says the struct is "always
+  // RGBA8 output" -- this branch was the one place that promise didn't
+  // hold, for a GL-only optimization (hardware BC1/4/5 sampling +
+  // glTexParameteriv swizzle) with nothing left in this milestone to
+  // exercise it. Rather than port block-compressed upload + a runtime
+  // channel-swizzle to Vulkan for a path nothing calls, this stays a
+  // logged no-op -- disclosed in task-10-report.md, not silently dropped.
   if (m_texture->isCompressed) {
-      // Calculate correct mip0 size based on format
-      // BC1/BC4: 8 bytes per 4x4 block, BC2/BC3/BC5/BC6/BC7: 16 bytes per 4x4 block
-      uint32_t blockW = (m_texture->width + 3) / 4;
-      uint32_t blockH = (m_texture->height + 3) / 4;
-      uint32_t bytesPerBlock = 16; // default for BC7, BC3, BC5, BC6
-      uint32_t fmt = m_texture->glInternalFormat;
-      if (fmt == 0x83F0 || fmt == 0x83F1 || fmt == 0x8C4C || fmt == 0x8C4D ||  // BC1
-          fmt == 0x8DBB || fmt == 0x8DBC) {                                       // BC4
-          bytesPerBlock = 8;
-      }
-      uint32_t mip0Size = blockW * blockH * bytesPerBlock;
-      
-      // Only upload mip0 (decSize from block may include all mips)
-      uint32_t uploadSize = std::min(mip0Size, static_cast<uint32_t>(m_texture->pixels.size()));
-      
-      glCompressedTexImage2D(GL_TEXTURE_2D, 0, m_texture->glInternalFormat,
-                             m_texture->width, m_texture->height,
-                             0, uploadSize, m_texture->pixels.data());
-      
-      GLenum err = glGetError();
-      if (err != GL_NO_ERROR) {
-          printf("[ImageViewer] glCompressedTexImage2D error: 0x%X (fmt=0x%X %ux%u %u bytes)\n",
-                 err, m_texture->glInternalFormat, m_texture->width, m_texture->height, uploadSize);
-      }
-      
-      // Set swizzle masks for single/dual channel formats
-      // BC4 (RGTC1): single Red channel → display as grayscale (R,R,R,1)
-      if (fmt == 0x8DBB || fmt == 0x8DBC) {
-          GLint swizzle[] = { GL_RED, GL_RED, GL_RED, GL_ONE };
-          glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
-      }
-      // BC5 (RGTC2): RG channels → display as normal map (R,G,1,1)
-      else if (fmt == 0x8DBD || fmt == 0x8DBE) {
-          GLint swizzle[] = { GL_RED, GL_GREEN, GL_ONE, GL_ONE };
-          glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
-      }
-  } else {
-      glTexImage2D(GL_TEXTURE_2D, 0, m_texture->glInternalFormat, m_texture->width, m_texture->height,
-                   0, GL_RGBA, GL_UNSIGNED_BYTE, m_texture->pixels.data());
+    LOG_WARN("[ImageViewer] '%s': compressed texture upload not ported to Vulkan "
+             "(dead code path, no producer sets isCompressed=true) -- not displayed",
+             m_name.c_str());
+    return;
   }
-  glBindTexture(GL_TEXTURE_2D, 0);
+
+  Onyx::RenderVk::VkContext* ctx = Onyx::RenderVk::GetGlobalContext();
+  if (!ctx) {
+    LOG_ERR("[ImageViewer] '%s': no live VkContext -- cannot upload texture", m_name.c_str());
+    return;
+  }
+  if (!m_texPool) {
+    m_texPool = std::make_unique<Onyx::App::TexturePool>(*ctx);
+  }
+
+  std::string err;
+  m_texId = m_texPool->Create(m_texture->width, m_texture->height, m_texture->pixels.data(), err);
+  if (m_texId == ImTextureID_Invalid) {
+    LOG_ERR("[ImageViewer] '%s': TexturePool::Create failed: %s", m_name.c_str(), err.c_str());
+    return;
+  }
+
+  LOG_INFO("[ImageViewer] '%s': uploaded %ux%u, imtex=0x%llx", m_name.c_str(),
+           m_texture->width, m_texture->height, (unsigned long long)m_texId);
+}
+
+void ImageViewer::ApplyAlphaToggle() {
+  if (!m_texture || m_texId == ImTextureID_Invalid || !m_texPool) return;
+
+  const size_t pixelCount = static_cast<size_t>(m_texture->width) * m_texture->height;
+  if (m_texture->pixels.size() < pixelCount * 4) return;
+
+  std::vector<uint8_t> display(pixelCount * 4);
+  if (m_showAlpha) {
+    // (A, A, A, 255) -- alpha channel shown as opaque grayscale.
+    for (size_t i = 0; i < pixelCount; ++i) {
+      const uint8_t a = m_texture->pixels[i * 4 + 3];
+      display[i * 4 + 0] = a;
+      display[i * 4 + 1] = a;
+      display[i * 4 + 2] = a;
+      display[i * 4 + 3] = 255;
+    }
+  } else {
+    display = m_texture->pixels; // restore the original RGBA content
+    if (display.size() > pixelCount * 4) display.resize(pixelCount * 4);
+  }
+
+  std::string err;
+  if (!m_texPool->Update(m_texId, display.data(), err)) {
+    LOG_ERR("[ImageViewer] '%s': TexturePool::Update (alpha toggle) failed: %s",
+            m_name.c_str(), err.c_str());
+  }
 }
 
 void ImageViewer::ZoomToAnchored(float newZoom, ImVec2 anchorScreen) {
@@ -93,7 +110,7 @@ void ImageViewer::ZoomToAnchored(float newZoom, ImVec2 anchorScreen) {
 }
 
 void ImageViewer::Draw() {
-  if (!m_texture || !m_glTexture) {
+  if (!m_texture || m_texId == ImTextureID_Invalid) {
     ImGui::TextDisabled("No texture data");
     return;
   }
@@ -224,32 +241,10 @@ void ImageViewer::Draw() {
   const float imgW = texW * m_zoom;
   const float imgH = texH * m_zoom;
 
-  // ── Apply alpha swizzle on the GPU texture when toggle changes ───────
+  // ── Apply alpha toggle (CPU-side recompute + Update -- see the header's
+  //    doc comment on why this replaces GL's runtime swizzle) ───────────
   if (alphaChanged) {
-    glBindTexture(GL_TEXTURE_2D, m_glTexture);
-    if (m_showAlpha) {
-      // Show alpha as grayscale: (A, A, A, 1)
-      GLint swizzle[] = { GL_ALPHA, GL_ALPHA, GL_ALPHA, GL_ONE };
-      glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
-    } else {
-      // Restore normal RGBA display
-      // Re-apply format-specific swizzle if needed
-      uint32_t fmt = m_texture->glInternalFormat;
-      if (m_texture->isCompressed && (fmt == 0x8DBB || fmt == 0x8DBC)) {
-        // BC4: R,R,R,1
-        GLint swizzle[] = { GL_RED, GL_RED, GL_RED, GL_ONE };
-        glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
-      } else if (m_texture->isCompressed && (fmt == 0x8DBD || fmt == 0x8DBE)) {
-        // BC5: R,G,1,1
-        GLint swizzle[] = { GL_RED, GL_GREEN, GL_ONE, GL_ONE };
-        glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
-      } else {
-        // Normal: R,G,B,A
-        GLint swizzle[] = { GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA };
-        glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
-      }
-    }
-    glBindTexture(GL_TEXTURE_2D, 0);
+    ApplyAlphaToggle();
   }
 
   // ── Draw the image ───────────────────────────────────────────────────
@@ -264,9 +259,10 @@ void ImageViewer::Draw() {
     dl->AddRectFilled(p0, p1, IM_COL32(30, 30, 30, 255));
   }
 
-  dl->AddImage((ImTextureID)(intptr_t)m_glTexture, p0, p1);
+  dl->AddImage(m_texId, p0, p1);
   dl->PopClipRect();
+
+  if (m_texPool) m_texPool->AdvanceFrame();
 }
 
 } // namespace Onyx::Viewers
-
