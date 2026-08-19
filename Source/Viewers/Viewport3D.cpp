@@ -12,8 +12,8 @@
 // VK_USE_PLATFORM_WIN32_KHR -- and Viewport3D.h is transitively included
 // by DocumentBrowser.cpp and CameraPanel.cpp, neither of which has
 // anything to do with Vulkan. The first version of this port included
-// them directly and broke the build: <wingdi.h>'s `#define TextOut
-// TextOutW` (or `TextOutA`) collided with `Onyx::Modules::TextOut`, a real
+// them directly and broke the build: <wingdi.h>'s `#define DecodedText
+// TextOutW` (or `TextOutA`) collided with `Onyx::Modules::DecodedText`, a real
 // type DocumentBrowser.cpp names in its own ViewerOpener wiring.
 //
 // Recording seam: T9's Window.cpp records the swapchain frame's own
@@ -47,7 +47,7 @@
 // because no scene entry exists to open. Stated here, honestly, rather
 // than implied.
 //
-// Feature gaps inherited from SceneRendererVk (Include/Onyx/RenderVk/
+// Feature gaps inherited from SceneRendererVk (Include/Onyx/Rendering/
 // SceneRendererVk.h), not introduced by this task -- do not "fix" these
 // here, per the brief's "MSAA + outline parity comes from the renderer --
 // do not reimplement effects in the viewer":
@@ -70,14 +70,32 @@
 // doc comment: "empirically verified top-down for this target") and
 // ImGui's own UV convention is top-down too, so the Vulkan path below
 // draws with the plain uv0=(0,0)/uv1=(1,1) -- no flip.
+//
+// M5 Task 7 note: this class deliberately does NOT route RenderFrame()
+// through the new Onyx::Rendering::RenderToImage (Include/Onyx/Rendering/
+// RenderToImage.h) -- see that header's own top comment ("Source/Viewers/
+// Viewport3D.cpp: deliberately NOT routed through this API") for the full
+// reasoning. Short version: RenderFrame() renders into a PERSISTENT
+// OffscreenTarget this class owns across many frames and samples live via
+// ImGui (never reads it back to the CPU), layers a background gradient
+// plus optional skeleton/grid passes on top of the scene through pipeline
+// objects built once and reused every redraw, and already carries one
+// disclosed perf gap (a blocking OneShot submit every redraw). RenderToImage
+// owns a target for exactly one call and hands back CPU bytes, which is
+// the opposite shape from what a live, multi-pass, GPU-resident viewport
+// needs -- spec §2's own principle ("the ready floor never hides the raw
+// floor -- if a toolkit outgrows a stock path, it drops one floor without
+// leaving the SDK") is why this class stays on the raw floor (VkContext +
+// Pipelines + SceneRendererVk + OffscreenTarget directly) below, unchanged
+// by that task.
 // ═══════════════════════════════════════════════════════════════════════
 
 #include <Onyx/Viewers/Viewport3D.h>
 #include <Onyx/App/TexturePool.h>
-#include <Onyx/RenderVk/OffscreenTarget.h>
-#include <Onyx/RenderVk/Pipelines.h>
-#include <Onyx/RenderVk/SceneRendererVk.h>
-#include <Onyx/RenderVk/VkContext.h>
+#include <Onyx/Rendering/OffscreenTarget.h>
+#include <Onyx/Rendering/Pipelines.h>
+#include <Onyx/Rendering/SceneRendererVk.h>
+#include <Onyx/Rendering/VkContext.h>
 #include <Onyx/Services/Events.h>
 #include <imgui.h>
 #include <Onyx/Services/AppConfig.h>
@@ -183,7 +201,7 @@ void Viewport3D::LoadFromMeshData(const Parsers::MeshData& data,
     // beyond what this task's GL-removal scope requires.
     (void)data;
     (void)textures;
-    LOG_WARN("[Viewport3D] LoadFromMeshData: not ported to Vulkan (dead code path, no callers) -- ignored");
+    ONYX_LOGF_WARN("[Viewport3D] LoadFromMeshData: not ported to Vulkan (dead code path, no callers) -- ignored");
     ClearScene();
 }
 
@@ -206,7 +224,7 @@ void Viewport3D::LoadScene(std::unique_ptr<Parsers::SceneData> scene) {
     if (m_vkReady && m_ctx) {
         std::string err;
         if (!m_vk->sceneRendererVk.Build(*m_ctx, m_vk->scenePipelines, *m_sceneData, err)) {
-            LOG_ERR("[Viewport3D] SceneRendererVk::Build failed: %s", err.c_str());
+            ONYX_LOGF_ERR("[Viewport3D] SceneRendererVk::Build failed: %s", err.c_str());
         }
     }
 }
@@ -221,9 +239,10 @@ void Viewport3D::ComputeBounds() {
         // (git show 7525d1f:Source/Rendering/SceneRenderer.cpp) and said
         // why: FocusOn's camera framing has to cover every vertex as it
         // actually draws, and SceneRendererVk::Build applies this same
-        // instanceTransform (Source/RenderVk/SceneRendererVk.cpp, "GOW2
-        // models face -Z, GOWR is already screen-correct -- identical to
-        // GL's SceneRenderer::Build") before rasterizing. Skipping this
+        // instanceTransform (Source/Rendering/SceneRendererVk.cpp, "a
+        // per-game bind-pose orientation convention: some source formats
+        // author models facing -Z ... others are already screen-correct --
+        // identical to GL's SceneRenderer::Build") before rasterizing. Skipping this
         // transform here left ComputeBounds silently out of sync with
         // what the renderer draws: any asset with a non-identity
         // instanceTransform framed on the wrong center, and any GOW2
@@ -260,7 +279,7 @@ void Viewport3D::EnsureVulkanReady() {
               Onyx::Rendering::Pipelines::CreateBackground(*m_ctx, m_vk->backgroundPipeline, err) &&
               Onyx::Rendering::Pipelines::CreateOverlay(*m_ctx, m_vk->overlayPipeline, err);
     if (!ok) {
-        LOG_ERR("[Viewport3D] Vulkan pipeline creation failed: %s", err.c_str());
+        ONYX_LOGF_ERR("[Viewport3D] Vulkan pipeline creation failed: %s", err.c_str());
         Onyx::Rendering::Pipelines::Destroy(*m_ctx, m_vk->overlayPipeline);
         Onyx::Rendering::Pipelines::Destroy(*m_ctx, m_vk->backgroundPipeline);
         Onyx::Rendering::Pipelines::Destroy(*m_ctx, m_vk->gridPipeline);
@@ -285,7 +304,7 @@ void Viewport3D::ResizeTarget(int width, int height) {
 
     std::string err;
     if (!m_vk->target.Create(*m_ctx, width, height, err)) {
-        LOG_ERR("[Viewport3D] OffscreenTarget::Create failed: %s", err.c_str());
+        ONYX_LOGF_ERR("[Viewport3D] OffscreenTarget::Create failed: %s", err.c_str());
         m_fboWidth = m_fboHeight = 0;
         return;
     }
@@ -303,7 +322,7 @@ void Viewport3D::ResizeTarget(int width, int height) {
         // T10 fix-round-1 (LOW): RegisterExternalView already kept the OLD
         // descriptor alive on failure (never retired it) -- keep displaying
         // it too, rather than clobbering m_displayTexId with the failure.
-        LOG_ERR("[Viewport3D] TexturePool::RegisterExternalView failed: %s", err.c_str());
+        ONYX_LOGF_ERR("[Viewport3D] TexturePool::RegisterExternalView failed: %s", err.c_str());
         return;
     }
     m_displayTexId = newId;
@@ -343,7 +362,7 @@ void Viewport3D::RenderFrame(int width, int height) {
 
         std::string bgErr;
         if (!m_vk->sceneRendererVk.RenderBackground(*m_ctx, m_vk->backgroundPipeline, cmd, top, bottom, bgErr))
-            LOG_ERR("[Viewport3D] RenderBackground failed: %s", bgErr.c_str());
+            ONYX_LOGF_ERR("[Viewport3D] RenderBackground failed: %s", bgErr.c_str());
 
         if (hasContent)
             m_vk->sceneRendererVk.Render(cmd, view, proj, shadingMode, width, height);
@@ -351,14 +370,14 @@ void Viewport3D::RenderFrame(int width, int height) {
         if (showBones && m_sceneData && m_sceneData->HasSkeleton()) {
             std::string skelErr;
             if (!m_vk->sceneRendererVk.RenderSkeleton(*m_ctx, m_vk->overlayPipeline, cmd, view, proj, width, height, skelErr))
-                LOG_ERR("[Viewport3D] RenderSkeleton failed: %s", skelErr.c_str());
+                ONYX_LOGF_ERR("[Viewport3D] RenderSkeleton failed: %s", skelErr.c_str());
         }
 
         if (showGrid) {
             std::string gridErr;
             if (!m_vk->sceneRendererVk.RenderGrid(*m_ctx, m_vk->gridPipeline, cmd, view, proj, gridColor, 1.0f,
                                                   width, height, gridErr))
-                LOG_ERR("[Viewport3D] RenderGrid failed: %s", gridErr.c_str());
+                ONYX_LOGF_ERR("[Viewport3D] RenderGrid failed: %s", gridErr.c_str());
         }
 
         m_vk->target.EndFrame(cmd);
@@ -366,7 +385,7 @@ void Viewport3D::RenderFrame(int width, int height) {
     }, err);
 
     if (!ok) {
-        LOG_ERR("[Viewport3D] RenderFrame OneShot failed: %s", err.c_str());
+        ONYX_LOGF_ERR("[Viewport3D] RenderFrame OneShot failed: %s", err.c_str());
     }
 }
 

@@ -1,11 +1,11 @@
 #pragma once
 
-// See Onyx/RenderVk/VkContext.h's include-order rule: volk.h, then
+// See Onyx/Rendering/VkContext.h's include-order rule: volk.h, then
 // vk_mem_alloc.h, before any other Vulkan-touching header. VkResources.h
 // (pulled in below, via VkContext.h) already honors that, so this file
 // does not need to repeat the pair itself.
-#include <Onyx/RenderVk/TexturePool.h> // Onyx::Rendering::DeferredDestroyQueue
-#include <Onyx/RenderVk/VkResources.h> // Onyx::Rendering::Image2D
+#include <Onyx/Rendering/TexturePool.h> // Onyx::Rendering::DeferredDestroyQueue
+#include <Onyx/Rendering/VkResources.h> // Onyx::Rendering::Image2D
 
 #include <imgui.h>
 
@@ -19,7 +19,7 @@ namespace Onyx::App {
 
 // ═══════════════════════════════════════════════════════════════════════
 // Layer-placement note (T10 rider): the M4 plan's file list names this
-// class `Onyx::Rendering::TexturePool` (Include/Onyx/RenderVk/TexturePool.
+// class `Onyx::Rendering::TexturePool` (Include/Onyx/Rendering/TexturePool.
 // {h,cpp}) outright. It does not live there. Everything this class
 // actually does past the raw image upload -- ImGui_ImplVulkan_AddTexture/
 // RemoveTexture, handing back a plain ImTextureID a viewer passes straight
@@ -33,7 +33,7 @@ namespace Onyx::App {
 // imgui include path at all).
 //
 // So the class is split in two, one layer apart:
-//   - Onyx::Rendering::DeferredDestroyQueue (Include/Onyx/RenderVk/
+//   - Onyx::Rendering::DeferredDestroyQueue (Include/Onyx/Rendering/
 //     TexturePool.h) is the pure, Vulkan-and-ImGui-free N-frames-in-flight
 //     bookkeeping -- pure-tested in Tests/rendervk_test.cpp with no
 //     device, per the plan's own testing note.
@@ -69,7 +69,7 @@ public:
     // round-1): the SAME symbol Window's own swapchain frame-sync uses,
     // not an independently-hardcoded literal that could silently diverge
     // from it -- see that constant's own doc comment (Include/Onyx/
-    // RenderVk/TexturePool.h) for why that divergence would matter.
+    // Rendering/TexturePool.h) for why that divergence would matter.
     explicit TexturePool(Onyx::Rendering::VkContext& ctx,
                          uint32_t framesInFlight = Onyx::Rendering::kFramesInFlight);
     ~TexturePool();

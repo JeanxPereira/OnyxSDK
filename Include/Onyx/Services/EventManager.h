@@ -101,7 +101,7 @@ namespace Onyx::Services {
                 try {
                     m_func(std::forward<decltype(params)>(params)...);
                 } catch (const std::exception &e) {
-                    GOW_LOG_ERROR("eventmanager", "Exception in event handler: {}", e.what());
+                    ONYX_LOG_ERROR("eventmanager", "Exception in event handler: {}", e.what());
                     throw;
                 }
             }
@@ -136,7 +136,7 @@ namespace Onyx::Services {
             std::lock_guard lock(getEventMutex());
 
             if (isAlreadyRegistered(token, E::Id)) {
-                GOW_LOG_WARN("eventmanager", "Token {} already registered for this event",
+                ONYX_LOG_WARN("eventmanager", "Token {} already registered for this event",
                              static_cast<const void*>(token));
                 return;
             }
@@ -169,7 +169,7 @@ namespace Onyx::Services {
 
             #if defined(DEBUG) || defined(_DEBUG)
                 if constexpr (E::ShouldLog)
-                    GOW_LOG_DEBUG("eventmanager", "Event posted: '{}'", typeid(E).name());
+                    ONYX_LOG_DEBUG("eventmanager", "Event posted: '{}'", typeid(E).name());
             #endif
         }
 

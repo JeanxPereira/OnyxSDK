@@ -3,6 +3,7 @@
 #include <Onyx/Cli/Commands.h>
 #include <Onyx/Domain/ByteRange.h>
 #include <Onyx/Domain/Entry.h>
+#include <Onyx/Exchange/GltfExport.h>
 #include <Onyx/Modules/Workspace.h>
 #include <Onyx/Types/TypeCatalog.h>
 
@@ -291,6 +292,24 @@ struct DecoyModule : Onyx::Modules::IGameModule {
     }
 };
 
+// Builds a stable argv (char*[]) from a list of strings for the `render`
+// dispatch tests below, which need more argv permutations than the rest
+// of this file's hand-rolled char[]/vector<char> literals comfortably
+// scale to. std::string::data() is guaranteed null-terminated (C++17) and
+// contiguous, so each owned std::string doubles as its own C string
+// buffer -- no separate null-terminated copy needed. The ArgvBuilder must
+// outlive every Run() call using its Argv()/Argc().
+struct ArgvBuilder {
+    std::vector<std::string> owned;
+    std::vector<char*> ptrs;
+    explicit ArgvBuilder(std::vector<std::string> args) : owned(std::move(args)) {
+        ptrs.reserve(owned.size());
+        for (std::string& s : owned) ptrs.push_back(s.data());
+    }
+    int Argc() const { return int(ptrs.size()); }
+    char** Argv() { return ptrs.data(); }
+};
+
 } // namespace
 
 TEST_CASE("cli probe prints a table with rows and a winner line") {
@@ -430,6 +449,115 @@ TEST_CASE("cli decode scene entry prints parts materials vertices summary and re
     // OnyxBoxModule.cpp's BuildCubePart), one material.
     CHECK(out.str().find("scene mesh parts=1 materials=1 vertices=24") != std::string::npos);
 
+    std::filesystem::remove(path);
+}
+
+// `decode --to gltf` (T5, M5): CmdDecode's export path, exercised through
+// Onyx::Cli::CmdDecode directly (same "through Cli::Commands" shape every
+// other case in this file uses) with a real Onyx::Exchange::
+// ExportSceneData bound as the SceneExportFn hook -- exactly what
+// Examples/OnyxCli/Gltf.cpp's MakeGltfExportFn wires in for the real CLI
+// binary (Include/Onyx/Cli/Gltf.h), just constructed inline here since
+// onyx_tests links Onyx::Exchange directly and has no reason to go
+// through that indirection. Uses the same OnyxBox mesh fixture
+// (WriteMeshBox, the `render-fixture` shape Examples/OnyxCli/Main.cpp's
+// WriteRenderFixture also builds) as the scene-summary test above --
+// static (no skeleton), so this only proves the CLI wiring end to end,
+// not skin export (Tests/gltf_test.cpp's GltfExport:* cases own that).
+TEST_CASE("cli decode --to gltf exports the mesh entry and returns kOk") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+    auto path = WriteMeshBox();
+    auto outPath = std::filesystem::temp_directory_path() / "onyx_cli_decode_to_gltf.glb";
+    std::filesystem::remove(outPath);
+
+    Onyx::Exchange::GltfOptions gltfOpts;
+    Onyx::Cli::SceneExportFn exportFn = [gltfOpts](const Onyx::Parsers::SceneData& scene,
+                                                     const std::filesystem::path& out,
+                                                     std::string& err) {
+        return Onyx::Exchange::ExportSceneData(scene, out, gltfOpts, err);
+    };
+
+    std::ostringstream out;
+    int rc = Onyx::Cli::CmdDecode(ws, path, "mesh", /*strict=*/false, out, /*moduleHint=*/{},
+                                   "gltf", outPath, exportFn);
+    CHECK(rc == Onyx::Cli::kOk);
+    CHECK(out.str().find("exported mesh to") != std::string::npos);
+    REQUIRE(std::filesystem::exists(outPath));
+    CHECK(std::filesystem::file_size(outPath) > 0);
+
+    std::filesystem::remove(outPath);
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("cli decode --to gltf with no exporter registered returns kUsage") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+    auto path = WriteMeshBox();
+
+    std::ostringstream out;
+    int rc = Onyx::Cli::CmdDecode(ws, path, "mesh", /*strict=*/false, out, /*moduleHint=*/{},
+                                   "gltf", "unused.glb", /*exportFn=*/{});
+    CHECK(rc == Onyx::Cli::kUsage);
+    CHECK(out.str().find("no exporter available") != std::string::npos);
+
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("cli decode --to gltf on a non-Scene entry returns kUsage") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+    auto path = WriteSampleBox();
+
+    Onyx::Exchange::GltfOptions gltfOpts;
+    Onyx::Cli::SceneExportFn exportFn = [gltfOpts](const Onyx::Parsers::SceneData& scene,
+                                                     const std::filesystem::path& out,
+                                                     std::string& err) {
+        return Onyx::Exchange::ExportSceneData(scene, out, gltfOpts, err);
+    };
+
+    std::ostringstream out;
+    int rc = Onyx::Cli::CmdDecode(ws, path, "txt", /*strict=*/false, out, /*moduleHint=*/{},
+                                   "gltf", "unused.glb", exportFn);
+    CHECK(rc == Onyx::Cli::kUsage);
+    CHECK(out.str().find("no Scene decode capability") != std::string::npos);
+
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("cli Run parses --to and --out and forwards them through CmdDecode") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+    auto path = WriteMeshBox();
+    const std::string pathStr = path.string();
+    auto outPath = std::filesystem::temp_directory_path() / "onyx_cli_run_to_gltf.glb";
+    const std::string outPathStr = outPath.string();
+    std::filesystem::remove(outPath);
+
+    Onyx::Exchange::GltfOptions gltfOpts;
+    Onyx::Cli::SceneExportFn exportFn = [gltfOpts](const Onyx::Parsers::SceneData& scene,
+                                                     const std::filesystem::path& out,
+                                                     std::string& err) {
+        return Onyx::Exchange::ExportSceneData(scene, out, gltfOpts, err);
+    };
+
+    std::ostringstream out, err;
+    char argv0[] = "onyxbox-cli";
+    char argv1[] = "decode";
+    std::vector<char> argv2(pathStr.begin(), pathStr.end());
+    argv2.push_back('\0');
+    char argv3[] = "mesh";
+    char argv4[] = "--to";
+    char argv5[] = "gltf";
+    char argv6[] = "--out";
+    std::vector<char> argv7(outPathStr.begin(), outPathStr.end());
+    argv7.push_back('\0');
+    char* argv[] = {argv0, argv1, argv2.data(), argv3, argv4, argv5, argv6, argv7.data()};
+    int rc = Onyx::Cli::Run(ws, 8, argv, out, err, exportFn);
+    CHECK(rc == Onyx::Cli::kOk);
+    REQUIRE(std::filesystem::exists(outPath));
+
+    std::filesystem::remove(outPath);
     std::filesystem::remove(path);
 }
 
@@ -609,4 +737,169 @@ TEST_CASE("cli Run returns kUsage to err for a junk command") {
     CHECK(rc == Onyx::Cli::kUsage);
     CHECK_FALSE(err.str().empty());
     CHECK(out.str().empty());
+}
+
+// ── `render` through Onyx::Cli::Run() (M5 Task 6, G1 fix) ──────────────────
+// These exercise Run()'s own argv parsing/dispatch for "render" -- proving
+// the SDK's own CLI entry point recognizes the verb, not a second toolkit's
+// local parsing (Examples/OnyxCli/Main.cpp used to special-case "render"
+// before this task; it no longer does -- see that file's own top comment).
+// A stub RenderFn stands in for the real Onyx::Cli::CmdRender: no Vulkan
+// device is touched here, which is deliberate -- see Source/Cli/Render.cpp's
+// own ODR comment for why the actual GPU proof lives in Examples/OnyxCli/
+// Render*Test.cmake's device-gated ctest scripts instead (same convention
+// Tests/rendervk_test.cpp's own top comment documents for every other
+// device-gated case in this tree). What IS fully testable without a device
+// is everything Run() itself is responsible for: usage validation, argv
+// parsing (--out/--width/--height/--views/--strict/--game), and the exact
+// shape of each renderFn call -- all proven below.
+
+TEST_CASE("cli Run render without --out returns kUsage without invoking renderFn") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+
+    bool called = false;
+    Onyx::Cli::RenderFn stub = [&](Onyx::Modules::Workspace&, const std::filesystem::path&,
+                                    std::string_view, const std::filesystem::path&, int, int,
+                                    std::ostream&, std::string_view, std::string_view, bool) {
+        called = true;
+        return Onyx::Cli::kOk;
+    };
+
+    std::ostringstream out, err;
+    ArgvBuilder argv({"onyxbox-cli", "render", "file.obx", "cube"});
+    int rc = Onyx::Cli::Run(ws, argv.Argc(), argv.Argv(), out, err, {}, stub);
+    CHECK(rc == Onyx::Cli::kUsage);
+    CHECK_FALSE(called);
+    CHECK_FALSE(err.str().empty());
+    CHECK(err.str().find("iso") != std::string::npos); // usage text lists the canonical views
+}
+
+TEST_CASE("cli Run render with no renderFn supplied returns kUsage") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+
+    std::ostringstream out, err;
+    ArgvBuilder argv({"onyxbox-cli", "render", "file.obx", "cube", "--out", "out.png"});
+    int rc = Onyx::Cli::Run(ws, argv.Argc(), argv.Argv(), out, err); // exportFn/renderFn both default {}
+    CHECK(rc == Onyx::Cli::kUsage);
+    CHECK(err.str().find("renderer") != std::string::npos);
+}
+
+TEST_CASE("cli Run dispatches render through the injected RenderFn hook, byte-identical to before "
+          "--views existed") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+
+    struct Call {
+        std::string path, entry, view;
+        std::filesystem::path outPng;
+        int width = 0, height = 0;
+        bool strict = false;
+    };
+    std::vector<Call> calls;
+    Onyx::Cli::RenderFn stub = [&](Onyx::Modules::Workspace&, const std::filesystem::path& path,
+                                    std::string_view entry, const std::filesystem::path& outPng, int w,
+                                    int h, std::ostream&, std::string_view /*moduleHint*/,
+                                    std::string_view view, bool strict) {
+        calls.push_back(Call{path.string(), std::string(entry), std::string(view), outPng, w, h, strict});
+        return Onyx::Cli::kOk;
+    };
+
+    std::ostringstream out, err;
+    ArgvBuilder argv({"onyxbox-cli", "render", "fixture.obx", "cube", "--out", "out.png"});
+    int rc = Onyx::Cli::Run(ws, argv.Argc(), argv.Argv(), out, err, {}, stub);
+    CHECK(rc == Onyx::Cli::kOk);
+    REQUIRE(calls.size() == 1);
+    CHECK(calls[0].path == "fixture.obx");
+    CHECK(calls[0].entry == "cube");
+    // No --views: --out's own path is used untouched, not renamed with a
+    // view suffix -- this is the exact byte-identical-with-M4 contract
+    // Include/Onyx/Cli/Commands.h's Run() doc comment promises.
+    CHECK(calls[0].outPng == std::filesystem::path("out.png"));
+    CHECK(calls[0].width == 512);
+    CHECK(calls[0].height == 512);
+    CHECK(calls[0].view == "iso");
+    CHECK_FALSE(calls[0].strict);
+}
+
+TEST_CASE("cli Run render --views fans out one renderFn call per view with per-view output paths") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+
+    struct Call {
+        std::filesystem::path outPng;
+        std::string view;
+        int width = 0, height = 0;
+        bool strict = false;
+    };
+    std::vector<Call> calls;
+    Onyx::Cli::RenderFn stub = [&](Onyx::Modules::Workspace&, const std::filesystem::path&,
+                                    std::string_view, const std::filesystem::path& outPng, int w, int h,
+                                    std::ostream&, std::string_view, std::string_view view, bool strict) {
+        calls.push_back(Call{outPng, std::string(view), w, h, strict});
+        return Onyx::Cli::kOk;
+    };
+
+    std::ostringstream out, err;
+    ArgvBuilder argv({"onyxbox-cli", "render", "fixture.obx", "cube", "--out", "out.png", "--width", "64",
+                       "--height", "48", "--views", "iso,front,top", "--strict"});
+    int rc = Onyx::Cli::Run(ws, argv.Argc(), argv.Argv(), out, err, {}, stub);
+    CHECK(rc == Onyx::Cli::kOk);
+    REQUIRE(calls.size() == 3);
+    CHECK(calls[0].outPng == std::filesystem::path("out.iso.png"));
+    CHECK(calls[0].view == "iso");
+    CHECK(calls[1].outPng == std::filesystem::path("out.front.png"));
+    CHECK(calls[1].view == "front");
+    CHECK(calls[2].outPng == std::filesystem::path("out.top.png"));
+    CHECK(calls[2].view == "top");
+    for (const Call& c : calls) {
+        CHECK(c.width == 64);
+        CHECK(c.height == 48);
+        CHECK(c.strict);
+    }
+}
+
+TEST_CASE("cli Run render stops immediately when a view's renderFn call returns kUsage") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+
+    int callCount = 0;
+    Onyx::Cli::RenderFn stub = [&](Onyx::Modules::Workspace&, const std::filesystem::path&,
+                                    std::string_view, const std::filesystem::path&, int, int,
+                                    std::ostream&, std::string_view, std::string_view, bool) {
+        ++callCount;
+        return Onyx::Cli::kUsage; // e.g. "unknown entry" -- a real usage failure
+    };
+
+    std::ostringstream out, err;
+    ArgvBuilder argv({"onyxbox-cli", "render", "fixture.obx", "cube", "--out", "out.png", "--views",
+                       "iso,front,top"});
+    int rc = Onyx::Cli::Run(ws, argv.Argc(), argv.Argv(), out, err, {}, stub);
+    CHECK(rc == Onyx::Cli::kUsage);
+    CHECK(callCount == 1); // never tried "front" or "top" after "iso" failed
+}
+
+TEST_CASE("cli Run render --views finishes every view and returns kStrictErrors if any view reported it") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+
+    int callCount = 0;
+    Onyx::Cli::RenderFn stub = [&](Onyx::Modules::Workspace&, const std::filesystem::path&,
+                                    std::string_view, const std::filesystem::path&, int, int,
+                                    std::ostream&, std::string_view, std::string_view, bool) {
+        ++callCount;
+        // Every view decodes the same entry from the same document, so a
+        // real CmdRender would report kStrictErrors on every call here --
+        // this stub returns it only on the first to prove Run() finishes
+        // the remaining views regardless (Commands.h's Run() doc comment).
+        return callCount == 1 ? Onyx::Cli::kStrictErrors : Onyx::Cli::kOk;
+    };
+
+    std::ostringstream out, err;
+    ArgvBuilder argv({"onyxbox-cli", "render", "fixture.obx", "cube", "--out", "out.png", "--views",
+                       "iso,front,top", "--strict"});
+    int rc = Onyx::Cli::Run(ws, argv.Argc(), argv.Argv(), out, err, {}, stub);
+    CHECK(rc == Onyx::Cli::kStrictErrors);
+    CHECK(callCount == 3); // all three views ran despite the first reporting kStrictErrors
 }

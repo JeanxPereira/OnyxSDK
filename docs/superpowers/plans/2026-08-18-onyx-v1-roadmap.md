@@ -172,22 +172,100 @@ raw handles + `AddPass`). GL deleted after the gate.
   outlive this plan file's own SDD ledger, which is deleted at merge.
 - **Plan:** written at M3 gate.
 
-## M5 — Generality (spec W5)
+## M5 — Generality (spec W5) — ✅ DONE 2026-08-19 (gate passed: audit's one blocking gap fixed and independently re-verified, TestKit green in both CI job definitions, glTF round-trip machine-verified, goldens byte-identical) — v1.0.0 tagged
 
-The exit exam: a second toolkit with zero SDK edits.
+The exit exam: prove a second toolkit can consume the SDK by naming public
+headers alone, with zero SDK edits.
 
-- **Deliverables:** toy `comi` module (LA0 probe, block tree, one image
-  decoder, palette panel on the public widget API); `Onyx::TestKit`
-  extracted (tree goldens, decode smoke, render compare) and adopted by
-  GoWToolkit's test suite; glTF export of `SceneData` + Blender validation
-  of a skinned corpus model; stability policy (§15) documented in the
-  README; **v1.0 tag**.
-- **Gate:** COMI toolkit builds and runs having touched only its own
-  sources; TestKit green in CI; a skinned synthetic model exported to glTF
-  poses correctly in Blender. (The GoWToolkit port then follows v1.0 as
-  its first consumer migration, picking up the real-game corpus for M0's
-  oracle as it lands.)
-- **Plan:** written at M4 gate.
+**Scope change from the original plan, made mid-milestone (Jean,
+2026-08-19): the toy `comi` module, its toolkit and its palette panel were
+cut** — "no second game format enters this repo." In its place, a single
+task ran the same exam a built module would have: four audits (include,
+link, capability, cold-start-TU) over the toolkits the SDK already ships
+(`MinimalViewer`, `OnyxBox`, `OnyxCli`), producing the identical ranked
+gaps list. This is **weaker in one specific, named way**: an audit proves
+the surface is *reachable*; a second real toolkit would have proven it
+*sufficient*. Recorded here rather than quietly absorbed into "passed as
+planned," per this repo's own standing rule about not letting a scope cut
+launder itself into a clean gate.
+
+- **Deliverables (as actually shipped):** the public-surface audit
+  (`docs/design/2026-08-19-public-surface-audit.md`, 6 gaps found, 1
+  blocking); the blocking gap closed (`Onyx::Cli::CmdRender` now ships in
+  a real library, `Onyx::CliRender`); the umbrella header broadened to a
+  stated, testable inclusion rule plus `<Onyx/Render.h>`/`<Onyx/Media.h>`
+  siblings; `Include/Onyx/Version.h` checked into the tree;
+  `Onyx::TestKit` extracted (tree goldens, decode smoke, render compare)
+  and consumed by the SDK's own suite (`OnyxTestKit` ctest entry, green in
+  both CI job definitions — **not** yet adopted by GoWToolkit's test
+  suite, since the GoWToolkit port itself is post-v1, see below); glTF
+  export of `SceneData` via `Onyx::Exchange`, machine-verified by
+  `cgltf_validate` plus a read-back round-trip test; `Onyx::Rendering::
+  RenderToImage`, the ready floor's one-call render entry point;
+  stability policy (§15) documented in the README, now in its post-1.0
+  form; the version bump to `1.0.0` and the **v1.0.0 tag** (annotated,
+  local only — not pushed, per standing instruction).
+- **Gate:** the audit's one blocking gap (G1) fixed and independently
+  reproduced (cold-start compile-AND-link of a throwaway consumer TU);
+  `OnyxTestKit` registered and green in both CI job definitions (not yet
+  run on a real GitHub runner — see the lavapipe caveat below); glTF
+  export round-trip machine-verified (`OnyxGltf` ctest); full serial suite
+  green (52/52) with goldens byte-identical
+  (`git diff --stat -- Tests/Golden` empty) and parity/reproducibility
+  stable across repeated runs throughout the milestone.
+  **Two human gates are PENDING, not satisfied by this gate passing:**
+  Blender validation of the exported glTF skinned corpus model against a
+  real DCC tool (`docs/gltf-validation.md` states this explicitly), and
+  the first push of this repo's history to its remote, which is what
+  would finally exercise the `linux-lavapipe` CI leg end to end — it has
+  authored, lint-checked YAML but has never executed on a real runner.
+- **Plan:** written at M4 gate; revised mid-milestone for the `comi` cut
+  (see scope-change note above).
+
+## v1.0 — shipped
+
+All five milestones (M0 Oracle corpus, M1 Target split, M2 Identity &
+state, M3 Modules, M4 Vulkan, M5 Generality) are DONE and gated as
+recorded above. `v1.0.0` is tagged locally (annotated, not pushed —
+pushing is a pending human action). Full milestone-by-milestone detail and
+every carried-forward known gap: `CHANGELOG.md`'s `## v1.0.0` section.
+
+## Post-v1 backlog
+
+Not blocking the v1.0.0 tag; recorded here so it is discoverable once the
+per-milestone SDD ledgers (`.superpowers/sdd/2026-08-19-onyx-v1-m*/`) are
+gone.
+
+- **The GoWToolkit port** — the sibling repo's first migration onto the
+  v1 SDK, picking up the real-game corpus for M0's synthetic oracle as it
+  lands, and the consumer that would finally exercise `Onyx::TestKit`
+  from outside this repo.
+- **The M4 deferrals that remain** — no animation playback on the Vulkan
+  renderer (below), no per-batch visibility culling, no outline/
+  wireframe/matcap shading, four dead viewport color knobs, the CLI
+  `render` command's failure modes collapsing onto one exit code, all
+  decoding serialized on one lane, a "Decoding…" placeholder tab's close
+  not cancelling its decode, and zero automated coverage of the swapchain
+  frame path. Full detail: `CHANGELOG.md`'s "Known gaps" section.
+- **Animation playback on the Vulkan renderer.** `SceneRendererVk` has no
+  `SetAnimation`/`UpdateAnimation`/`AnimationPlayer` wiring; every skinned
+  scene renders its rest pose. `Onyx::Rendering::AnimationPlayer` still
+  exists and compiles, but nothing constructs one.
+- **The metrics ratchet.** `onyx-oracle compare --emit-metrics` already
+  writes per-scene metrics into every ctest log; wiring it into an actual
+  gate is the only known path to catching a defect confined to one small
+  object's silhouette, which `VkOracleParity`'s four-tier tolerance does
+  not (its own documented detection floor, `CHANGELOG.md`).
+- Two M5-audit cosmetic gaps not fixed this milestone:
+  `Services/PathUtils.h`'s global-scope `namespace PathUtils` (the other
+  half of G5; the `AssetEntry`/`AssetContainer` alias half is closed), and
+  `Examples/**` still linking some raw `Onyx_*` target names instead of
+  `Onyx::` aliases (G6).
+- A real `install()`/`export()`/`find_package(OnyxSDK)` packaging story
+  (audit G4) — documented as a deliberate non-goal for v1, not built.
+- `Render.h`'s hard ImGui dependency via `AxisGizmo.h` (found at M5 T8) —
+  candidate fix is moving `AxisGizmo` into `Onyx::Shell` or splitting
+  `Render.h` into a headless slice plus an opt-in gizmo/debug-draw header.
 
 ## Standing rules for every milestone
 

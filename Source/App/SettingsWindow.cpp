@@ -535,7 +535,7 @@ void SettingsWindow::DrawViewportCategory() {
   if (BeginSubWindow("Debugging Overlays")) {
     // T11-review F2: these three knobs have zero readers at HEAD --
     // SceneRendererVk::RenderSkeleton draws the bone overlay with its own
-    // hardcoded colors (boneColor/rootColor, Source/RenderVk/
+    // hardcoded colors (boneColor/rootColor, Source/Rendering/
     // SceneRendererVk.cpp), and the hover-highlight/wireframe passes T10
     // disclosed as not-yet-implemented (Viewport3D.cpp's own top comment:
     // "Render() does not read RenderBatch::isVisible/isHighlighted ...
@@ -574,7 +574,7 @@ void SettingsWindow::DrawViewportCategory() {
   if (BeginSubWindow("Shading Base")) {
     // Task 11: this used to regenerate the GL ShaderManager's procedural
     // matcap texture on edit. Matcap shading has no Vulkan path (SceneRendererVk
-    // aliases ShadingMode::Matcap to Solid -- see Source/RenderVk/
+    // aliases ShadingMode::Matcap to Solid -- see Source/Rendering/
     // SceneRendererVk.cpp's own divergence-2 comment), and ShaderManager
     // itself was deleted with the rest of the GL renderer, so the call is
     // dropped rather than wired against nothing. T11-review F2: disabled

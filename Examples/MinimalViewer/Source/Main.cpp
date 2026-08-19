@@ -107,7 +107,7 @@ public:
         if (!vp) return;
         ImTextureID tex = vp->DisplayTexture();
         if (tex != ImTextureID_Invalid) {
-            LOG_INFO("[MinimalViewer] --open-first-scene: Viewport3D drew a frame with a valid "
+            ONYX_LOGF_INFO("[MinimalViewer] --open-first-scene: Viewport3D drew a frame with a valid "
                      "ImTextureID (%llu)", (unsigned long long)tex);
             m_logged = true;
         }
@@ -175,7 +175,7 @@ static int RunGui(const char* optionalPath, bool uiTest, bool openFirstImage, bo
                             if (d->id == ev.id) { doc = d.get(); break; }
                         }
                         if (!doc) {
-                            LOG_ERR("[MinimalViewer] --open-first-image: document %llu not found "
+                            ONYX_LOGF_ERR("[MinimalViewer] --open-first-image: document %llu not found "
                                      "after TreeReady", (unsigned long long)ev.id);
                             return;
                         }
@@ -188,7 +188,7 @@ static int RunGui(const char* optionalPath, bool uiTest, bool openFirstImage, bo
                             matched = FindFirstImageEntry(app.GetWorkspace(), doc->roots[i], path, found);
                         }
                         if (!matched) {
-                            LOG_WARN("[MinimalViewer] --open-first-image: no Image-routed entry "
+                            ONYX_LOGF_WARN("[MinimalViewer] --open-first-image: no Image-routed entry "
                                      "found in document %llu", (unsigned long long)ev.id);
                             return;
                         }
@@ -198,7 +198,7 @@ static int RunGui(const char* optionalPath, bool uiTest, bool openFirstImage, bo
                                                   std::unique_ptr<Onyx::Parsers::TextureData> texture) {
                             app.getDocumentWindow().AddTab(
                                 std::make_shared<Onyx::Viewers::ImageViewer>(name, std::move(texture)), doc);
-                            LOG_INFO("[MinimalViewer] --open-first-image: opened ImageViewer '%s'",
+                            ONYX_LOGF_INFO("[MinimalViewer] --open-first-image: opened ImageViewer '%s'",
                                      name.c_str());
                         };
 
@@ -227,7 +227,7 @@ static int RunGui(const char* optionalPath, bool uiTest, bool openFirstImage, bo
                             if (d->id == ev.id) { doc = d.get(); break; }
                         }
                         if (!doc) {
-                            LOG_ERR("[MinimalViewer] --open-first-scene: document %llu not found "
+                            ONYX_LOGF_ERR("[MinimalViewer] --open-first-scene: document %llu not found "
                                      "after TreeReady", (unsigned long long)ev.id);
                             return;
                         }
@@ -240,7 +240,7 @@ static int RunGui(const char* optionalPath, bool uiTest, bool openFirstImage, bo
                             matched = FindFirstSceneEntry(app.GetWorkspace(), doc->roots[i], path, found);
                         }
                         if (!matched) {
-                            LOG_WARN("[MinimalViewer] --open-first-scene: no Scene-routed entry "
+                            ONYX_LOGF_WARN("[MinimalViewer] --open-first-scene: no Scene-routed entry "
                                      "found in document %llu", (unsigned long long)ev.id);
                             return;
                         }
@@ -252,7 +252,7 @@ static int RunGui(const char* optionalPath, bool uiTest, bool openFirstImage, bo
                             viewport->LoadScene(std::move(scene));
                             app.getDocumentWindow().AddTab(viewport, doc);
                             proofPanelPtr->SetTarget(viewport);
-                            LOG_INFO("[MinimalViewer] --open-first-scene: opened Viewport3D '%s'",
+                            ONYX_LOGF_INFO("[MinimalViewer] --open-first-scene: opened Viewport3D '%s'",
                                      name.c_str());
                         };
 
@@ -283,7 +283,7 @@ static int RunGui(const char* optionalPath, bool uiTest, bool openFirstImage, bo
 
         if (openedId == 0) {
             // No module even claimed the file -- nothing to wait for.
-            LOG_INFO("[MinimalViewer] no module claimed '%s'; opening the hex tab as a fallback",
+            ONYX_LOGF_INFO("[MinimalViewer] no module claimed '%s'; opening the hex tab as a fallback",
                      path.c_str());
             openHexTab(path);
         } else {
@@ -297,11 +297,11 @@ static int RunGui(const char* optionalPath, bool uiTest, bool openFirstImage, bo
                     }
                     bool claimed = ev.ok && doc && !doc->roots.empty();
                     if (claimed) {
-                        LOG_INFO("[MinimalViewer] a module claimed '%s'; skipping the hex fallback "
+                        ONYX_LOGF_INFO("[MinimalViewer] a module claimed '%s'; skipping the hex fallback "
                                  "tab", path.c_str());
                         return;
                     }
-                    LOG_INFO("[MinimalViewer] '%s' produced no content; opening the hex tab as a "
+                    ONYX_LOGF_INFO("[MinimalViewer] '%s' produced no content; opening the hex tab as a "
                              "fallback", path.c_str());
                     openHexTab(path);
                 });

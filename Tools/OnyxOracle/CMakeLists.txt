@@ -9,17 +9,20 @@
 # renderer alongside it, since that renderer is gone entirely): see that
 # task's report for the link-completeness fixes (ResolveRoleIndices +
 # Camera's AppConfig read) that made it possible.
+# PngRead.cpp/ImageCompare.cpp moved out at Task 1 (M5) -- onyx-oracle now
+# gets PNG decode and the four-knob comparator from Onyx::TestKit (see
+# Include/Onyx/TestKit/RenderCompare.h). PngWrite.cpp stays here: writing
+# rendered PNGs is an oracle concern TestKit's public interface never needs.
 add_executable(onyx-oracle
     Main.cpp
     PngWrite.cpp
-    PngRead.cpp
-    ImageCompare.cpp
     CorpusTextures.cpp
     CorpusScenes.cpp
     RenderReport.cpp
+    RenderToImageSmoke.cpp
 )
 target_include_directories(onyx-oracle PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb)
-target_link_libraries(onyx-oracle PRIVATE Onyx::Render)
+target_link_libraries(onyx-oracle PRIVATE Onyx::Render Onyx::TestKit)
 onyx_apply_common(onyx-oracle)
 
 # VkBootSmoke -- Init(false)
@@ -47,7 +50,7 @@ set_tests_properties(VkValidationSelfTest PROPERTIES SKIP_RETURN_CODE 77 LABELS 
 # for skinned-cube (plus a skinning-disabled re-render asserting the
 # palette actually deforms pixels) and joint-chain-200 (200 single-joint
 # batches), and exercises RenderBackground once. T8 adds two RenderContext
-# (Include/Onyx/RenderVk/RenderContext.h) pass checks against the
+# (Include/Onyx/Rendering/RenderContext.h) pass checks against the
 # blend-stack scene: (a) a registered pass tints a 16x16 corner via
 # vkCmdClearAttachments -- readback proves the corner differs from a
 # no-pass render and everything else stays byte-identical; (b) a pass that
@@ -57,6 +60,19 @@ set_tests_properties(VkValidationSelfTest PROPERTIES SKIP_RETURN_CODE 77 LABELS 
 # device/driver is present, same as every other Vk* test above.
 add_test(NAME VkSceneSmoke COMMAND onyx-oracle --vk-scene-smoke)
 set_tests_properties(VkSceneSmoke PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")
+
+# RenderToImageSmoke (M5 Task 7, task-7-brief.md Step 1's required test):
+# same "render the blend-stack corpus scene twice, assert non-uniform +
+# byte-identical" shape VkSceneSmoke's own blend-stack check uses, but
+# through Onyx::Rendering::RenderToImage's one-shot overload (Include/Onyx/
+# Rendering/RenderToImage.h) instead of a hand-rolled VkContext/Pipelines/
+# OffscreenTarget/SceneRendererVk sequence -- RenderToImageSmoke.cpp itself
+# includes no Vulkan header at all, which is the actual proof this task's
+# ready-floor entry point needs no Vulkan knowledge to call. SKIP (77) when
+# no Vulkan-capable device/driver is present, same as every other Vk*/
+# Render*-labeled test above.
+add_test(NAME RenderToImageSmoke COMMAND onyx-oracle --render-to-image-smoke)
+set_tests_properties(RenderToImageSmoke PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")
 
 # OracleReproducible: renders the corpus twice (WORK/a, WORK/b) through the
 # Vulkan renderer and verifies the two runs are byte-identical (`verify`,
@@ -98,7 +114,8 @@ set_tests_properties(OracleReproducible PROPERTIES SKIP_RETURN_CODE 77 LABELS "r
 # (maxChannelDelta, differingPct) pair cannot separate that expected,
 # harmless signature from a real whole-image regression (gamma/lighting/
 # mip-filter drift), so the gate is redefined onto four independent tiers
-# (Tools/OnyxOracle/ImageCompare.h has the full reasoning per tier):
+# (Include/Onyx/TestKit/RenderCompare.h has the full reasoning per tier --
+# moved there, verbatim, at Task 1/M5):
 #   maxChannelDelta   hard-cap tripwire only, deliberately weak (coverage-
 #                     only deltas are bounded by local contrast, not
 #                     semantics -- a k=2/4-covered sample on a 255-

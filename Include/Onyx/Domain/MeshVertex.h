@@ -12,7 +12,8 @@ struct GpuVertex {
     glm::vec3  normal      {0.0f};
     glm::vec2  uv          {0.0f};
     glm::vec4  color       {1.0f};
-    // ── GOWR additions (zero-initialised; GOW2 paths never write these) ─
+    // ── optional per-vertex channels (zero-initialised; parsers that don't
+    // supply a given channel leave it at this default) ─────────────────
     glm::vec2  uv1         {0.0f};
     glm::vec4  boneWeights {0.0f};
     glm::uvec4 boneIndices {0u};

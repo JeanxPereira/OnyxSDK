@@ -48,6 +48,3 @@ struct AssetEntry {
 };
 
 } // namespace Onyx::Domain
-
-// Backwards-compat alias — keep existing call sites compiling at global scope.
-using AssetEntry    = Onyx::Domain::AssetEntry;

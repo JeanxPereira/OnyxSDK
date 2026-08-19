@@ -20,14 +20,13 @@
 // upload, Shader/ShaderManager) that has no Vulkan equivalent and truly is
 // GL-only.
 //
-// Kept exactly GL-free, same as its two previous owners: `GLuint` is a
-// plain `unsigned int` typedef, never `glad/glad.h`. `GpuMesh` is
-// forward-declared only -- it was the GL SceneRenderer's own geometry
+// Kept exactly GL-free, same as its two previous owners: the texture-slot
+// fields below are plain `uint32_t` handles, never `glad/glad.h`. `GpuMesh`
+// is forward-declared only -- it was the GL SceneRenderer's own geometry
 // object (deleted alongside it, Source/Rendering/GpuMesh.*) and
 // RenderBatch::gpuMesh is a bookkeeping field no surviving code ever
 // constructs or dereferences (SceneRendererVk's own Vulkan geometry lives
 // in its private GpuBatch, not here) -- see the field's own comment.
-using GLuint = unsigned int;
 
 namespace Onyx::Rendering {
 
@@ -72,14 +71,17 @@ struct RenderBatch {
     // pure bookkeeping leftover from the GL SceneRenderer's own geometry
     // object. Stays null-initialized always; see this header's top comment.
     std::shared_ptr<GpuMesh>    gpuMesh;
-    GLuint                      texture0 = 0;       // Diffuse texture
-    GLuint                      texture1 = 0;       // Environment map / layer 1
-    // PBR maps, in the layer order the GOWR loader stages them. Zero means the
-    // material ships none, and the shader falls back to a constant.
-    GLuint                      texNormal  = 0;     // layer 1  _0n_
-    GLuint                      texAO      = 0;     // layer 2  _0ao_
-    GLuint                      texGloss   = 0;     // layer 3  _0g_
-    GLuint                      texScatter = 0;     // layer 5  _0sc_
+    uint32_t                    texture0 = 0;       // Diffuse texture
+    uint32_t                    texture1 = 0;       // Environment map / layer 1
+    // PBR maps, in the texture layer order a role-suffixed texture naming
+    // convention assigns them (a loader recognizes a texture's role -- normal,
+    // ambient occlusion, gloss, subsurface scatter -- from a suffix on its
+    // name). Zero means the material ships none, and the shader falls back to
+    // a constant.
+    uint32_t                    texNormal  = 0;     // layer 1 -- normal map
+    uint32_t                    texAO      = 0;     // layer 2 -- ambient occlusion
+    uint32_t                    texGloss   = 0;     // layer 3 -- gloss
+    uint32_t                    texScatter = 0;     // layer 5 -- subsurface scatter
     float                       metallic   = 0.0f;
     float                       materialColor[4] = {1,1,1,1};
     float                       layerColor[4]    = {1,1,1,1};
@@ -91,7 +93,7 @@ struct RenderBatch {
     bool                        hasEnvmap  = false;
     bool                        hasSkeleton = false;
     bool                        isSky = false;
-    uint64_t                    meshHash = 0;       // GOWR LOD-blob id (0 = internal/embedded)
+    uint64_t                    meshHash = 0;       // container-specific LOD-blob id (0 = internal/embedded)
     int                         vertexCount = 0;    // cached for inspector
     int                         triangleCount = 0;
 };

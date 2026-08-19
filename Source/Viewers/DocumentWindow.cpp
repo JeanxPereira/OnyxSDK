@@ -45,7 +45,7 @@ void DocumentWindow::Shutdown() {
     // behavior, only surfaces the violation immediately instead of letting
     // it manifest as a mysterious later crash/leak.
     //
-    // This is LOG_ERR, not assert(): DocumentWindow::Shutdown runs on the
+    // This is ONYX_LOGF_ERR, not assert(): DocumentWindow::Shutdown runs on the
     // GUI thread, and MSVC's assert() pops a MODAL dialog that blocks the
     // window's message pump. The app then just appears to freeze on its
     // last frame, Windows marks it "Not responding", and the dialog itself
@@ -58,7 +58,7 @@ void DocumentWindow::Shutdown() {
 #ifndef NDEBUG
     for (const auto& content : m_pendingDelete) {
         if (content && content.use_count() > 1) {
-            LOG_ERR("[DocumentWindow] Shutdown: a pending-delete tab's content (%p, "
+            ONYX_LOGF_ERR("[DocumentWindow] Shutdown: a pending-delete tab's content (%p, "
                     "use_count=%ld) is still externally shared -- clearing "
                     "m_pendingDelete will not destroy it",
                     static_cast<const void*>(content.get()),
@@ -67,7 +67,7 @@ void DocumentWindow::Shutdown() {
     }
     for (const auto& tab : m_tabs) {
         if (tab.content && tab.content.use_count() > 1) {
-            LOG_ERR("[DocumentWindow] Shutdown: a tab's content (%p, use_count=%ld) is "
+            ONYX_LOGF_ERR("[DocumentWindow] Shutdown: a tab's content (%p, use_count=%ld) is "
                     "still externally shared -- clearing m_tabs will not destroy it",
                     static_cast<const void*>(tab.content.get()),
                     static_cast<long>(tab.content.use_count()));

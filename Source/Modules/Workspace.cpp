@@ -30,7 +30,7 @@ void Workspace::AddModule(std::unique_ptr<IGameModule> m) {
             // A duplicate id would collide in FindModule (by id) and in
             // the TypeCatalog's per-module namespace -- refuse it outright
             // rather than silently shadowing the first registration.
-            LOG_ERR("[Workspace] module id '%s' already registered; ignoring duplicate",
+            ONYX_LOGF_ERR("[Workspace] module id '%s' already registered; ignoring duplicate",
                     id.c_str());
             return;
         }

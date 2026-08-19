@@ -1,5 +1,19 @@
 cmake_minimum_required(VERSION 3.20)
-project(OnyxSDK VERSION 0.6.0 LANGUAGES CXX C)
+
+# Force MSVC's diagnostics to English BEFORE project() runs its compiler
+# detection. CMake captures cl.exe's /showIncludes prefix once, at detection
+# time, and hands that exact string to Ninja as msvc_deps_prefix. On a
+# localized toolchain the captured prefix is localized too (this repo was
+# configured once on a pt-BR install and recorded "Observacao: incluindo
+# arquivo: "), and if the console code page or VS language pack later
+# disagrees with what was recorded, Ninja silently parses no dependencies at
+# all: editing a header rebuilds nothing, and ctest goes green over stale
+# objects. That failure is invisible -- there is no warning and no red test
+# -- which makes it worth one line to prevent rather than a debugging
+# session to discover. Harmless where the toolchain is already English.
+set(ENV{VSLANG} 1033)
+
+project(OnyxSDK VERSION 1.0.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -212,7 +226,24 @@ FetchContent_Declare(tomlplusplus
     SOURCE_SUBDIR  _skip_add_subdirectory)
 FetchContent_MakeAvailable(tomlplusplus)
 
-# ── Vulkan (RenderVk: Vulkan-Headers + volk + VMA + glslang) ───────────────
+# ── cgltf (header-only glTF 2.0 read/write) via FetchContent ───────────────
+# Populate only (SOURCE_SUBDIR points at a non-existent dir); cgltf.h and
+# cgltf_write.h are both header-only single-file libraries living at the
+# repo root -- no CMakeLists of its own to add_subdirectory. v1.15 is the
+# tag at HEAD of upstream's default branch as of this pin (verified via
+# `git ls-remote --tags` before writing this block, plus a scratch shallow
+# clone confirming both cgltf.h and cgltf_write.h exist at that tag) -- no
+# substitution needed, unlike M4's volk pin (Vulkan-Headers' `1.3.296` vs
+# volk's `vulkan-sdk-1.3.296.0` divergent tag scheme).
+FetchContent_Declare(cgltf
+    GIT_REPOSITORY https://github.com/jkuhlmann/cgltf.git
+    GIT_TAG        v1.15
+    GIT_SHALLOW    TRUE
+    UPDATE_DISCONNECTED TRUE
+    SOURCE_SUBDIR  _skip_add_subdirectory)
+FetchContent_MakeAvailable(cgltf)
+
+# ── Vulkan (Render layer: Vulkan-Headers + volk + VMA + glslang) ──────────
 # Vulkan-Headers pins the API surface every other Vulkan dep below builds
 # against; declared first so volk and VMA link against these exact headers
 # rather than whatever the system Vulkan SDK happens to have on PATH.
@@ -226,7 +257,7 @@ FetchContent_Declare(
 set(VULKAN_HEADERS_ENABLE_TESTS   OFF CACHE BOOL "" FORCE)
 set(VULKAN_HEADERS_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 # The C++20 vulkan.hpp module target is autodetected ON for MSVC>=19.41/
-# Clang>=16/GCC>=14 when the CMake version allows it -- RenderVk only uses
+# Clang>=16/GCC>=14 when the CMake version allows it -- the Render layer only uses
 # volk's C API, never vulkan.hpp, and module support varies enough across
 # CI's compilers that autodetection is a determinism risk not worth taking
 # for a target nothing links.
@@ -304,10 +335,36 @@ set(ENABLE_GLSLANG_BINARIES ON  CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glslang)
 
 # ── Generated version header ──────────────────────────────────────────────
+# Writes DIRECTLY into Include/Onyx/Version.h (in the source tree, checked
+# into git with today's PROJECT_VERSION already baked in) rather than into
+# build/generated/ -- audit gap G3: Onyx.h's first include used to be a file
+# that existed nowhere in the source tree, so a consumer who only has
+# Include/ (no build directory, no CMake run) could not satisfy the umbrella
+# header at all. A real configure still overwrites this file with the
+# authoritative project() version on every run, so it can never drift out of
+# sync with CMakeLists.txt's version -- the checked-in copy only has to be
+# accurate at commit time (bump it alongside project(... VERSION) when
+# cutting a release) and is otherwise self-healing the moment anyone
+# configures the build.
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Version.h.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/generated/Onyx/Version.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Include/Onyx/Version.h"
     @ONLY)
+# Delete the header's former destination if an older build directory still
+# holds it. Before fbd54d3 this file was generated into build/generated/, and
+# nothing has overwritten it since -- so a build directory that predates the
+# move keeps a Version.h frozen at whatever version it last configured (0.6.0
+# in this repo's own build dir, found at the v1.0.0 final review). Both
+# `Include` and `${CMAKE_CURRENT_BINARY_DIR}/generated` are on every Onyx
+# target's PUBLIC include path (onyx_apply_common below): Include comes
+# first, so nothing in-tree ever read the stale copy, but a consumer whose
+# own target lists the generated dir first -- or who followed pre-fbd54d3
+# guidance -- silently gets a 1.0.0 SDK reporting 0.6.0. Removing exactly
+# that one path at configure time makes the staleness self-healing; the
+# generated directory itself stays (shaders and the SF Symbols table live
+# there).
+file(REMOVE "${CMAKE_CURRENT_BINARY_DIR}/generated/Onyx/Version.h")
+
 
 # ── Generated SF Symbols icon table ───────────────────────────────────────
 # The name->glyph table the icon browser walks is derived from SFSymbols.h at
@@ -368,6 +425,42 @@ set(ONYX_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Vfs/TransformFile.cpp
 )
 
+set(ONYX_TESTKIT_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/TestKit/DecodeSmoke.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/TestKit/Goldens.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/TestKit/RenderCompare.cpp
+)
+
+# ── Onyx::Exchange — exporters, domain-data-out (spec §9) ────────────────
+# T5 (M5): glTF export of Parsers::SceneData via cgltf. Core-only, same as
+# TestKit above -- an exporter has no more business touching the renderer
+# than a test harness does; the whole point (spec §9's own words) is that
+# glTF opened in Blender is validation NOT written by us, independent of
+# our renderer, which only holds if this layer cannot smuggle renderer
+# state into the file it writes.
+set(ONYX_EXCHANGE_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Exchange/GltfExport.cpp
+)
+
+# ── Onyx::CliRender — CmdRender, the one Cli surface that touches the
+# renderer (M5 Task 6, fixes public-surface-audit finding G1) ─────────────
+# `Onyx::Cli::CmdRender` (Include/Onyx/Cli/Render.h) needs both Onyx_Core
+# (Workspace/DecoderRegistry/SceneData) and Onyx_Render (VkContext,
+# Pipelines, SceneRendererVk, OffscreenTarget) -- a real dependency neither
+# Onyx_Core nor Onyx_Render may carry themselves: Onyx_Render already links
+# Onyx_Core PUBLIC (below), so Onyx_Core linking back to reach the
+# renderer would be a real CMake cycle, not just a layering smell. Before
+# this task, Render.cpp's only home was compiled straight into the
+# onyxbox-cli executable (Examples/OnyxCli/), which meant the public
+# header's declared symbol shipped in no library at all -- see Render.h's
+# own top comment for the audit's cold-start proof. This target is the
+# "fourth library above both" the audit itself proposed: it depends on
+# Onyx_Core and Onyx_Render, and nothing in either of them depends back on
+# it, so the cycle simply cannot form.
+set(ONYX_CLIRENDER_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Cli/Render.cpp
+)
+
 set(ONYX_MEDIA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/TexturePool.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/VideoPlayer.cpp
@@ -403,14 +496,15 @@ set(ONYX_RENDER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/Camera.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/JointPalette.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/RenderBatch.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/OffscreenTarget.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/Pipelines.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/RenderContext.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/SceneRendererVk.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/TexturePool.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VkContext.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VkResources.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VmaImpl.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/RenderToImage.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/OffscreenTarget.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/Pipelines.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/RenderContext.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/SceneRendererVk.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/TexturePool.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/VkContext.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/VkResources.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/VmaImpl.cpp
 )
 
 set(ONYX_SHELL_SOURCES
@@ -475,7 +569,8 @@ endif()
 file(GLOB_RECURSE _onyx_all_cpp CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp")
 set(_onyx_listed ${ONYX_CORE_SOURCES}
-                 ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES} ${ONYX_RENDER_SOURCES})
+                 ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES} ${ONYX_RENDER_SOURCES}
+                 ${ONYX_TESTKIT_SOURCES} ${ONYX_EXCHANGE_SOURCES} ${ONYX_CLIRENDER_SOURCES})
 foreach(_f ${_onyx_all_cpp})
     if(NOT _f IN_LIST _onyx_listed)
         message(FATAL_ERROR "Source file not assigned to a layer: ${_f}")
@@ -507,6 +602,44 @@ add_library(Onyx::Core ALIAS Onyx_Core)
 onyx_apply_common(Onyx_Core)
 target_link_libraries(Onyx_Core PUBLIC glm::glm lz4_lib)
 
+# ── Onyx::TestKit — golden snapshots, decode smoke, render compare ───────
+# Task 1 (M5): ships with the SDK so every toolkit built on Onyx is "born
+# testable" (spec §10) -- extracted from what this repo already grew during
+# M4 (Tools/OnyxOracle/ImageCompare.{h,cpp}, the four-knob comparator) plus
+# new tree-snapshot/decode-smoke helpers following Tests/cli_test.cpp's
+# fixture and tree-walking patterns. See Include/Onyx/TestKit/RenderCompare.h
+# for the "why Core-only, no Render" design call: none of Goldens/
+# DecodeSmoke/RenderCompare ever touch a GPU or renderer type -- RenderCompare
+# reads PNG files (stb_image) and does pixel-buffer math, nothing more -- so
+# there is exactly one TestKit target, not a split headless/render pair: a
+# headless-only toolkit never pulls in Onyx::Render by linking this at all.
+add_library(Onyx_TestKit STATIC ${ONYX_TESTKIT_SOURCES})
+add_library(Onyx::TestKit ALIAS Onyx_TestKit)
+onyx_apply_common(Onyx_TestKit)
+target_link_libraries(Onyx_TestKit PUBLIC Onyx_Core)
+target_include_directories(Onyx_TestKit PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
+
+# ── Onyx::Exchange — glTF export; Core ONLY, never the renderer ─────────
+# T5 (M5, spec §9). Links Onyx_Core alone -- NOT Onyx_Render, deliberately:
+# Onyx_Render already links Onyx_Core PUBLIC (below), so the reverse link
+# would be a real CMake cycle (the exact reason CmdRender's own Run()
+# dispatch stays in Onyx_Core via an injected RenderFn hook rather than a
+# direct call -- see Include/Onyx/Cli/Render.h's top comment for the
+# fully-written-out precedent this target's own placement in
+# Include/Onyx/Cli/Gltf.h follows). GltfExport.cpp reads Parsers::SceneData/ObjectData
+# fields directly (the same ones Source/Rendering/JointPalette.cpp reads
+# to skin the mesh at draw time) and re-derives the rest-pose local TRS +
+# reuses the file's own inverse-bind matrices verbatim -- see that file's
+# top comment for the derivation and its citation of JointPalette.cpp as
+# the oracle it must not silently diverge from.
+add_library(Onyx_Exchange STATIC ${ONYX_EXCHANGE_SOURCES})
+add_library(Onyx::Exchange ALIAS Onyx_Exchange)
+onyx_apply_common(Onyx_Exchange)
+target_link_libraries(Onyx_Exchange PUBLIC Onyx_Core)
+target_include_directories(Onyx_Exchange PRIVATE
+    ${cgltf_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
+
 # ── Onyx::Render — Vulkan 1.3 renderer; Core + volk + VMA only ───────────
 # T9 links this PUBLIC into Onyx::Shell below (Window.cpp owns the
 # VkContext/swapchain/RenderContext the whole app presents through). Task
@@ -520,7 +653,7 @@ onyx_apply_common(Onyx_Render)
 target_compile_definitions(Onyx_Render PUBLIC
     VK_NO_PROTOTYPES
     VMA_STATIC_VULKAN_FUNCTIONS=0)
-# T3's fixed camera convention (Include/Onyx/RenderVk/Pipelines.h's "Camera
+# T3's fixed camera convention (Include/Onyx/Rendering/Pipelines.h's "Camera
 # convention" note): every source that builds a projection matrix via
 # <glm/gtc/matrix_transform.hpp> gets Vulkan's [0,1] clip-space Z instead of
 # GL's [-1,1].
@@ -565,19 +698,34 @@ target_link_libraries(Onyx_Render PUBLIC
     volk::volk
     Vulkan::Headers
     GPUOpen::VulkanMemoryAllocator)
-# T3: compile Source/RenderVk/Shaders/*.vert|*.frag to embedded SPIR-V
+# T3: compile Source/Rendering/Shaders/*.vert|*.frag to embedded SPIR-V
 # headers (cmake/ShaderCompile.cmake) -- must run after the target and its
 # link libraries exist (onyx_add_spirv adds an include dir + a build-order
 # dependency onto Onyx_Render itself).
 onyx_add_spirv(Onyx_Render
-    Source/RenderVk/Shaders/scene.vert
-    Source/RenderVk/Shaders/scene.frag
-    Source/RenderVk/Shaders/grid.vert
-    Source/RenderVk/Shaders/grid.frag
-    Source/RenderVk/Shaders/background.vert
-    Source/RenderVk/Shaders/background.frag
-    Source/RenderVk/Shaders/overlay.vert
-    Source/RenderVk/Shaders/overlay.frag)
+    Source/Rendering/Shaders/scene.vert
+    Source/Rendering/Shaders/scene.frag
+    Source/Rendering/Shaders/grid.vert
+    Source/Rendering/Shaders/grid.frag
+    Source/Rendering/Shaders/background.vert
+    Source/Rendering/Shaders/background.frag
+    Source/Rendering/Shaders/overlay.vert
+    Source/Rendering/Shaders/overlay.frag)
+
+# ── Onyx::CliRender — CmdRender; links Core + Render, nothing links back
+# into it (M5 Task 6) ─────────────────────────────────────────────────────
+# See ONYX_CLIRENDER_SOURCES' own comment above for why this needs to be a
+# separate target at all. No LayerGuard ctest entry for the same reason
+# Onyx_Exchange has none (see that target's own comment above): CMake's
+# target graph already makes the forbidden cycle unbuildable -- Onyx_Core
+# and Onyx_Render both link PUBLIC away from this target, never toward it,
+# so there is nothing a grep-based guard would need to catch that the
+# configure step would not already refuse to build.
+add_library(Onyx_CliRender STATIC ${ONYX_CLIRENDER_SOURCES})
+add_library(Onyx::CliRender ALIAS Onyx_CliRender)
+onyx_apply_common(Onyx_CliRender)
+target_link_libraries(Onyx_CliRender PUBLIC Onyx_Core Onyx_Render)
+target_include_directories(Onyx_CliRender PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
 
 # ── Onyx::Shell — the ImGui application framework ────────────────────────
 add_library(Onyx_Shell STATIC
@@ -612,7 +760,7 @@ if(ONYX_COMPONENT_MEDIA)
     # needs Onyx::Rendering::Resources/VkContext to upload frames as Vulkan
     # textures -- Onyx_Media cannot link Onyx_Shell to reach the same
     # symbols (that would be the real link cycle the dual-compile avoids),
-    # but linking the lower RenderVk layer directly is cycle-free.
+    # but linking the lower Render layer directly is cycle-free.
     target_link_libraries(Onyx_Media PUBLIC Onyx_Core Onyx_Render imgui_lib miniaudio ffmpeg_lib)
     target_link_libraries(Onyx_Shell PUBLIC Onyx_Media)
 endif()
@@ -672,6 +820,14 @@ endif()
 # at Task 11). Unconditional: its ctest entries (VkBootSmoke,
 # VkOracleParity, ...) are part of the standard suite, not example-gated.
 add_subdirectory(Tools/OnyxOracle)
+
+# Tools/ColdStart -- the umbrella's compile-and-link exam. Links Onyx::Onyx
+# alone, exactly as README's "Consuming Onyx" tells a stranger to, so a
+# declaration the umbrella hands over whose symbol ships in some other
+# target fails the build here instead of in a consumer's project. See that
+# directory's own CMakeLists.txt for why the raw `cl /c` step in
+# .github/workflows/ci.yml stays alongside it.
+add_subdirectory(Tools/ColdStart)
 
 if(ONYX_BUILD_TESTS)
     FetchContent_Declare(
@@ -733,6 +889,13 @@ if(ONYX_BUILD_TESTS)
         -DLISTFILE=${CMAKE_BINARY_DIR}/layerguard-render.txt
         "-DFORBIDDEN=imgui|implot|GLFW/|glad|GL/"
         -P ${CMAKE_SOURCE_DIR}/cmake/LayerGuard.cmake)
+    # Onyx::Exchange (T5, M5) has no LayerGuard ctest entry of its own --
+    # CMake's own target graph already makes the forbidden dependency
+    # impossible to build (Onyx_Exchange links Onyx_Core only; linking
+    # Onyx_Render from here would be the real cycle Include/Onyx/Cli/
+    # Render.h's top comment documents, not just a style smell a grep-based
+    # guard would need to catch). GltfExport.cpp's own top comment records
+    # the same constraint for a human reader.
 
     add_subdirectory(Tests)
 endif()

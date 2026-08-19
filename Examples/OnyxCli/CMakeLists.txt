@@ -1,59 +1,94 @@
 # -- OnyxCli -- headless probe/list/extract/decode/render CLI over OnyxBox -
 # Proves Task 6's Onyx::Cli::Run dispatcher against the synthetic OnyxBox
 # module (probe/list/extract/decode: no UI, no GPU -- Onyx_Core +
-# Onyx_ExampleBox only), PLUS Task 14's `render` command, which needs a
-# headless Vulkan renderer (Onyx::Render). Render.cpp -- the CmdRender
-# implementation -- lives right here in Examples/OnyxCli/ (NOT Source/Cli/,
-# despite Include/Onyx/Cli/Render.h's own location) and is added directly
-# to THIS target's own sources rather than to Onyx_Core: Onyx_Core is
-# documented "no UI, no GPU" and Onyx_Render already links Onyx_Core
-# PUBLIC (root CMakeLists.txt), so giving Onyx_Core a reverse dependency on
-# Onyx_Render would be a real link cycle, not just a layering smell.
-# Concretely forced here, not just architecturally motivated: root
-# CMakeLists.txt's completeness check globs Source/*.cpp and requires every
-# match be listed in exactly one of the four ONYX_*_SOURCES layer lists
-# (Core/Media/Shell/Render -- Task 11 folded the fifth, RenderVk, into
-# Render when it deleted the GL renderer that used to hold that name) -- a
-# file compiled straight into an executable, claimed by none of them,
-# fails that configure-time check the moment it lives under Source/.
-# Examples/ is outside the glob, which is exactly the boundary this file
-# needs. This executable is the one place Onyx_Core and Onyx::Render may
-# meet -- see Include/Onyx/Cli/Render.h's top comment for the full writeup.
+# Onyx_ExampleBox only), PLUS `render` (Task 14, moved into the SDK proper
+# at M5 Task 6). `render`'s implementation, CmdRender, no longer lives in
+# this directory at all -- it moved to Source/Cli/Render.cpp, compiled into
+# the shipped Onyx_CliRender library (root CMakeLists.txt), fixing the
+# public-surface-audit finding (G1) that the public Include/Onyx/Cli/
+# Render.h declared a symbol shipping in no library. This executable is
+# simply a CONSUMER of that library now, same as it consumes Onyx_Core --
+# no Vulkan/renderer source lives under Examples/ any more. See
+# Include/Onyx/Cli/Render.h's top comment for the full history and the
+# link-cycle reasoning (Onyx_Core cannot link Onyx_Render or
+# Onyx_CliRender directly; Onyx_CliRender links Onyx_Core + Onyx_Render
+# PUBLIC, the other direction).
+#
+# `render`'s argv parsing (--out/--width/--height/--views/--strict) also
+# moved into the SDK: Onyx::Cli::Run() (Source/Cli/Commands.cpp) now
+# recognizes "render" itself, reaching CmdRender through an injected
+# RenderFn hook (Include/Onyx/Cli/Commands.h's own doc comment) rather
+# than Main.cpp special-casing the verb before falling through to Run() --
+# Main.cpp below just passes `Onyx::Cli::CmdRender` itself as that hook,
+# since Onyx::CliRender is a library it links like any other.
+#
+# Gltf.cpp (M5 Task 5) -- MakeGltfExportFn, the SceneExportFn-shaped bridge
+# `decode --to gltf` needs between Onyx_Core (Commands.cpp, which cannot
+# link Onyx_Exchange for the identical reason it cannot link Onyx::Render
+# -- see Include/Onyx/Cli/Gltf.h's top comment) and Onyx::Exchange. This is
+# the one CmdRender-adjacent case that still uses the injected-callback
+# shape end to end (Include/Onyx/Cli/Render.h's own top comment explains
+# why `render` itself does not): unlike CmdRender, `Onyx::Exchange::
+# ExportSceneData` is not the thing being shipped here -- the SceneExportFn
+# TYPE (Commands.h) is Onyx_Core's public contract, and any composition
+# root that links Onyx::Exchange can bind its own hook the same way this
+# one does, with no SDK-side "the symbol itself must be linkable" claim
+# like Render.h makes for CmdRender.
 add_executable(onyxbox-cli
     ${CMAKE_CURRENT_SOURCE_DIR}/Main.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Render.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Gltf.cpp
 )
-target_include_directories(onyxbox-cli PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb)
-# Task 11 closed the link-completeness gap this comment used to document:
-# onyxbox-cli was the FIRST target in the tree to link the Vulkan renderer
-# (Onyx::RenderVk, since renamed Onyx::Render -- Task 11's own mechanical
-# rename commit) without also linking the GL one (Onyx::Render at the
-# time, deleted along with the rest of the GL renderer in the same task),
-# which exposed that the Vulkan renderer was not actually link-complete
-# standalone -- Source/RenderVk/SceneRendererVk.cpp called Onyx::Rendering::
-# SceneRenderer::ResolveRoleIndices (namespace Onyx::Rendering was, and
-# still is, the GL-and-then-shared renderer namespace; SceneRenderer was
-# the GL class), whose only DEFINITION lived in the GL-only
-# Source/Rendering/SceneRenderer.cpp. That method (now a free function,
-# Onyx::Rendering::ResolveRoleIndices) moved to Source/Rendering/
-# RenderBatch.cpp -- part of the renderer's own source list -- and
-# Onyx::Rendering::Camera's own AppConfig::Get() call (the other half of
-# why this executable, and Tools/OnyxOracle, each needed their own
-# AppConfigStub.cpp) moved out to Onyx::Viewers::Viewport3D, the one Shell
-# class that actually owns both a Camera and AppConfig. The renderer links
-# standalone now with zero stubs, and is the only renderer left in the
-# tree, so there is nothing left to link here but Onyx::Render itself.
-target_link_libraries(onyxbox-cli PRIVATE Onyx_Core Onyx_ExampleBox Onyx::Render)
+# No third_party/stb include dir needed here any more -- WritePng's own
+# stb_image_write.h use moved with Render.cpp into Onyx_CliRender, which
+# declares that include dir on itself (root CMakeLists.txt).
+# Onyx::CliRender pulls in Onyx::Render (and Onyx::Core) PUBLIC on its own
+# (root CMakeLists.txt), so listing Onyx_Core/Onyx::Render here too is
+# belt-and-suspenders, not strictly required -- kept explicit for the same
+# reason this target has always spelled out its own link set in full.
+target_link_libraries(onyxbox-cli PRIVATE
+    Onyx::Core
+    Onyx_ExampleBox      # example-local, not an SDK target: no Onyx:: alias
+    Onyx::CliRender
+    Onyx::Exchange)
 
 # OnyxCliRender (Task 14): device-gated (SKIP 77, same convention as every
 # onyx-oracle Vk* ctest) -- writes a mesh fixture via `write-render-fixture`,
 # renders it twice independently through `render`, and asserts both PNGs
-# exist and are byte-identical. See RenderTest.cmake's own top comment for
-# why "non-uniform" is enforced inside CmdRender itself (Source/Cli/
-# Render.cpp) rather than re-checked here.
+# exist and are byte-identical. Regression bar for M5 Task 6: this must
+# keep passing completely unchanged -- `render`'s argv now flows through
+# Onyx::Cli::Run() instead of Main.cpp's own parsing, and the default
+# (no --views) camera is still exactly the "iso" view's 45deg-yaw/15deg-
+# pitch orbit, so the two runs' PNGs stay byte-identical to before this
+# task. See RenderTest.cmake's own top comment for why "non-uniform" is
+# enforced inside CmdRender itself (Source/Cli/Render.cpp) rather than
+# re-checked here.
 add_test(NAME OnyxCliRender
     COMMAND ${CMAKE_COMMAND}
       -DCLI=$<TARGET_FILE:onyxbox-cli>
       -DWORK=${CMAKE_CURRENT_BINARY_DIR}/render-test
       -P ${CMAKE_CURRENT_SOURCE_DIR}/RenderTest.cmake)
 set_tests_properties(OnyxCliRender PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")
+
+# OnyxCliRenderViews (M5 Task 6, spec §11's `--views` flag): renders all
+# six kCanonicalViews (Include/Onyx/Cli/Commands.h) in one `render` call
+# and asserts all six PNGs exist. See RenderViewsTest.cmake's own top
+# comment.
+add_test(NAME OnyxCliRenderViews
+    COMMAND ${CMAKE_COMMAND}
+      -DCLI=$<TARGET_FILE:onyxbox-cli>
+      -DWORK=${CMAKE_CURRENT_BINARY_DIR}/render-views-test
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/RenderViewsTest.cmake)
+set_tests_properties(OnyxCliRenderViews PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")
+
+# OnyxCliRenderStrict (M5 Task 6, spec §11's `--strict` flag): renders a
+# fixture that carries a document-level Error diag (a corrupt sibling
+# entry, same shape Tests/cli_test.cpp's WriteSampleBox uses for
+# `decode --strict`'s own test) and asserts `--strict` turns that into a
+# nonzero exit while the render itself still succeeds and writes a PNG.
+# See RenderStrictTest.cmake's own top comment.
+add_test(NAME OnyxCliRenderStrict
+    COMMAND ${CMAKE_COMMAND}
+      -DCLI=$<TARGET_FILE:onyxbox-cli>
+      -DWORK=${CMAKE_CURRENT_BINARY_DIR}/render-strict-test
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/RenderStrictTest.cmake)
+set_tests_properties(OnyxCliRenderStrict PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")

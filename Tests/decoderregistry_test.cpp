@@ -37,7 +37,7 @@ ImageDecoder MakeImageDecoder() {
 // Helper to create a simple text decoder
 TextDecoder MakeTextDecoder() {
     return [](DecodeContext&) {
-        return std::make_optional(TextOut{"test", "json"});
+        return std::make_optional(DecodedText{"test", "json"});
     };
 }
 

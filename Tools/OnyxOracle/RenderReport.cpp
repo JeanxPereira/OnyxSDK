@@ -94,10 +94,10 @@ void AppendBool(std::string& out, bool v) {
 // Include/Onyx/Rendering/RenderBatch.h) -- extend this list alongside it
 // when that lands.
 int CountBoundRoleTextures(const RenderBatch& b) {
-    const GLuint slots[] = {b.texture0, b.texture1, b.texNormal,
-                             b.texAO,    b.texGloss, b.texScatter};
+    const uint32_t slots[] = {b.texture0, b.texture1, b.texNormal,
+                               b.texAO,    b.texGloss, b.texScatter};
     int count = 0;
-    for (GLuint id : slots) {
+    for (uint32_t id : slots) {
         if (id != 0) ++count;
     }
     return count;

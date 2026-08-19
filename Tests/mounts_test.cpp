@@ -865,7 +865,7 @@ TEST_CASE("OnyxBox obxpak: decoding boxB's shared.txt by entry (not by name-only
     // module's registered DecoderRegistry entry for this exact AssetEntry.
     Onyx::Services::Progress progress;
     Onyx::Modules::DecodeContext ctx{*doc, *boxBShared, doc->diags, progress};
-    std::optional<Onyx::Modules::TextOut> decoded = ws.Decoders().DecodeText(ctx);
+    std::optional<Onyx::Modules::DecodedText> decoded = ws.Decoders().DecodeText(ctx);
 
     REQUIRE(decoded.has_value());
     CHECK(decoded->text == "FROM-BOX-B");   // NOT "FROM-BOX-A" -- the bug this fix closes

@@ -23,7 +23,7 @@ using Onyx::Modules::OpenFilter;
 using Onyx::Modules::ParseResult;
 using Onyx::Modules::ProbeInput;
 using Onyx::Modules::ProbeResult;
-using Onyx::Modules::TextOut;
+using Onyx::Modules::DecodedText;
 using Onyx::Services::Diag;
 using Onyx::Services::Severity;
 
@@ -252,7 +252,7 @@ Onyx::Parsers::MeshPart BuildCubePart(const glm::vec3& center, const glm::vec3& 
     // per-face) chosen so every face's 4 corners wind counter-clockwise
     // when viewed from outside along -normal (consistent front-face
     // winding, even though the scene pipelines currently render with
-    // VK_CULL_MODE_NONE -- Source/RenderVk/Pipelines.cpp -- so this does
+    // VK_CULL_MODE_NONE -- Source/Rendering/Pipelines.cpp -- so this does
     // not yet affect visibility, only correctness-by-convention).
     const std::array<Face, 6> kFaces = {{
         {{ 1, 0, 0}, {0, 0,-1}, {0, 1, 0}},  // +X
@@ -627,7 +627,7 @@ std::unique_ptr<Onyx::Parsers::TextureData> OnyxBoxModule::DecodeImage(DecodeCon
     return tex;
 }
 
-std::optional<TextOut> OnyxBoxModule::DecodeText(DecodeContext& ctx) {
+std::optional<DecodedText> OnyxBoxModule::DecodeText(DecodeContext& ctx) {
     const uint32_t fileIndex = ctx.entry.source.fileIndex;
     const TocEntry* te = FindTocEntry(ctx.doc, ctx.entry.name, fileIndex);
     if (!te) {
@@ -654,7 +654,7 @@ std::optional<TextOut> OnyxBoxModule::DecodeText(DecodeContext& ctx) {
         return std::nullopt;
     }
 
-    return TextOut{text, ""};
+    return DecodedText{text, ""};
 }
 
 std::unique_ptr<Onyx::Parsers::SceneData> OnyxBoxModule::DecodeMesh(DecodeContext& ctx) {

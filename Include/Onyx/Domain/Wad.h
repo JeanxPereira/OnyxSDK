@@ -29,6 +29,3 @@ struct AssetContainer {
 };
 
 } // namespace Onyx::Domain
-
-// Backwards-compat alias — keep existing call sites compiling at global scope.
-using AssetContainer = Onyx::Domain::AssetContainer;

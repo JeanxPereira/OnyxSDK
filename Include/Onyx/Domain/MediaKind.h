@@ -9,12 +9,12 @@ namespace Onyx::Domain {
 /// This abstraction allows the UI to be game-agnostic.
 enum class MediaKind : uint8_t {
     Unknown,
-    Image,    // GOW1/2 TXR, GOWR TexturePair, etc.
-    Mesh,     // GOW1/2/R 3D models
+    Image,    // any decoded 2D pixel surface, regardless of the source container's texture format
+    Mesh,     // any parsed 3D model/geometry asset, regardless of the source container's mesh format
     Material, // Material definitions
     Skeleton, // Rig / Bones / Object instances
     Animation,// Animation clips
-    Audio,    // VAG, SBK, GOWR audio
+    Audio,    // any decoded audio clip, regardless of the source container's audio codec (e.g. VAG, SBK)
     Video,    // VPK, PSS, PSW
     Script,   // Game scripts
     Map,      // Contexts / Scenes

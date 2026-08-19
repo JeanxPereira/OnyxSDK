@@ -8,14 +8,20 @@
 
 #include <CorpusScenes.h>
 #include <CorpusTextures.h>
-#include <ImageCompare.h>
 #include <RenderReport.h>
+
+#include <Onyx/TestKit/RenderCompare.h>
 
 #include <clocale>
 #include <cmath>
 #include <cstring>
 
 using namespace Onyx::OracleTool;
+// ImageCompare (ImageCompareResult/CompareRGBA/WithinTolerance) moved into
+// Onyx::TestKit at Task 1 (M5) -- see Include/Onyx/TestKit/RenderCompare.h.
+// These tests still exercise it directly (not through CompareImages) to
+// keep the granular per-tier coverage the M4 fix round wrote.
+using namespace Onyx::TestKit;
 using Onyx::Parsers::TextureData;
 
 namespace {

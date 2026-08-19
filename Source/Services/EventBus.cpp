@@ -83,7 +83,7 @@ void EventBus::Pump() {
             try {
                 invoke(queued.data.get());
             } catch (...) {
-                LOG_ERR("[EventBus] handler threw during Pump; continuing");
+                ONYX_LOGF_ERR("[EventBus] handler threw during Pump; continuing");
             }
         }
     }

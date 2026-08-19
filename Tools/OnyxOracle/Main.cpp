@@ -1,15 +1,16 @@
 #include "PngWrite.h"
-#include "PngRead.h"
-#include "ImageCompare.h"
 #include "CorpusScenes.h"
 #include "RenderReport.h"
+#include "RenderToImageSmoke.h"
 
-#include <Onyx/RenderVk/OffscreenTarget.h>
-#include <Onyx/RenderVk/Pipelines.h>
-#include <Onyx/RenderVk/RenderContext.h>
-#include <Onyx/RenderVk/SceneRendererVk.h>
-#include <Onyx/RenderVk/VkContext.h>
-#include <Onyx/RenderVk/VkResources.h>
+#include <Onyx/Rendering/RenderToImage.h> // M5 Task 7: RunRenderCorpusVk's pixel path
+#include <Onyx/Rendering/OffscreenTarget.h>
+#include <Onyx/Rendering/Pipelines.h>
+#include <Onyx/Rendering/RenderContext.h>
+#include <Onyx/Rendering/SceneRendererVk.h>
+#include <Onyx/Rendering/VkContext.h>
+#include <Onyx/Rendering/VkResources.h>
+#include <Onyx/TestKit/RenderCompare.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -86,6 +87,19 @@ void PrintHelp() {
         "      assertion/GPU failure, 77 if no Vulkan-capable device/driver is\n"
         "      found.\n"
         "\n"
+        "  onyx-oracle --render-to-image-smoke\n"
+        "      M5 Task 7: renders the blend-stack corpus scene through\n"
+        "      Onyx::Rendering::RenderToImage's one-shot overload (the ready\n"
+        "      floor's own entry point -- Include/Onyx/Rendering/RenderToImage.h),\n"
+        "      twice independently, asserting non-uniform output and byte-\n"
+        "      identical reproducibility -- the same shape --vk-scene-smoke's\n"
+        "      blend-stack check uses, but through the ready floor instead of the\n"
+        "      raw VkContext/Pipelines/OffscreenTarget/SceneRendererVk sequence.\n"
+        "      This check's own source is written without including a single\n"
+        "      Vulkan header -- the proof that entry point needs no Vulkan\n"
+        "      knowledge to use. Exit 0 on success, 1 on any assertion failure,\n"
+        "      77 if no Vulkan-capable device/driver is found.\n"
+        "\n"
         "  onyx-oracle render-corpus --out DIR [--renderer vk]\n"
         "      Renders all 5 corpus scenes to DIR/<name>.png + DIR/<name>.json,\n"
         "      printing one summary line per scene, through VkContext/\n"
@@ -121,7 +135,7 @@ void PrintHelp() {
         "      per-pixel, per-channel; a PNG whose two files decode to different\n"
         "      dimensions always fails, regardless of the four flags below. Four\n"
         "      independent tiers must all pass (T7 fix-round's amended gate --\n"
-        "      see Tools/OnyxOracle/ImageCompare.h for the full reasoning):\n"
+        "      see Include/Onyx/TestKit/RenderCompare.h for the full reasoning):\n"
         "        --max-channel-delta N     largest |a-b| on any channel, any\n"
         "                                  pixel (a hard-cap tripwire only --\n"
         "                                  coverage-only edge deltas are bounded\n"
@@ -216,7 +230,7 @@ bool ReadWholeFile(const fs::path& path, std::vector<char>& out) {
 // this corpus's specific camera geometry.
 //
 // The correction itself has a name -- Onyx::Rendering::VulkanProjection
-// (Include/Onyx/RenderVk/Pipelines.h, right next to the Camera convention
+// (Include/Onyx/Rendering/Pipelines.h, right next to the Camera convention
 // note this comment used to duplicate) -- so every future Vulkan camera
 // call site in this codebase applies the SAME helper instead of each
 // reinventing "negate [1][1]" on its own (which is exactly how this
@@ -671,7 +685,7 @@ int RunVkSceneSmoke() {
     }
 
     // ── RenderContext pass smoke (T8) ───────────────────────────────────
-    // Proves the raw-floor RenderContext (Include/Onyx/RenderVk/
+    // Proves the raw-floor RenderContext (Include/Onyx/Rendering/
     // RenderContext.h) actually lets a caller record real Vulkan commands
     // into the frame, at the exact point in the frame the Shell's T9
     // Execute() call will sit: after the scene draw, before EndFrame/UI.
@@ -798,16 +812,38 @@ int RunRenderCorpusVk(const fs::path& outDir) {
         return 77;
     }
 
-    Onyx::Rendering::ScenePipelines scenePipes;
-    if (!Onyx::Rendering::Pipelines::CreateScene(ctx, scenePipes, err)) {
+    // M5 Task 7: this loop's PIXEL path (target create, SceneRendererVk::
+    // Build, the OneShot BeginFrame/RenderBackground/Render/EndFrame
+    // recording, Readback, and unwinding all of it) now goes through
+    // Include/Onyx/Rendering/RenderToImage.h's context-reusing overload --
+    // see that header's own top comment for the full contract, including
+    // why it grew hasBackground/backgroundTop/backgroundBottom fields
+    // specifically so this loop (named in that header's own doc comment)
+    // could move onto it without dropping the gradient every corpus PNG's
+    // non-geometry pixels show. RenderToImage builds its own
+    // ScenePipelines[+BackgroundPipeline] fresh on every call rather than
+    // sharing the single `scenePipes`/`bgPipe` this loop used to create
+    // once outside it -- functionally identical rasterization either way
+    // (a VkPipeline built from the same shaders/state produces the same
+    // pixels regardless of which specific pipeline object draws them), so
+    // this does not touch VkOracleParity/OracleReproducible's byte-
+    // identical-goldens gate; it costs 5x pipeline creation instead of 1x
+    // for this 5-scene corpus, an acceptable trade for a tool that is not
+    // itself perf-sensitive.
+    //
+    // `reportPipes`/`reportRenderer` below are a SEPARATE, second Build()
+    // this loop still does per scene -- not for pixels (Build() alone
+    // never creates a target, records a command buffer, or reads back a
+    // pixel, so it cannot affect the PNG's bytes), but because
+    // RenderToImage's contract is deliberately scene-in/rgba-out only and
+    // does not expose the SceneRendererVk it builds internally to produce
+    // the PNG; BuildReport() below needs that instance's GetBatches() (and
+    // each batch's jointMap size) for the JSON report, which RenderToImage
+    // was never meant to answer -- "what did the scene resolve to" is a
+    // different question from "what did it render to".
+    Onyx::Rendering::ScenePipelines reportPipes;
+    if (!Onyx::Rendering::Pipelines::CreateScene(ctx, reportPipes, err)) {
         std::fprintf(stderr, "render-corpus: %s\n", err.c_str());
-        ctx.Shutdown();
-        return 1;
-    }
-    Onyx::Rendering::BackgroundPipeline bgPipe;
-    if (!Onyx::Rendering::Pipelines::CreateBackground(ctx, bgPipe, err)) {
-        std::fprintf(stderr, "render-corpus: %s\n", err.c_str());
-        Onyx::Rendering::Pipelines::Destroy(ctx, scenePipes);
         ctx.Shutdown();
         return 1;
     }
@@ -815,57 +851,36 @@ int RunRenderCorpusVk(const fs::path& outDir) {
     std::error_code ec;
     fs::create_directories(outDir, ec);
 
-    // Same clear color HeadlessGL::BeginFrame uses (black) before its own
-    // RenderBackground call -- the background pipeline is depth-off/
-    // blend-off and draws a fullscreen triangle covering every pixel, so
-    // the clear color underneath is always fully overdrawn on both paths;
+    // Same clear color HeadlessGL::BeginFrame used to use (black) before
+    // its own RenderBackground call -- the background pipeline is depth-
+    // off/blend-off and draws a fullscreen triangle covering every pixel,
+    // so the clear color underneath is always fully overdrawn either way;
     // kept identical anyway so nothing about this frame's setup diverges
-    // from the GL path for a reason that isn't the renderer itself. Same
-    // top/bottom gradient colors RunRenderCorpus feeds SceneRenderer::
-    // RenderBackground above (neutral, not app-config dependent).
-    const float clearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    // from the (now-deleted) GL path for a reason that isn't the renderer
+    // itself. Same top/bottom gradient colors this loop has always fed
+    // RenderBackground (neutral, not app-config dependent).
+    const glm::vec4 clearColor(0.0f, 0.0f, 0.0f, 1.0f);
     const glm::vec3 topColor(0.10f, 0.11f, 0.13f);
     const glm::vec3 bottomColor(0.03f, 0.03f, 0.04f);
 
     int rc = 0;
     std::vector<CorpusScene> corpus = Onyx::OracleTool::BuildCorpus();
     for (const CorpusScene& cs : corpus) {
-        Onyx::Rendering::OffscreenTarget target;
-        if (!target.Create(ctx, cs.width, cs.height, err)) {
-            std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
-            rc = 1;
-            break;
-        }
-
-        Onyx::Rendering::SceneRendererVk renderer;
-        if (!renderer.Build(ctx, scenePipes, cs.scene, err)) {
-            std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
-            renderer.Clear(ctx);
-            target.Destroy(ctx);
-            rc = 1;
-            break;
-        }
-
-        bool bgOk = true;
-        bool ok = Onyx::Rendering::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
-            target.BeginFrame(cmd, clearColor);
-            bgOk = renderer.RenderBackground(ctx, bgPipe, cmd, topColor, bottomColor, err);
-            renderer.Render(cmd, cs.view, VkProj(cs.proj), cs.mode, cs.width, cs.height);
-            target.EndFrame(cmd);
-        }, err);
-        if (!ok || !bgOk) {
-            std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
-            renderer.Clear(ctx);
-            target.Destroy(ctx);
-            rc = 1;
-            break;
-        }
+        // cs.proj is CorpusScenes.cpp's own plain glm::perspective() result
+        // (never VulkanProjection()-converted there) -- exactly the "plain
+        // projection" RenderToImage's own contract wants (see its header's
+        // "the projection-convention decision"); it applies the Y-flip
+        // internally now, so VkProj()'s call site that used to sit right
+        // here is gone.
+        Onyx::Rendering::RenderRequest request{cs.scene, cs.width, cs.height, cs.view, cs.proj, cs.mode};
+        request.hasBackground    = true;
+        request.backgroundTop    = topColor;
+        request.backgroundBottom = bottomColor;
+        request.clearColor       = clearColor;
 
         std::vector<uint8_t> rgba;
-        if (!target.Readback(ctx, rgba, err)) {
+        if (!Onyx::Rendering::RenderToImage(ctx, request, rgba, err)) {
             std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
-            renderer.Clear(ctx);
-            target.Destroy(ctx);
             rc = 1;
             break;
         }
@@ -875,13 +890,19 @@ int RunRenderCorpusVk(const fs::path& outDir) {
         fs::path pngPath = outDir / (cs.name + ".png");
         if (!Onyx::OracleTool::WritePng(pngPath, cs.width, cs.height, rgba, err)) {
             std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
-            renderer.Clear(ctx);
-            target.Destroy(ctx);
             rc = 1;
             break;
         }
 
-        std::vector<Onyx::Rendering::RenderBatch>& batches = renderer.GetBatches();
+        Onyx::Rendering::SceneRendererVk reportRenderer;
+        if (!reportRenderer.Build(ctx, reportPipes, cs.scene, err)) {
+            std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
+            reportRenderer.Clear(ctx);
+            rc = 1;
+            break;
+        }
+
+        std::vector<Onyx::Rendering::RenderBatch>& batches = reportRenderer.GetBatches();
         std::vector<size_t> paletteJointCounts;
         paletteJointCounts.reserve(batches.size());
         for (const auto& b : batches) paletteJointCounts.push_back(b.jointMap.size());
@@ -894,8 +915,7 @@ int RunRenderCorpusVk(const fs::path& outDir) {
         if (!jf) {
             std::fprintf(stderr, "render-corpus: %s: failed to open %s for writing\n",
                         cs.name.c_str(), jsonPath.string().c_str());
-            renderer.Clear(ctx);
-            target.Destroy(ctx);
+            reportRenderer.Clear(ctx);
             rc = 1;
             break;
         }
@@ -904,8 +924,7 @@ int RunRenderCorpusVk(const fs::path& outDir) {
         if (!jf) {
             std::fprintf(stderr, "render-corpus: %s: failed writing %s\n",
                         cs.name.c_str(), jsonPath.string().c_str());
-            renderer.Clear(ctx);
-            target.Destroy(ctx);
+            reportRenderer.Clear(ctx);
             rc = 1;
             break;
         }
@@ -913,12 +932,10 @@ int RunRenderCorpusVk(const fs::path& outDir) {
         std::printf("%s: %dx%d pixelHash=%llu batches=%zu\n", cs.name.c_str(), cs.width,
                     cs.height, static_cast<unsigned long long>(pixelHash), batches.size());
 
-        renderer.Clear(ctx);
-        target.Destroy(ctx);
+        reportRenderer.Clear(ctx);
     }
 
-    Onyx::Rendering::Pipelines::Destroy(ctx, bgPipe);
-    Onyx::Rendering::Pipelines::Destroy(ctx, scenePipes);
+    Onyx::Rendering::Pipelines::Destroy(ctx, reportPipes);
     ctx.Shutdown();
 
     if (rc == 0 && ctx.ValidationMessageCount() != 0) {
@@ -997,13 +1014,15 @@ int RunVerify(const fs::path& dirA, const fs::path& dirB) {
 // Tolerant sibling of RunVerify above: same corpus-file shape (scene list
 // from CorpusSceneNames(), item 5 -- never a hardcoded array), but PNGs
 // are decoded and compared per-pixel/per-channel against four independent
-// tolerance tiers (Onyx::OracleTool::WithinTolerance -- see ImageCompare.h
-// for the full reasoning behind each) instead of demanded byte-identical,
-// and JSONs are compared with their "pixelHash" line masked (Onyx::
-// OracleTool::JsonEqualMaskingPixelHash) instead of raw byte-for-byte --
-// see RenderReport.h's doc comment on that function for why pixelHash
-// specifically is the one field two different renderers are never
-// expected to agree on.
+// tolerance tiers (Onyx::TestKit::WithinTolerance -- see
+// Include/Onyx/TestKit/RenderCompare.h for the full reasoning behind each;
+// task 1 (M5) extracted this comparator into the SDK's TestKit module
+// verbatim, so this is the same math/tuning as before, just repointed)
+// instead of demanded byte-identical, and JSONs are compared with their
+// "pixelHash" line masked (Onyx::OracleTool::JsonEqualMaskingPixelHash)
+// instead of raw byte-for-byte -- see RenderReport.h's doc comment on that
+// function for why pixelHash specifically is the one field two different
+// renderers are never expected to agree on.
 int RunCompare(const fs::path& dirA, const fs::path& dirB, int maxChannelDelta,
                 double maxDifferingPct, double maxHighDeltaPct, double maxMae, bool emitMetrics) {
     // T11-review minor (same shape as RunVerify's own fix, extended here
@@ -1033,8 +1052,8 @@ int RunCompare(const fs::path& dirA, const fs::path& dirB, int maxChannelDelta,
             int wA = 0, hA = 0, wB = 0, hB = 0;
             std::vector<uint8_t> rgbaA, rgbaB;
             std::string errA, errB;
-            bool haveA = Onyx::OracleTool::ReadPng(pathA, wA, hA, rgbaA, errA);
-            bool haveB = Onyx::OracleTool::ReadPng(pathB, wB, hB, rgbaB, errB);
+            bool haveA = Onyx::TestKit::ReadPng(pathA, wA, hA, rgbaA, errA);
+            bool haveB = Onyx::TestKit::ReadPng(pathB, wB, hB, rgbaB, errB);
             if (!haveA || !haveB) {
                 anyMissing = true;
                 std::printf("MISSING %s (A:%s B:%s)\n", fname.c_str(),
@@ -1048,10 +1067,10 @@ int RunCompare(const fs::path& dirA, const fs::path& dirB, int maxChannelDelta,
                 continue;
             }
 
-            Onyx::OracleTool::ImageCompareResult result =
-                Onyx::OracleTool::CompareRGBA(wA, hA, rgbaA, rgbaB);
-            bool ok = Onyx::OracleTool::WithinTolerance(result, maxChannelDelta, maxDifferingPct,
-                                                        maxHighDeltaPct, maxMae);
+            Onyx::TestKit::ImageCompareResult result =
+                Onyx::TestKit::CompareRGBA(wA, hA, rgbaA, rgbaB);
+            bool ok = Onyx::TestKit::WithinTolerance(result, maxChannelDelta, maxDifferingPct,
+                                                      maxHighDeltaPct, maxMae);
             std::printf("%s %s: maxChannelDelta=%d differingPct=%.4f%% highDeltaPct=%.4f%% mae=%.4f "
                         "(tolerance: maxChannelDelta<=%d differingPct<=%.4f%% "
                         "highDeltaPct<=%.4f%% mae<=%.4f)\n",
@@ -1439,6 +1458,10 @@ int main(int argc, char** argv) {
 
     if (argc >= 2 && std::strcmp(argv[1], "--vk-scene-smoke") == 0) {
         return RunVkSceneSmoke();
+    }
+
+    if (argc >= 2 && std::strcmp(argv[1], "--render-to-image-smoke") == 0) {
+        return Onyx::OracleTool::RunRenderToImageSmoke();
     }
 
     if (argc >= 2 && std::strcmp(argv[1], "--vk-validation-selftest") == 0) {

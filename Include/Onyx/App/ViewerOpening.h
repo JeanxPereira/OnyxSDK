@@ -66,7 +66,7 @@ struct ViewerOpener {
     std::function<void(Onyx::Modules::DocumentId doc, std::string name,
                         std::unique_ptr<Onyx::Parsers::TextureData>)> openImage;
     std::function<void(Onyx::Modules::DocumentId doc, std::string name,
-                        Onyx::Modules::TextOut)>                      openText;
+                        Onyx::Modules::DecodedText)>                      openText;
     std::function<void(Onyx::Modules::DocumentId doc, std::string name,
                         std::unique_ptr<Onyx::Parsers::SceneData>)>   openScene;
 
@@ -106,7 +106,7 @@ struct ViewerOpener {
 //     still open and the decode salvage-succeeded (did not return
 //     null/empty; the decoder already reported into doc.diags on failure)
 //     -- the matching opener.openScene/openImage/openText callback runs.
-//     A salvage-failed decode logs the same LOG_WARN a synchronous
+//     A salvage-failed decode logs the same ONYX_LOGF_WARN a synchronous
 //     failure used to, from inside that Done callback instead of from
 //     OpenSelection itself.
 ViewerKind OpenSelection(Onyx::Modules::Workspace& ws, const Onyx::Modules::SelectionChanged& sel,

@@ -134,11 +134,11 @@ void App::init(GLFWwindow *window, Onyx::Services::AppConfig *config,
 
 void App::AddModule(std::unique_ptr<Modules::IGameModule> module) {
   if (m_initDone) {
-    LOG_ERR("[App] AddModule called after init(); module dropped (pre-init only)");
+    ONYX_LOGF_ERR("[App] AddModule called after init(); module dropped (pre-init only)");
     return;
   }
   if (!m_workspace) {
-    LOG_ERR("[App] AddModule called before the Workspace exists; module dropped");
+    ONYX_LOGF_ERR("[App] AddModule called before the Workspace exists; module dropped");
     return;
   }
   m_workspace->AddModule(std::move(module));
@@ -269,7 +269,7 @@ void App::handleOpenFileRequest() {
   // module in this process can open it -- log and stop, nothing to crash.
   auto rank = m_workspace->Probe(path);
   if (!rank.winner) {
-    LOG_WARN("[App] no module accepts %s", path.c_str());
+    ONYX_LOGF_WARN("[App] no module accepts %s", path.c_str());
     return;
   }
 
@@ -290,7 +290,7 @@ void App::openRecentFile(Onyx::Services::RecentEntry entry) {
   // to via ProfileManager::FindProfileByHint-then-DetectProfileForFile.
   auto rank = m_workspace->Probe(entry.path);
   if (!rank.winner) {
-    LOG_WARN("[App] no module accepts %s", entry.path.c_str());
+    ONYX_LOGF_WARN("[App] no module accepts %s", entry.path.c_str());
     return;
   }
 
@@ -487,7 +487,7 @@ void App::drawMenuItems() {
     // frame, same as a first run with no imgui.ini at all.
     if (NativeMenuBar::menuItem("Reset Layout")) {
       m_resetLayout = true;   // triggers DockBuilderRemoveNode + default-layout rebuild next frame
-      LOG_INFO("[App] View > Reset Layout: dock layout cleared; ImGui will re-lay out panels "
+      ONYX_LOGF_INFO("[App] View > Reset Layout: dock layout cleared; ImGui will re-lay out panels "
                "next frame");
     }
     NativeMenuBar::endMenu();

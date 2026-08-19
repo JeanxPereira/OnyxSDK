@@ -180,7 +180,7 @@ void JobQueue::WorkerLoop() {
         try {
             job->work(job->progress);
         } catch (...) {
-            LOG_ERR("[Jobs] job on lane %llu threw; treated as failed",
+            ONYX_LOGF_ERR("[Jobs] job on lane %llu threw; treated as failed",
                     (unsigned long long)lane);
         }
         // Release Work's captures now that it has run. A caller may stash
@@ -224,7 +224,7 @@ void JobQueue::Pump() {
             try {
                 job->onDone();
             } catch (...) {
-                LOG_ERR("[Jobs] Done callback on lane %llu threw; continuing drain",
+                ONYX_LOGF_ERR("[Jobs] Done callback on lane %llu threw; continuing drain",
                         (unsigned long long)job->lane);
             }
         }

@@ -11,6 +11,8 @@ target_include_directories(MinimalViewer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Sou
 # Onyx::Render rides in transitively via Onyx::Shell (T9: Window.cpp owns
 # the VkContext/swapchain everything presents through) -- named explicitly
 # here too since Main.cpp's boot path is exactly what T9's proof run drives.
+# Onyx_ExampleBox is example-local (Examples/OnyxBox), not an SDK target,
+# so it has no Onyx:: alias to name -- every SDK target here does.
 target_link_libraries(MinimalViewer PRIVATE Onyx::Onyx Onyx::Render Onyx_ExampleBox)
 
 if(WIN32)
