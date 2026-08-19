@@ -188,36 +188,40 @@ bool ReadWholeFile(const fs::path& path, std::vector<char>& out) {
 // Vulkan's NDC Y points down where GL's points up (Pipelines.h's own
 // "Camera convention" note, binding for every Vulkan draw call in this
 // milestone). CorpusScene::proj is built once via a plain glm::perspective()
-// call in CorpusScenes.cpp -- a file compiled OUTSIDE Onyx_Render (it is
-// part of the onyx-oracle executable, shared verbatim by the GL
-// render-corpus path, which needs no correction and must never get one --
-// see CMakeLists.txt's own account of the PUBLIC-define leak that once
-// corrupted the frozen GL golden corpus this exact way), so it carries no
-// Vulkan-specific correction of its own. Every Vulkan call site in this
-// file that feeds a CorpusScene's projection matrix to SceneRendererVk::
-// Render() must apply this correction itself first -- discovered by T7's
+// call in CorpusScenes.cpp; VkProj below is the Y-flip half of the
+// contract every Vulkan call site in this file applies before handing that
+// matrix to SceneRendererVk::Render() -- discovered missing by T7's
 // pixel-level comparison against the GL goldens (every scene rendered
 // upside-down without it; see task-7-report.md), which is exactly the kind
-// of bug this task exists to catch. Y-only: the [-1,1] vs [0,1] clip-space
-// Z range difference GLM_FORCE_DEPTH_ZERO_TO_ONE would otherwise fix is a
-// SEPARATE convention this scene's near=0.1/far=100 camera setup does not
-// need corrected in practice (view-space depth beyond ~0.2 units already
-// maps to a positive GL-style NDC z, so nothing in this corpus's visible
-// range gets Vulkan-clipped at the z=0 near-clip plane, and the resulting
-// mapping stays monotonic in view depth either way, so the depth TEST
-// still orders fragments correctly) -- flagged in the task report as a
-// latent risk for any future scene whose geometry sits within roughly 0.2
-// units of the camera, not fixed here since it is not exercised by this
-// corpus and this task's mandate is parity against the frozen goldens, not
-// a speculative camera-matrix rewrite.
-// T7 fix round (adjudicated): the correction itself now has a name --
-// Onyx::Rendering::VulkanProjection (Include/Onyx/RenderVk/Pipelines.h,
-// right next to the Camera convention note this comment used to
-// duplicate) -- so every future Vulkan camera call site in this codebase
-// applies the SAME helper instead of each reinventing "negate [1][1]" on
-// its own (which is exactly how this file's call sites forgot it the
-// first time). VkProj is now a thin alias kept only so this file's two
-// call sites read the same as before.
+// of bug this task exists to catch.
+//
+// F3 fix-round (final review, post-Task-14): the OTHER half of the
+// contract, the [-1,1] vs [0,1] clip-space depth range, used to be
+// uncorrected here too -- CorpusScenes.cpp compiles as part of the
+// onyx-oracle executable, outside Onyx_Render's own sources, and
+// GLM_FORCE_DEPTH_ZERO_TO_ONE was PRIVATE to that target so this file's
+// glm::perspective() call never saw it. That went unnoticed because this
+// corpus's near=0.1/far=100 camera setup happens not to need the
+// correction in practice (view-space depth beyond ~0.2 units already maps
+// to a positive GL-style NDC z, so nothing in this corpus's visible range
+// got Vulkan-clipped at the z=0 near-clip plane, and the resulting mapping
+// stayed monotonic in view depth either way, so the depth TEST still
+// ordered fragments correctly) -- flagged at the time as a latent risk for
+// any future scene whose geometry sits within roughly 0.2 units of the
+// camera. `GLM_FORCE_DEPTH_ZERO_TO_ONE` is now PUBLIC on Onyx_Render
+// (root CMakeLists.txt; Pipelines.h's Camera convention note has the full
+// story), and onyx-oracle links Onyx::Render, so this file's
+// glm::perspective() call now builds the [0,1]-depth matrix directly --
+// the latent risk above no longer exists for ANY future scene, not just
+// this corpus's specific camera geometry.
+//
+// The correction itself has a name -- Onyx::Rendering::VulkanProjection
+// (Include/Onyx/RenderVk/Pipelines.h, right next to the Camera convention
+// note this comment used to duplicate) -- so every future Vulkan camera
+// call site in this codebase applies the SAME helper instead of each
+// reinventing "negate [1][1]" on its own (which is exactly how this
+// file's call sites forgot it the first time). VkProj is a thin alias
+// kept only so this file's call sites read the same as before.
 glm::mat4 VkProj(const glm::mat4& proj) {
     return Onyx::Rendering::VulkanProjection(proj);
 }

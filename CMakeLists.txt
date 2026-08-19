@@ -521,26 +521,45 @@ target_compile_definitions(Onyx_Render PUBLIC
     VK_NO_PROTOTYPES
     VMA_STATIC_VULKAN_FUNCTIONS=0)
 # T3's fixed camera convention (Include/Onyx/RenderVk/Pipelines.h's "Camera
-# convention" note): every Onyx_Render source that builds a projection
-# matrix via <glm/gtc/matrix_transform.hpp> gets Vulkan's [0,1] clip-space Z
-# instead of GL's [-1,1]. PRIVATE, deliberately not PUBLIC: it must stay
+# convention" note): every source that builds a projection matrix via
+# <glm/gtc/matrix_transform.hpp> gets Vulkan's [0,1] clip-space Z instead of
+# GL's [-1,1].
+#
+# F3 fix-round (final review, post-Task-14): this used to be PRIVATE,
 # confined to Onyx_Render's own sources (SceneRendererVk.cpp/Camera.cpp/
-# RenderBatch.cpp/...) -- every consumer outside this target (Tools/
-# OnyxOracle/CorpusScenes.cpp, Examples/OnyxCli/Render.cpp) instead builds
-# with plain glm::perspective() (GL's [-1,1] convention) and converts
-# explicitly via Onyx::Rendering::VulkanProjection() before handing the
-# matrix to SceneRendererVk::Render(), which Debug-asserts that conversion
-# was not forgotten (Pipelines.h's own note). A PUBLIC definition here was
-# tried during the original M4 Vulkan bring-up and caught live: back when
-# onyx-oracle linked GL's Onyx::Render alongside this target too (deleted
-# at Task 11), a PUBLIC macro leaked into CorpusScenes.cpp's own
-# glm::perspective() calls and silently changed the GL corpus's clip-space
-# Z range. Onyx::Render is gone now, but PRIVATE is still the correct
-# choice on its own merits (VulkanProjection() is the one, explicit,
-# assert-checked conversion point; a transitive macro would be a second,
-# implicit one), so it stays PRIVATE rather than widening it just because
-# the original incident's other party is gone.
-target_compile_definitions(Onyx_Render PRIVATE GLM_FORCE_DEPTH_ZERO_TO_ONE)
+# RenderBatch.cpp/...), on the theory that every consumer outside this
+# target (Tools/OnyxOracle/CorpusScenes.cpp+Main.cpp, Examples/OnyxCli/
+# Render.cpp) built with plain glm::perspective() (GL's [-1,1] convention)
+# and converted explicitly via Onyx::Rendering::VulkanProjection() before
+# handing the matrix to SceneRendererVk::Render(). That theory was only
+# half true: VulkanProjection() (Pipelines.h) only ever negated proj[1][1]
+# (the Y-flip half of the contract) -- it never corrected the depth range,
+# so every one of those outside-the-target callers fed the renderer a
+# GL-depth-range matrix regardless. The GUI viewport (Camera.cpp, inside
+# this target, PRIVATE-macro-corrected) and the headless corpus/CLI paths
+# (outside it, never corrected) were rendering under two different clip
+# conventions, silently, because nothing checked the depth half of the
+# contract (SceneRendererVk.cpp's Debug assert only checks proj[1][1] < 0)
+# and the parity gate's frozen GL-depth goldens happened to still match a
+# GL-depth Vulkan render, canceling the bug out of that safety net too.
+#
+# PRIVATE was originally chosen because a PUBLIC definition, during the
+# original M4 Vulkan bring-up, was caught leaking into CorpusScenes.cpp's
+# own glm::perspective() calls and corrupting the GL renderer's frozen
+# golden corpus -- back when onyx-oracle linked GL's Onyx::Render alongside
+# this (then Vulkan-named-differently) target in the same executable. That
+# GL renderer, and the live GL corpus-generation path a PUBLIC macro could
+# corrupt, no longer exist (deleted at Task 11) -- Tests/Golden/corpus is a
+# static, already-baked PNG set now, not something any current build
+# regenerates through GL. With no GL target left for it to corrupt, PUBLIC
+# is the fix that makes the contract total: every TU that links Onyx::Render
+# (Onyx_Render's own sources, onyx-oracle, onyxbox-cli, onyx_tests) now
+# gets Vulkan's depth convention from glm::perspective() directly, so
+# Onyx::Rendering::VulkanProjection()'s existing Y-flip-only job is
+# sufficient and correct everywhere it is called, with no second,
+# per-call-site depth conversion needed. See Pipelines.h's "Camera
+# convention" note for the full, now-total contract.
+target_compile_definitions(Onyx_Render PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE)
 target_link_libraries(Onyx_Render PUBLIC
     Onyx_Core
     volk::volk

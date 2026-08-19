@@ -21,30 +21,43 @@ namespace Onyx::Rendering {
 // handled in the projection, NOT negative viewport") is documented, per
 // the plan's Global Constraints section.
 //
-// `GLM_FORCE_DEPTH_ZERO_TO_ONE` is defined PRIVATE on the Onyx_Render
-// CMake target (root CMakeLists.txt) -- every Onyx_Render source that
-// includes a <glm/gtc/...> projection header gets Vulkan's [0,1] clip
-// depth instead of GL's [-1,1] automatically. PRIVATE, not PUBLIC: before
-// Task 11 deleted the GL renderer, this milestone's composition roots
-// (onyx-oracle, onyx_tests) linked BOTH Onyx::Render (GL) and
-// Onyx::Rendering in the same executable, and a PUBLIC definition here was
-// caught leaking into Tools/OnyxOracle/CorpusScenes.cpp's GL-path
-// glm::perspective() calls, corrupting the frozen GL golden corpus (the
-// GL-render ctest that caught it, OracleMatchesGolden, died at Task 11
-// along with the GL renderer it existed to gate) -- see the CMakeLists.txt
-// comment at Onyx_Render's target_compile_definitions for the full
-// story. PRIVATE is kept on its own merits post-Task-11 too (see that same
-// CMakeLists.txt comment). Any future Vulkan camera code MUST live inside Onyx_Render's
-// own sources (e.g. Source/RenderVk/SceneRendererVk.cpp, T5) to inherit
-// this define; code outside that target will not see it and must not
-// try to. This is also why Source/RenderVk/Shaders/grid.frag had to
-// change its NDC-Z handling (see that file's divergence-3 comment) while
-// scene.vert/scene.frag did not need to (neither reads/writes clip-space
-// Z directly).
+// The contract has two independent halves, and BOTH are required on every
+// projection matrix this renderer consumes:
+//   1. Depth range: Vulkan's clip-space Z is [0,1]; GL's (what plain
+//      glm::perspective() builds without help) is [-1,1].
+//   2. Y-flip: Vulkan's NDC Y points down where GL's points up.
 //
-// The Y-flip: Vulkan's NDC Y points down where GL's points up. Whoever
-// builds the projection matrix (glm::perspective or equivalent) MUST
-// negate its [1][1] element afterward:
+// F3 fix-round (final review, post-Task-14) made this TOTAL -- until then,
+// half of it (the depth range) only held for code compiled inside
+// Onyx_Render's own sources, because `GLM_FORCE_DEPTH_ZERO_TO_ONE` was
+// PRIVATE on that CMake target; a call site outside it (Tools/OnyxOracle/
+// CorpusScenes.cpp+Main.cpp, Examples/OnyxCli/Render.cpp) built a
+// GL-depth-range matrix and had no code path that corrected it --
+// VulkanProjection() below only ever negated proj[1][1]. The GUI viewport
+// and the headless corpus/CLI paths were silently rendering under two
+// different clip conventions; nothing caught it because
+// SceneRendererVk::Render()'s Debug assert only checks the Y-flip half,
+// and the parity gate's frozen GL-depth goldens still matched a GL-depth
+// Vulkan render, canceling the mismatch out of that safety net too.
+//
+// `GLM_FORCE_DEPTH_ZERO_TO_ONE` is now defined PUBLIC on the Onyx_Render
+// CMake target (root CMakeLists.txt's target_compile_definitions comment
+// has the full incident history for why it was PRIVATE originally and why
+// PUBLIC is safe now that the GL renderer it once leaked into is deleted)
+// -- every TU that LINKS Onyx::Render, not just ones compiled into it,
+// gets Vulkan's [0,1] clip depth from glm::perspective() automatically:
+// Onyx_Render's own sources (Camera.cpp, SceneRendererVk.cpp, ...) as
+// well as onyx-oracle (CorpusScenes.cpp, Main.cpp), onyxbox-cli
+// (Render.cpp) and onyx_tests, since all of them link Onyx::Render. This
+// is also why Source/RenderVk/Shaders/grid.frag had to change its NDC-Z
+// handling (see that file's divergence-3 comment) while scene.vert/
+// scene.frag did not need to (neither reads/writes clip-space Z directly)
+// -- that shader-side half of the contract was never in question here.
+//
+// The Y-flip half is still an explicit, code-level step -- the macro only
+// fixes the depth range, nothing fixes Y-flip for you. Whoever builds the
+// projection matrix (glm::perspective or equivalent) MUST negate its
+// [1][1] element afterward:
 //     glm::mat4 proj = glm::perspective(fovy, aspect, near, far);
 //     proj[1][1] *= -1.0f;
 // NOT by flipping the viewport (VkViewport.height negative + y offset) —
@@ -52,6 +65,19 @@ namespace Onyx::Rendering {
 // this milestone uses, so mixing the two must never happen. No shader in
 // Source/RenderVk/Shaders performs a Y-flip itself; gl_Position is always
 // `projection * view * worldPos` unchanged from the GL source.
+//
+// VulkanProjection() below is that Y-flip step, named as a contract every
+// call site routes through (see its own comment). It does not also redo
+// the depth-range correction -- that would double-convert a matrix built
+// inside a TU that already has the PUBLIC macro applied (every current
+// caller does, per the paragraph above), which is worse than the bug this
+// fix-round closed. If a future call site ever needs a projection matrix
+// from a TU that does NOT link Onyx::Render, it must not call
+// glm::perspective() directly and hand the result here — it needs its own
+// explicit GLM_FORCE_DEPTH_ZERO_TO_ONE-equivalent (e.g.
+// glm::perspectiveRH_ZO(), which ignores ambient macros and always builds
+// the [0,1]-depth matrix) before the Y-flip, or a compile definition of
+// its own. No such call site exists today.
 //
 // cameraPos: SceneFrameUBO::cameraPos (and GridUBO::cameraPos) must be
 // fed EXACTLY `glm::vec3(glm::inverse(view)[3])` — GL's own derivation
