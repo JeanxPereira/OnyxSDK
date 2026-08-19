@@ -1,8 +1,34 @@
 #include <Onyx/Cli/Render.h>
 
-// See Render.h's top comment for why this file exists separately from
-// Commands.cpp/Onyx_Core, and compiles directly into the onyxbox-cli
-// executable rather than into any static library.
+// See Render.h's top comment for the full history of where this file has
+// lived (M4: Examples/OnyxCli/, compiled straight into onyxbox-cli; M5
+// Task 6: here, compiled into Onyx_CliRender, a small static library
+// above both Onyx_Core and Onyx_Render -- root CMakeLists.txt's
+// ONYX_CLIRENDER_SOURCES/`Onyx::CliRender` target). That target links
+// Onyx_Core and Onyx_Render PUBLIC, and nothing links back into it from
+// either side, so the cycle Render.h's top comment explains simply cannot
+// form -- this file is free to include Vulkan/glm/RenderVk headers
+// exactly like it always could, just from a linkable static library
+// instead of an executable's own source list.
+//
+// Why shape (a) -- a shipped library owning this file -- rather than
+// shape (b) -- an injected render callback the composition root supplies,
+// the shape Include/Onyx/Cli/Gltf.h's MakeGltfExportFn/SceneExportFn use
+// for `decode --to gltf`: the audit finding this fixes (G1,
+// docs/design/2026-08-19-public-surface-audit.md) is specifically that
+// `CmdRender` -- a symbol this PUBLIC header declares -- ships in no
+// library. Shape (b) alone would not have fixed that: SceneExportFn's own
+// implementation (Onyx::Exchange::ExportSceneData wrapped in a lambda)
+// still only exists inside Examples/OnyxCli/Gltf.cpp, compiled straight
+// into onyxbox-cli -- a third party gets the HOOK type from Commands.h but
+// still has to write their own exporter body, because Commands.h never
+// promised a working default. Render.h, by contrast, promises a WORKING
+// `CmdRender` (full doc comment, concrete parameter list, concrete return
+// codes) -- a promise only a real shipped implementation keeps. Hence
+// shape (a) for this symbol specifically. `Onyx::Cli::Run()`'s "render"
+// argv dispatch (Source/Cli/Commands.cpp) still uses shape (b) for the
+// VERB, because Run() itself lives in Onyx_Core and must stay Vulkan-free
+// -- see Commands.h's RenderFn doc comment for how the two compose.
 
 #include <Onyx/Domain/Entry.h>
 #include <Onyx/Modules/DecoderRegistry.h>
@@ -20,17 +46,25 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-// stb_image_write ODR note (task brief's explicit concern): this macro is
-// defined exactly once, in this one TU. Render.cpp compiles ONLY into the
-// onyxbox-cli executable (Examples/OnyxCli/CMakeLists.txt lists it as a
-// source directly, not via any static library another target could also
-// link) and is NOT one of Tests/CMakeLists.txt's onyx_tests sources -- so
-// this definition never lands in more than one link step. Tools/OnyxOracle/
-// PngWrite.cpp defines the SAME macro in its own TU, but onyx-oracle is a
-// separate executable that never links onyxbox-cli (or vice versa), so the
-// two definitions never collide at link time either. (Checked: `grep -rn
-// STB_IMAGE_WRITE_IMPLEMENTATION` before adding this turned up exactly one
-// prior definition, Tools/OnyxOracle/PngWrite.cpp.)
+// stb_image_write ODR note (task brief's explicit concern, still live
+// after the M5 Task 6 move): this macro is defined exactly once, in this
+// one TU. Render.cpp compiles into Onyx_CliRender (root CMakeLists.txt's
+// ONYX_CLIRENDER_SOURCES), a STATIC library -- the actual ODR question is
+// therefore "does any final link step pull in a second TU that also
+// defines STB_IMAGE_WRITE_IMPLEMENTATION", not "does any other target
+// compile this file". Tools/OnyxOracle/PngWrite.cpp defines the SAME
+// macro in its own TU, but onyx-oracle is a separate executable that
+// links neither onyxbox-cli nor Onyx_CliRender (and vice versa), and
+// Tests/CMakeLists.txt's onyx_tests does not link Onyx_CliRender either
+// (Tests/cli_test.cpp exercises Run()'s render argv-dispatch through a
+// stub RenderFn, never the real CmdRender -- see that file's own comment
+// for why: a real render needs a Vulkan device, which is why the actual
+// GPU proof lives in Examples/OnyxCli/Render*Test.cmake's device-gated
+// ctest scripts instead, same convention as every onyx-oracle Vk* ctest).
+// So the two STB_IMAGE_WRITE_IMPLEMENTATION definitions still never
+// collide at link time. (Checked: `grep -rn STB_IMAGE_WRITE_IMPLEMENTATION`
+// before this file's M4 addition turned up exactly one prior definition,
+// Tools/OnyxOracle/PngWrite.cpp; nothing since has added a third.)
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
@@ -62,7 +96,7 @@ namespace {
 // Duplicated from Commands.cpp's own private FindEntryByName (first-name
 // match, pre-order depth-first search) rather than exported from
 // Commands.h: exporting it would make Onyx_Core's public Cli surface
-// responsible for a helper only this file (compiled into the executable,
+// responsible for a helper only this file (compiled into Onyx_CliRender,
 // never into Onyx_Core -- see Render.h's top comment) also needs. A
 // ~10-line duplication is cheaper than a shared internal header for one
 // small function used by exactly two call sites in the whole codebase.
@@ -103,9 +137,9 @@ std::string JsonEscape(std::string_view in) {
 
 // Writes tightly packed top-down RGBA as a PNG via stb_image_write.
 // Deliberately NOT Tools/OnyxOracle/PngWrite.h -- that header lives in the
-// oracle tool, which Source/Cli (and the onyxbox-cli executable it compiles
-// into) never links; see this file's ODR comment at the top for the
-// STB_IMAGE_WRITE_IMPLEMENTATION shape this duplication needed.
+// oracle tool, which Onyx_CliRender never links; see this file's ODR
+// comment at the top for the STB_IMAGE_WRITE_IMPLEMENTATION shape this
+// duplication needed.
 bool WritePng(const std::filesystem::path& path, int width, int height,
               const std::vector<uint8_t>& rgba, std::string& err) {
     if (rgba.size() < static_cast<size_t>(width) * static_cast<size_t>(height) * 4) {
@@ -131,6 +165,57 @@ const char* SeverityLabel(Severity s) {
     }
 }
 
+void PrintDiags(std::ostream& out, const std::vector<Diag>& diags) {
+    for (const Diag& d : diags) {
+        out << "[" << SeverityLabel(d.severity) << "] " << d.code << ": " << d.message << "\n";
+    }
+}
+
+// Duplicated from Commands.cpp's own private AnyError for the same reason
+// as FindEntryByName/JsonEscape above -- this is `render --strict`'s own
+// check, mirroring `decode --strict`'s exactly (Commands.cpp's CmdDecode).
+bool AnyErrorDiag(const std::vector<Diag>& diags) {
+    for (const Diag& d : diags) {
+        if (d.severity == Severity::Error) return true;
+    }
+    return false;
+}
+
+// ── canonical views (spec §11, M5 Task 6) ──────────────────────────────────
+// Each name maps to a fixed (yaw, pitch) orbit around the same object-space
+// bbox center/distance every view shares (computed once per render, below)
+// -- only the camera's angle around that pivot changes. "iso" is the exact
+// 45deg-yaw/15deg-pitch orbit `render` used before --views existed, so it
+// stays the default and reproduces M4's output byte-for-byte. "top" uses
+// 89deg rather than a literal 90: at exactly 90 the eye direction (0,1,0)
+// is parallel to the up vector glm::lookAt uses below, which degenerates
+// the view matrix (a zero-length cross product) -- 89deg keeps the look
+// direction a hair off vertical, visually indistinguishable from straight
+// down at any of this command's framing distances, with no special-cased
+// up vector needed.
+struct ViewAngles {
+    std::string_view name;
+    float yawDeg;
+    float pitchDeg;
+};
+constexpr ViewAngles kViewAngles[] = {
+    {"iso",    45.0f, 15.0f},
+    {"front",   0.0f,  0.0f},
+    {"back",  180.0f,  0.0f},
+    {"left",  -90.0f,  0.0f},
+    {"right",  90.0f,  0.0f},
+    {"top",     0.0f, 89.0f},
+};
+static_assert(sizeof(kViewAngles) / sizeof(kViewAngles[0]) == kCanonicalViews.size(),
+              "kViewAngles must define exactly one entry per Commands.h kCanonicalViews name");
+
+const ViewAngles* FindView(std::string_view name) {
+    for (const ViewAngles& v : kViewAngles) {
+        if (v.name == name) return &v;
+    }
+    return nullptr;
+}
+
 bool AllPixelsEqual(const std::vector<uint8_t>& rgba, const uint8_t expected[4]) {
     for (size_t i = 0; i + 3 < rgba.size(); i += 4) {
         if (rgba[i + 0] != expected[0] || rgba[i + 1] != expected[1] || rgba[i + 2] != expected[2] ||
@@ -145,9 +230,17 @@ bool AllPixelsEqual(const std::vector<uint8_t>& rgba, const uint8_t expected[4])
 
 int CmdRender(Workspace& ws, const std::filesystem::path& path, std::string_view entryName,
               const std::filesystem::path& outPng, int width, int height, std::ostream& out,
-              std::string_view moduleHint) {
+              std::string_view moduleHint, std::string_view view, bool strict) {
     if (width <= 0) width = 512;
     if (height <= 0) height = 512;
+
+    const ViewAngles* viewAngles = FindView(view);
+    if (!viewAngles) {
+        out << "render: unknown view '" << view << "' (expected one of:";
+        for (std::string_view v : kCanonicalViews) out << " " << v;
+        out << ")\n";
+        return kUsage;
+    }
 
     DocumentId id = ws.Open(path, moduleHint);
     if (id == 0) {
@@ -173,14 +266,20 @@ int CmdRender(Workspace& ws, const std::filesystem::path& path, std::string_view
     Progress progress;
     DecodeContext ctx{*doc, *entry, doc->diags, progress};
     std::unique_ptr<Parsers::SceneData> scene = reg.DecodeScene(ctx);
+    // Drained once regardless of outcome: a failed decode prints these as
+    // its own explanation (unchanged from before --strict existed); a
+    // successful decode also prints them (new -- matches CmdDecode's own
+    // always-print-diags shape) so `--strict`'s exit code has a visible
+    // reason attached, not just a bare exit 3.
+    std::vector<Diag> diags = doc->diags.Drain();
     if (!scene) {
         out << "scene decode failed for entry: " << entryName << " (see diagnostics below)\n";
-        for (const Diag& d : doc->diags.Drain()) {
-            out << "[" << SeverityLabel(d.severity) << "] " << d.code << ": " << d.message << "\n";
-        }
+        PrintDiags(out, diags);
         ws.Close(id);
         return kUsage;
     }
+    PrintDiags(out, diags);
+    const bool strictFail = strict && AnyErrorDiag(diags);
     const std::string entryNameCopy(entryName); // outlives ws.Close(id) below
 
     ws.Close(id); // scene is self-contained CPU data; no reference back into doc/ws survives this
@@ -221,11 +320,13 @@ int CmdRender(Workspace& ws, const std::filesystem::path& path, std::string_view
     const float halfFovRad = glm::radians(kFovYDeg * 0.5f);
     const float distance = std::max(radius / std::sin(halfFovRad) * 1.2f, 0.1f); // 1.2x margin
 
-    const float yaw = glm::radians(45.0f);   // same fixed 3/4-isometric orbit Camera::FocusOn snaps to
-    const float pitch = glm::radians(15.0f);
+    // `view` (validated above) selects the fixed orbit angle around this
+    // same center/distance pivot -- see kViewAngles' own doc comment.
+    const float yaw = glm::radians(viewAngles->yawDeg);
+    const float pitch = glm::radians(viewAngles->pitchDeg);
     const glm::vec3 eye = center + distance * glm::vec3(std::cos(pitch) * std::sin(yaw), std::sin(pitch),
                                                           std::cos(pitch) * std::cos(yaw));
-    const glm::mat4 view = glm::lookAt(eye, center, glm::vec3(0.0f, 1.0f, 0.0f));
+    const glm::mat4 view_ = glm::lookAt(eye, center, glm::vec3(0.0f, 1.0f, 0.0f));
 
     const float aspect = float(width) / float(height);
     const float nearPlane = std::max(distance * 0.002f, 0.01f);
@@ -277,7 +378,7 @@ int CmdRender(Workspace& ws, const std::filesystem::path& path, std::string_view
     std::vector<uint8_t> rgba;
     bool ok = Onyx::Rendering::Resources::OneShot(vkCtx, [&](VkCommandBuffer cmd) {
         target.BeginFrame(cmd, clearColor);
-        renderer.Render(cmd, view, proj, Onyx::Rendering::ShadingMode::Solid, width, height);
+        renderer.Render(cmd, view_, proj, Onyx::Rendering::ShadingMode::Solid, width, height);
         target.EndFrame(cmd);
     }, vkErr);
     if (ok) ok = target.Readback(vkCtx, rgba, vkErr);
@@ -320,19 +421,21 @@ int CmdRender(Workspace& ws, const std::filesystem::path& path, std::string_view
     for (const Parsers::MeshPart& part : scene->meshParts) totalVertices += part.vertices.size();
 
     // Report JSON beside the PNG -- a minimal, hand-authored shape (entry
-    // name, dimensions, part/material/vertex counts), NOT Tools/OnyxOracle/
-    // RenderReport.h's BuildReport(). See Render.h's top comment for why:
-    // that function's byte-stable output is pinned to GL/Vulkan pixel-
-    // parity testing (Rendering::RenderBatch, a per-batch GL-texture-id
-    // sentinel scheme -- SceneRendererVk.h's own top comment), a concern
-    // this generic CLI command has no business depending on, and it lives
-    // in a tool-side header this executable does not link.
+    // name, view, dimensions, part/material/vertex counts), NOT
+    // Tools/OnyxOracle/RenderReport.h's BuildReport(). See Render.h's top
+    // comment for why: that function's byte-stable output is pinned to
+    // GL/Vulkan pixel-parity testing (Rendering::RenderBatch, a per-batch
+    // GL-texture-id sentinel scheme -- SceneRendererVk.h's own top
+    // comment), a concern this generic CLI command has no business
+    // depending on, and it lives in a tool-side header this library does
+    // not link.
     std::filesystem::path jsonPath = outPng;
     jsonPath.replace_extension(".json");
     std::ofstream jf(jsonPath, std::ios::binary | std::ios::trunc);
     if (jf) {
         jf << "{\n"
            << "  \"entry\": \"" << JsonEscape(entryNameCopy) << "\",\n"
+           << "  \"view\": \"" << JsonEscape(view) << "\",\n"
            << "  \"width\": " << width << ",\n"
            << "  \"height\": " << height << ",\n"
            << "  \"parts\": " << scene->meshParts.size() << ",\n"
@@ -341,12 +444,12 @@ int CmdRender(Workspace& ws, const std::filesystem::path& path, std::string_view
            << "}\n";
     }
 
-    out << "rendered " << entryNameCopy << " " << width << "x" << height
+    out << "rendered " << entryNameCopy << " view=" << view << " " << width << "x" << height
         << " parts=" << scene->meshParts.size() << " materials=" << scene->materials.size()
         << " vertices=" << totalVertices << " -> " << outPng.string() << "\n";
 
     vkCtx.Shutdown();
-    return kOk;
+    return strictFail ? kStrictErrors : kOk;
 }
 
 } // namespace Onyx::Cli
