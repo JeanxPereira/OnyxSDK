@@ -366,6 +366,7 @@ set(ONYX_RENDERVK_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/JointPalette.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/OffscreenTarget.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/Pipelines.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/RenderContext.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/SceneRendererVk.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VkContext.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VkResources.cpp

@@ -8,6 +8,7 @@
 #include <Onyx/Rendering/SceneRenderer.h>
 #include <Onyx/RenderVk/OffscreenTarget.h>
 #include <Onyx/RenderVk/Pipelines.h>
+#include <Onyx/RenderVk/RenderContext.h>
 #include <Onyx/RenderVk/SceneRendererVk.h>
 #include <Onyx/RenderVk/VkContext.h>
 #include <Onyx/RenderVk/VkResources.h>
@@ -19,6 +20,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -81,9 +83,16 @@ void PrintHelp() {
         "      batches, pinning per-batch palette remapping at scale). Also\n"
         "      exercises RenderBackground once, asserting a non-uniform,\n"
         "      repeatable gradient whose row 0 reads topColor and last row\n"
-        "      reads bottomColor (T7 fix-round rider 3(a)). Writes PNGs for\n"
-        "      each. Exit 0 on success, 1 on any assertion/GPU failure, 77 if\n"
-        "      no Vulkan-capable device/driver is found.\n"
+        "      reads bottomColor (T7 fix-round rider 3(a)). T8 adds two\n"
+        "      RenderContext pass checks against blend-stack: (a) a pass\n"
+        "      recording vkCmdClearAttachments tints a 16x16 corner --\n"
+        "      readback proves the corner differs from a no-pass render and\n"
+        "      everything else is byte-identical; (b) a pass that throws\n"
+        "      std::runtime_error is caught/logged/skipped (spec Sec7.1) while a\n"
+        "      second registered pass still runs and zero validation messages\n"
+        "      are captured. Writes PNGs for each. Exit 0 on success, 1 on any\n"
+        "      assertion/GPU failure, 77 if no Vulkan-capable device/driver is\n"
+        "      found.\n"
         "\n"
         "  onyx-oracle render-corpus --out DIR [--renderer gl|vk]\n"
         "      Renders all 5 corpus scenes to DIR/<name>.png + DIR/<name>.json,\n"
@@ -309,6 +318,110 @@ bool RowApproxEquals(const std::vector<uint8_t>& rgba, int width, int height, in
                 return false;
             }
         }
+    }
+    return true;
+}
+
+// ── RenderContext pass smoke (T8) helpers ──────────────────────────────
+
+// Records a vkCmdClearAttachments sub-rect clear, exactly the pattern
+// --vk-smoke's own orientation check above uses directly on a command
+// buffer -- here wrapped as what a RenderContext pass callback records,
+// proving a pass can issue the same kind of raw command a hand-rolled
+// caller could.
+void ClearRectPass(VkCommandBuffer cmd, int x, int y, int w, int h, const float rgba[4]) {
+    VkClearAttachment clearAttach{};
+    clearAttach.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    clearAttach.colorAttachment = 0;
+    clearAttach.clearValue.color.float32[0] = rgba[0];
+    clearAttach.clearValue.color.float32[1] = rgba[1];
+    clearAttach.clearValue.color.float32[2] = rgba[2];
+    clearAttach.clearValue.color.float32[3] = rgba[3];
+
+    VkClearRect clearRect{};
+    clearRect.rect.offset = {x, y};
+    clearRect.rect.extent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h)};
+    clearRect.baseArrayLayer = 0;
+    clearRect.layerCount = 1;
+
+    vkCmdClearAttachments(cmd, 1, &clearAttach, 1, &clearRect);
+}
+
+// Builds+renders `cs` through a fresh SceneRendererVk into a fresh
+// OffscreenTarget, same shape as RenderSceneTwice's inner renderOnce above,
+// but additionally invokes `passCtx->Execute()` (when non-null) between the
+// scene draw and EndFrame -- exactly the point in the frame T9's Shell will
+// call RenderContext::Execute() from (see RenderContext.h's class doc
+// comment). `passCtx` is null for a plain "no pass" baseline render.
+bool RenderBlendStackWithPasses(Onyx::RenderVk::VkContext& ctx, const Onyx::RenderVk::ScenePipelines& scenePipes,
+                                 const CorpusScene& cs, Onyx::RenderVk::RenderContext* passCtx,
+                                 std::vector<uint8_t>& out, std::string& err) {
+    Onyx::RenderVk::OffscreenTarget target;
+    if (!target.Create(ctx, cs.width, cs.height, err)) return false;
+
+    Onyx::RenderVk::SceneRendererVk renderer;
+    if (!renderer.Build(ctx, scenePipes, cs.scene, err)) {
+        renderer.Clear(ctx);
+        target.Destroy(ctx);
+        return false;
+    }
+
+    const float clearColor[4] = {0.10f, 0.11f, 0.13f, 1.0f};
+    bool ok = Onyx::RenderVk::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
+        target.BeginFrame(cmd, clearColor);
+        renderer.Render(cmd, cs.view, VkProj(cs.proj), cs.mode, cs.width, cs.height);
+        if (passCtx) {
+            Onyx::RenderVk::FrameHandles handles{ctx.Device(), ctx.GraphicsQueue(), cmd,
+                                                  ctx.GraphicsFamily(), ctx.Allocator()};
+            passCtx->Execute(handles);
+        }
+        target.EndFrame(cmd);
+    }, err);
+    if (!ok) {
+        renderer.Clear(ctx);
+        target.Destroy(ctx);
+        return false;
+    }
+
+    ok = target.Readback(ctx, out, err);
+    renderer.Clear(ctx);
+    target.Destroy(ctx);
+    return ok;
+}
+
+// Asserts `withPass` differs from `base` SOMEWHERE inside the [rx,ry,rw,rh)
+// rect (the pass had a visible effect) and is byte-identical to `base`
+// EVERYWHERE outside it (the pass touched nothing else) -- the brief's
+// "compare the two readbacks region-wise yourself" requirement. Region and
+// whole-image checks are both done in this one pass over the pixels so a
+// single mismatch anywhere outside the rect is reported precisely.
+bool CornerTintOnlyInRect(const std::vector<uint8_t>& base, const std::vector<uint8_t>& withPass,
+                          int width, int height, int rx, int ry, int rw, int rh, std::string& detail) {
+    if (base.size() != withPass.size()) {
+        detail = "readback size mismatch";
+        return false;
+    }
+    bool rectDiffers = false;
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            const size_t i = (static_cast<size_t>(y) * width + x) * 4;
+            const bool inRect = (x >= rx && x < rx + rw && y >= ry && y < ry + rh);
+            const bool differs = base[i + 0] != withPass[i + 0] || base[i + 1] != withPass[i + 1] ||
+                                 base[i + 2] != withPass[i + 2] || base[i + 3] != withPass[i + 3];
+            if (inRect) {
+                if (differs) rectDiffers = true;
+            } else if (differs) {
+                detail = "pixel outside the pass's rect differs at (" + std::to_string(x) + "," +
+                         std::to_string(y) + ")";
+                return false;
+            }
+        }
+    }
+    if (!rectDiffers) {
+        detail = "rect [" + std::to_string(rx) + "," + std::to_string(ry) + "," + std::to_string(rw) +
+                 "x" + std::to_string(rh) + "] is byte-identical to the no-pass baseline -- the "
+                 "pass had no visible effect";
+        return false;
     }
     return true;
 }
@@ -554,6 +667,103 @@ int RunVkSceneSmoke() {
             } else {
                 std::printf("vk-scene-smoke: background: %dx%d non-uniform gradient, row0~=top "
                             "last-row~=bottom, byte-identical across 2 runs -- OK\n", kW, kH);
+            }
+        }
+    }
+
+    // ── RenderContext pass smoke (T8) ───────────────────────────────────
+    // Proves the raw-floor RenderContext (Include/Onyx/RenderVk/
+    // RenderContext.h) actually lets a caller record real Vulkan commands
+    // into the frame, at the exact point in the frame the Shell's T9
+    // Execute() call will sit: after the scene draw, before EndFrame/UI.
+    // Both checks render the blend-stack corpus scene reused from above.
+    if (rc == 0) {
+        CorpusScene blend = Onyx::OracleTool::BuildBlendStack();
+
+        std::vector<uint8_t> base;
+        if (!RenderBlendStackWithPasses(ctx, scenePipes, blend, nullptr, base, err)) {
+            std::fprintf(stderr, "vk-scene-smoke: pass-smoke: baseline render: %s\n", err.c_str());
+            rc = 1;
+        } else {
+            // ── (a) a single pass tints a 16x16 top-left corner ─────────
+            Onyx::RenderVk::RenderContext passCtx;
+            const float magenta[4] = {1.0f, 0.0f, 1.0f, 1.0f};
+            passCtx.AddPass("corner-tint", [&](const Onyx::RenderVk::FrameHandles& h) {
+                ClearRectPass(h.cmd, 0, 0, 16, 16, magenta);
+            });
+
+            std::vector<uint8_t> withPass;
+            if (!RenderBlendStackWithPasses(ctx, scenePipes, blend, &passCtx, withPass, err)) {
+                std::fprintf(stderr, "vk-scene-smoke: pass-smoke: corner-tint render: %s\n", err.c_str());
+                rc = 1;
+            } else {
+                std::string detail;
+                if (!CornerTintOnlyInRect(base, withPass, blend.width, blend.height, 0, 0, 16, 16, detail)) {
+                    std::fprintf(stderr, "vk-scene-smoke: pass-smoke: corner-tint: %s\n", detail.c_str());
+                    rc = 1;
+                } else {
+                    std::string pngErr;
+                    Onyx::OracleTool::WritePng("vk-scene-smoke-pass-corner-tint.png", blend.width,
+                                               blend.height, withPass, pngErr);
+                    std::printf("vk-scene-smoke: pass-smoke: corner-tint: 16x16 top-left corner "
+                                "differs, rest byte-identical to the no-pass render -- OK\n");
+                }
+            }
+        }
+    }
+
+    // ── (b) contained-throw: a pass that throws std::runtime_error is
+    // caught/logged/skipped, a second registered pass still runs (proven
+    // both via a flag and via its own visible corner tint), the frame
+    // completes, and zero validation messages are captured. ──────────────
+    if (rc == 0) {
+        CorpusScene blend = Onyx::OracleTool::BuildBlendStack();
+
+        std::vector<uint8_t> base;
+        if (!RenderBlendStackWithPasses(ctx, scenePipes, blend, nullptr, base, err)) {
+            std::fprintf(stderr, "vk-scene-smoke: pass-smoke: contained-throw: baseline render: %s\n",
+                        err.c_str());
+            rc = 1;
+        } else {
+            Onyx::RenderVk::RenderContext passCtx;
+            bool secondRan = false;
+            passCtx.AddPass("throws", [&](const Onyx::RenderVk::FrameHandles&) {
+                throw std::runtime_error("T8 contained-throw smoke: deliberate pass failure");
+            });
+            const float cyan[4] = {0.0f, 1.0f, 1.0f, 1.0f};
+            passCtx.AddPass("second-visible", [&](const Onyx::RenderVk::FrameHandles& h) {
+                secondRan = true;
+                ClearRectPass(h.cmd, blend.width - 16, blend.height - 16, 16, 16, cyan);
+            });
+
+            std::vector<uint8_t> withPasses;
+            if (!RenderBlendStackWithPasses(ctx, scenePipes, blend, &passCtx, withPasses, err)) {
+                std::fprintf(stderr, "vk-scene-smoke: pass-smoke: contained-throw: %s\n", err.c_str());
+                rc = 1;
+            } else if (!secondRan) {
+                std::fprintf(stderr, "vk-scene-smoke: pass-smoke: contained-throw: the second pass "
+                                     "never ran -- the first pass's throw was not contained\n");
+                rc = 1;
+            } else {
+                std::string detail;
+                if (!CornerTintOnlyInRect(base, withPasses, blend.width, blend.height, blend.width - 16,
+                                          blend.height - 16, 16, 16, detail)) {
+                    std::fprintf(stderr, "vk-scene-smoke: pass-smoke: contained-throw: %s\n",
+                                detail.c_str());
+                    rc = 1;
+                } else if (ctx.ValidationMessageCount() != 0) {
+                    std::fprintf(stderr, "vk-scene-smoke: pass-smoke: contained-throw: %u validation "
+                                         "message(s); last: %s\n", ctx.ValidationMessageCount(),
+                                ctx.LastValidationMessage().c_str());
+                    rc = 1;
+                } else {
+                    std::string pngErr;
+                    Onyx::OracleTool::WritePng("vk-scene-smoke-pass-contained-throw.png", blend.width,
+                                               blend.height, withPasses, pngErr);
+                    std::printf("vk-scene-smoke: pass-smoke: contained-throw: first pass's throw was "
+                                "caught and skipped, the second pass still ran (visible corner tint), "
+                                "frame completed, 0 validation messages -- OK\n");
+                }
             }
         }
     }

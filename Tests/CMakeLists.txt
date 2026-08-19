@@ -91,6 +91,7 @@ add_test(NAME OnyxStatusBarFormat COMMAND onyx_tests "--test-case=*StatusBarForm
 add_test(NAME OnyxInfoTabFilter   COMMAND onyx_tests "--test-case=*InfoTabFilter:*")
 add_test(NAME OnyxOracleCorpus    COMMAND onyx_tests "--test-case=*OracleCorpus:*")
 add_test(NAME OnyxRenderVkSpirv   COMMAND onyx_tests "--test-case=*RenderVkSpirv:*")
+add_test(NAME OnyxRenderContext   COMMAND onyx_tests "--test-case=*RenderContext:*")
 
 add_test(NAME MinimalViewer_SelfTest
     COMMAND MinimalViewer --selftest $<TARGET_FILE:MinimalViewer>)
