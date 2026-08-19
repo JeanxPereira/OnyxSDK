@@ -47,6 +47,26 @@
 // ═══════════════════════════════════════════════════════════════════════
 #include <Onyx/Rendering/RenderBatch.h> // Rendering::RenderBatch, Rendering::ShadingMode, Rendering::ResolveRoleIndices
 
+// ═══════════════════════════════════════════════════════════════════════
+// PRECONDITION -- scene submission is serialized.
+//
+// Every buffer this class rewrites per frame (the main and sky frame UBOs,
+// the overlay VBO, the background and grid UBOs, and -- since v1.1 -- each
+// batch's joint palette SSBO) is host-visible, mapped once at Build() time,
+// and written directly by the CPU with no double-buffering and no barrier.
+//
+// That is safe only because every scene submission goes through
+// Resources::OneShot, which submits and then blocks on vkWaitForFences
+// before returning (VkResources.cpp) -- Viewport3D::RenderFrame, the oracle,
+// and RenderToImage all take that path, so the CPU can never be writing a
+// buffer the GPU is still reading. kFramesInFlight == 2 belongs to the ImGui
+// swapchain, which only samples the already-resolved offscreen texture and
+// never has a scene command buffer in flight.
+//
+// If anyone builds a real in-flight scene path, EVERY buffer named above
+// needs per-frame copies or a fence before its write -- not just the palette.
+// ═══════════════════════════════════════════════════════════════════════
+
 #include <Onyx/Parsers/SceneNode.h>
 
 #include <glm/glm.hpp>
@@ -225,12 +245,21 @@ private:
         uint32_t indexCount = 0;
         Buffer materialUbo;
         Buffer jointSsbo;
+        void*    jointSsboMapped = nullptr; // persistently mapped, see the header's PRECONDITION
+        uint32_t paletteJointCount = 0;     // entries the SSBO was sized for
         VkDescriptorSet set = VK_NULL_HANDLE; // set 1, from m_descriptorPool
     };
 
     bool BuildBatch(VkContext& ctx, const ScenePipelines& pipelines, const Parsers::SceneData& scene,
                      const Parsers::MeshPart& part, std::string& err);
     void DrawBatch(VkCommandBuffer cmd, size_t index) const;
+
+    // Rewrites every batch's palette SSBO from m_jointPalette. Cheap: a
+    // memcpy per batch into already-mapped memory, no allocation, no
+    // command buffer. Batches that carry the one-entry identity palette
+    // (unskinned) are left alone. See the header's PRECONDITION banner for
+    // why an unfenced mapped write is safe here.
+    void UploadBatchPalettes();
 
     std::vector<Rendering::RenderBatch> m_batches;
     std::vector<GpuBatch>               m_gpuBatches; // index-aligned with m_batches

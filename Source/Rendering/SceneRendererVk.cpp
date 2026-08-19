@@ -404,11 +404,16 @@ bool SceneRendererVk::BuildBatch(VkContext& ctx, const ScenePipelines& pipelines
                                                 : std::vector<glm::mat4>{glm::mat4(1.0f)};
     if (palette.empty()) palette.push_back(glm::mat4(1.0f));
 
+    // Host-visible and persistently mapped (not GPU_ONLY/staged): animation
+    // rewrites this every frame the pose changes via UploadBatchPalettes(),
+    // long after Build() returns -- see the header's PRECONDITION banner for
+    // why an unfenced mapped write is safe. VK_BUFFER_USAGE_TRANSFER_DST_BIT
+    // is dropped since nothing stages into this buffer any more.
+    gb.paletteJointCount = uint32_t(palette.size());
     gb.jointSsbo = Resources::CreateBuffer(ctx, sizeof(glm::mat4) * palette.size(),
-                                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                           VMA_MEMORY_USAGE_GPU_ONLY, err);
-    if (gb.jointSsbo.buf == VK_NULL_HANDLE ||
-        !Resources::Upload(ctx, gb.jointSsbo, palette.data(), sizeof(glm::mat4) * palette.size(), err)) {
+                                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                           VMA_MEMORY_USAGE_CPU_TO_GPU, err);
+    if (gb.jointSsbo.buf == VK_NULL_HANDLE) {
         err = "batch '" + part.name + "' joint SSBO: " + err;
         Resources::Destroy(ctx, gb.vertexBuf);
         Resources::Destroy(ctx, gb.indexBuf);
@@ -416,6 +421,20 @@ bool SceneRendererVk::BuildBatch(VkContext& ctx, const ScenePipelines& pipelines
         Resources::Destroy(ctx, gb.jointSsbo);
         return false;
     }
+    {
+        VmaAllocationInfo info{};
+        vmaGetAllocationInfo(ctx.Allocator(), gb.jointSsbo.alloc, &info);
+        gb.jointSsboMapped = info.pMappedData;
+        if (!gb.jointSsboMapped) {
+            err = "batch '" + part.name + "' joint SSBO is not host-mapped";
+            Resources::Destroy(ctx, gb.vertexBuf);
+            Resources::Destroy(ctx, gb.indexBuf);
+            Resources::Destroy(ctx, gb.materialUbo);
+            Resources::Destroy(ctx, gb.jointSsbo);
+            return false;
+        }
+    }
+    WriteMapped(gb.jointSsboMapped, palette.data(), sizeof(glm::mat4) * palette.size());
 
     VkDescriptorSetAllocateInfo ai{};
     ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -581,6 +600,23 @@ void SceneRendererVk::Render(VkCommandBuffer cmd, const glm::mat4& view, const g
                                                                             : m_pipelines->blendNormal;
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
         DrawBatch(cmd, idx);
+    }
+}
+
+// Rewrites every batch's palette SSBO from m_jointPalette. Cheap: a memcpy per
+// batch into already-mapped memory, no allocation, no command buffer. Batches
+// that carry the one-entry identity palette (unskinned) are left alone.
+void SceneRendererVk::UploadBatchPalettes() {
+    for (size_t i = 0; i < m_batches.size() && i < m_gpuBatches.size(); ++i) {
+        auto& gb = m_gpuBatches[i];
+        if (!gb.jointSsboMapped || gb.paletteJointCount == 0) continue;
+        if (!m_batches[i].hasSkeleton || m_batches[i].jointMap.empty()) continue;
+
+        std::vector<glm::mat4> palette = Rendering::BuildBatchPalette(m_jointPalette, m_batches[i].jointMap);
+        if (palette.empty()) continue;
+        if (palette.size() > gb.paletteJointCount) palette.resize(gb.paletteJointCount);
+
+        WriteMapped(gb.jointSsboMapped, palette.data(), sizeof(glm::mat4) * palette.size());
     }
 }
 
@@ -904,6 +940,8 @@ void SceneRendererVk::Clear(VkContext& ctx) {
         Resources::Destroy(ctx, gb.indexBuf);
         Resources::Destroy(ctx, gb.materialUbo);
         Resources::Destroy(ctx, gb.jointSsbo);
+        gb.jointSsboMapped = nullptr;
+        gb.paletteJointCount = 0;
         // gb.set is freed implicitly when m_descriptorPool is destroyed below
         // (the pool was not created with FREE_DESCRIPTOR_SET_BIT).
     }
