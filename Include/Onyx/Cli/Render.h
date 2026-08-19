@@ -6,10 +6,10 @@
 // ── Why this is NOT in Commands.h/Commands.cpp ─────────────────────────────
 // Commands.cpp compiles into Onyx_Core (root CMakeLists.txt's
 // ONYX_CORE_SOURCES list), documented at that target's own declaration as
-// "no UI, no GPU". Every renderer library in this codebase depends on
-// Onyx_Core (Onyx_Render links it PUBLIC; Onyx_RenderVk links it PUBLIC
-// too -- see CMakeLists.txt's `target_link_libraries(Onyx_RenderVk PUBLIC
-// Onyx_Core ...)`). Giving Commands.cpp a Vulkan dependency (VkContext,
+// "no UI, no GPU". The renderer library depends on Onyx_Core (Onyx_RenderVk
+// links it PUBLIC -- see CMakeLists.txt's `target_link_libraries(Onyx_RenderVk
+// PUBLIC Onyx_Core ...)`; the GL Onyx_Render used to as well, before Task 11
+// deleted it). Giving Commands.cpp a Vulkan dependency (VkContext,
 // Pipelines, SceneRendererVk, OffscreenTarget) to implement `render` would
 // mean Onyx_Core links Onyx_RenderVk -- and Onyx_RenderVk already links
 // Onyx_Core, so that direction of dependency is a real CMake link cycle,

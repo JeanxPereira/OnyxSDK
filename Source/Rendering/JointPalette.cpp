@@ -6,11 +6,14 @@
 
 #include <cmath>
 
-// DANGER — see JointPalette.h's own note: this translation unit is compiled
-// twice (once into Onyx_Render, once into Onyx_RenderVk PRIVATE-defining
-// GLM_FORCE_DEPTH_ZERO_TO_ONE), so every function below must stay clear of
-// glm::perspective/ortho/frustum/project/unProject — any clip-space call
-// here would compile to two silently different NDC-Z results.
+// See JointPalette.h's own note: every function below must stay clear of
+// glm::perspective/ortho/frustum/project/unProject -- pure rest-pose/
+// local-TRS math has no business touching a clip-space/NDC-Z convention.
+// (Before Task 11 deleted the GL renderer, this file compiled twice --
+// once into Onyx_Render, once into Onyx_RenderVk PRIVATE-defining
+// GLM_FORCE_DEPTH_ZERO_TO_ONE -- and a clip-space call here would have
+// compiled to two silently different NDC-Z results; that specific danger
+// is gone with the twin-compile, the rule itself stays.)
 
 namespace Onyx::Rendering {
 

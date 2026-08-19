@@ -54,14 +54,6 @@ add_library(lz4_lib STATIC
 )
 target_include_directories(lz4_lib PUBLIC ${lz4_SOURCE_DIR}/lib)
 
-# ── glad (manual, vendored) ────────────────────────────────────────────────
-add_library(glad STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glad/src/glad.c
-)
-target_include_directories(glad PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glad/include
-)
-
 # ── miniaudio (single-header audio, vendored) ────────────────────────────
 add_library(miniaudio STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio/miniaudio.c
@@ -93,7 +85,7 @@ target_include_directories(imgui_lib PUBLIC
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
 )
-target_link_libraries(imgui_lib PUBLIC glfw glad)
+target_link_libraries(imgui_lib PUBLIC glfw)
 
 # ── ImPlot via FetchContent (pinned to the previously-submoduled commit) ───
 FetchContent_Declare(implot
@@ -359,16 +351,6 @@ set(ONYX_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Vfs/TransformFile.cpp
 )
 
-set(ONYX_RENDER_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/AnimationPlayer.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/Camera.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/GpuMesh.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/GridRenderer.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/JointPalette.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/SceneRenderer.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/ShaderManager.cpp
-)
-
 set(ONYX_MEDIA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/TexturePool.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/VideoPlayer.cpp
@@ -386,8 +368,24 @@ set(ONYX_MEDIA_SOURCES
 # T9's DescriptorPoolSize=64) stays correctly singular regardless of which
 # copy's code path calls into it.
 
+# Task 11 ("delete the GL renderer") folded the former GL-only
+# ONYX_RENDER_SOURCES into this list: Camera.cpp/AnimationPlayer.cpp move
+# in from there (physical paths unchanged -- Source/Rendering/ is the
+# established neutral home JointPalette.cpp and AxisGizmo.cpp already use;
+# smaller diff than a `git mv`, same precedent Task 6 set), and
+# RenderBatch.cpp is a genuinely new file (extracted from the deleted GL
+# SceneRenderer.cpp -- see Include/Onyx/Rendering/RenderBatch.h's top
+# comment). JointPalette.cpp no longer needs the dual-target compile trick
+# a prior version of this comment explained: that existed only so the GL
+# and Vulkan renderers could share one physical source file without
+# Onyx_RenderVk linking Onyx_Render (GL's link libs); now that Onyx_Render
+# is gone, there is only one renderer target, so JointPalette.cpp has one
+# normal home like everything else here.
 set(ONYX_RENDERVK_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/AnimationPlayer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/Camera.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/JointPalette.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/RenderBatch.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/OffscreenTarget.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/Pipelines.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/RenderContext.cpp
@@ -397,19 +395,6 @@ set(ONYX_RENDERVK_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VkResources.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VmaImpl.cpp
 )
-# JointPalette.cpp is listed in BOTH ONYX_RENDER_SOURCES and
-# ONYX_RENDERVK_SOURCES above -- one physical source file, compiled twice
-# (once per static library, into each target's own object directory), not
-# a duplicated implementation. This is how GL and Vulkan share the exact
-# same joint-skinning math (Task 6's brief mandate) without Onyx_RenderVk
-# linking Onyx_Render: the completeness check below only requires every
-# Source/*.cpp appear in the merged list at least once, and CMake allows
-# the same source file to belong to more than one target's source list, so
-# each library gets its own private compiled copy of one shared source of
-# truth. Onyx_Render pulls in GL's glad/OpenGL link libs; Onyx_RenderVk
-# must not inherit those transitively just to reuse this pure, GL-free
-# math -- see SceneRendererVk.h's RenderBatch-reuse comment for the same
-# reasoning applied to a header-only case.
 
 set(ONYX_SHELL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Api/ToolkitApi.cpp
@@ -472,7 +457,7 @@ endif()
 # error, not a silent omission.
 file(GLOB_RECURSE _onyx_all_cpp CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp")
-set(_onyx_listed ${ONYX_CORE_SOURCES} ${ONYX_RENDER_SOURCES}
+set(_onyx_listed ${ONYX_CORE_SOURCES}
                  ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES} ${ONYX_RENDERVK_SOURCES})
 foreach(_f ${_onyx_all_cpp})
     if(NOT _f IN_LIST _onyx_listed)
@@ -505,18 +490,13 @@ add_library(Onyx::Core ALIAS Onyx_Core)
 onyx_apply_common(Onyx_Core)
 target_link_libraries(Onyx_Core PUBLIC glm::glm lz4_lib)
 
-# ── Onyx::Render — draws domain data; Core + GL loader only ──────────────
-add_library(Onyx_Render STATIC ${ONYX_RENDER_SOURCES})
-add_library(Onyx::Render ALIAS Onyx_Render)
-onyx_apply_common(Onyx_Render)
-target_link_libraries(Onyx_Render PUBLIC Onyx_Core glad)
-
-# ── Onyx::RenderVk — Vulkan 1.3 renderer (M4); Core + volk + VMA only ─────
-# T9 links this PUBLIC into Onyx::Shell below (Window.cpp now owns the
-# VkContext/swapchain/RenderContext the whole app presents through) --
-# Onyx::Render (GL) stays linked alongside it for now, since Viewport3D/
-# ImageViewer/VideoPlayer still draw through GL until T10 moves them onto
-# SceneRendererVk/TexturePool. See docs/design/2026-08-18-onyx-v1-architecture.md §8.
+# ── Onyx::RenderVk — Vulkan 1.3 renderer; Core + volk + VMA only ─────────
+# T9 links this PUBLIC into Onyx::Shell below (Window.cpp owns the
+# VkContext/swapchain/RenderContext the whole app presents through). Task
+# 11 deleted Onyx::Render (GL), which used to be linked alongside this one
+# in every composition root (Shell, onyx-oracle, onyx_tests) -- this is now
+# the only renderer target in the tree. See
+# docs/design/2026-08-18-onyx-v1-architecture.md §8.
 add_library(Onyx_RenderVk STATIC ${ONYX_RENDERVK_SOURCES})
 add_library(Onyx::RenderVk ALIAS Onyx_RenderVk)
 onyx_apply_common(Onyx_RenderVk)
@@ -526,18 +506,23 @@ target_compile_definitions(Onyx_RenderVk PUBLIC
 # T3's fixed camera convention (Include/Onyx/RenderVk/Pipelines.h's "Camera
 # convention" note): every Onyx_RenderVk source that builds a projection
 # matrix via <glm/gtc/matrix_transform.hpp> gets Vulkan's [0,1] clip-space Z
-# instead of GL's [-1,1]. PRIVATE, deliberately NOT PUBLIC: this milestone's
-# composition roots (onyx-oracle, onyx_tests) link BOTH Onyx::Render (GL)
-# and Onyx::RenderVk in the same executable to run the GL golden corpus
-# alongside Vulkan smoke tests. A PUBLIC definition here was tried first and
-# caught live: it leaked into Tools/OnyxOracle/CorpusScenes.cpp's
-# glm::perspective() calls (compiled as part of onyx-oracle, which links
-# both libraries), silently changing the GL corpus's clip-space Z range and
-# breaking OracleMatchesGolden (Tests/Golden/corpus is frozen this
-# milestone -- the plan's Global Constraints forbid ANY GL behavior change
-# before T9). PRIVATE confines the define to Onyx_RenderVk's own sources
-# (where T5's SceneRendererVk/Camera port also lives), which is exactly
-# where it is needed and nowhere GL still runs.
+# instead of GL's [-1,1]. PRIVATE, deliberately not PUBLIC: it must stay
+# confined to Onyx_RenderVk's own sources (SceneRendererVk.cpp/Camera.cpp/
+# RenderBatch.cpp/...) -- every consumer outside this target (Tools/
+# OnyxOracle/CorpusScenes.cpp, Examples/OnyxCli/Render.cpp) instead builds
+# with plain glm::perspective() (GL's [-1,1] convention) and converts
+# explicitly via Onyx::RenderVk::VulkanProjection() before handing the
+# matrix to SceneRendererVk::Render(), which Debug-asserts that conversion
+# was not forgotten (Pipelines.h's own note). A PUBLIC definition here was
+# tried during the original M4 Vulkan bring-up and caught live: back when
+# onyx-oracle linked GL's Onyx::Render alongside this target too (deleted
+# at Task 11), a PUBLIC macro leaked into CorpusScenes.cpp's own
+# glm::perspective() calls and silently changed the GL corpus's clip-space
+# Z range. Onyx::Render is gone now, but PRIVATE is still the correct
+# choice on its own merits (VulkanProjection() is the one, explicit,
+# assert-checked conversion point; a transitive macro would be a second,
+# implicit one), so it stays PRIVATE rather than widening it just because
+# the original incident's other party is gone.
 target_compile_definitions(Onyx_RenderVk PRIVATE GLM_FORCE_DEPTH_ZERO_TO_ONE)
 target_link_libraries(Onyx_RenderVk PUBLIC
     Onyx_Core
@@ -569,7 +554,6 @@ target_compile_definitions(Onyx_Shell PUBLIC
     $<$<PLATFORM_ID:Darwin>:GLFW_EXPOSE_NATIVE_COCOA>)
 target_link_libraries(Onyx_Shell PUBLIC
     Onyx_Core
-    Onyx_Render
     Onyx_RenderVk
     imgui_lib
     implot_lib
@@ -600,23 +584,25 @@ endif()
 # them until they opt into a thinner slice (e.g. Core+Render for a CLI).
 add_library(Onyx INTERFACE)
 add_library(Onyx::Onyx ALIAS Onyx)
-target_link_libraries(Onyx INTERFACE Onyx_Core Onyx_Render Onyx_Shell)
+target_link_libraries(Onyx INTERFACE Onyx_Core Onyx_RenderVk Onyx_Shell)
 
 # ── Platform libraries, homed on the layer that needs each ───────────────
+# opengl32/-framework OpenGL/GL (the GL renderer's own system link libs)
+# died with Onyx_Render at Task 11 -- imgui_lib's OpenGL3 backend was
+# already gone before that (imgui_impl_opengl3.cpp was never in its source
+# list, only imgui_impl_glfw.cpp/imgui_impl_vulkan.cpp), so nothing in the
+# tree links against a system GL library any more.
 if(WIN32)
-    target_link_libraries(Onyx_Render PUBLIC opengl32)
-    target_link_libraries(Onyx_Shell  PUBLIC comdlg32 dwmapi)
+    target_link_libraries(Onyx_Shell PUBLIC comdlg32 dwmapi)
 elseif(APPLE)
-    target_link_libraries(Onyx_Render PUBLIC "-framework OpenGL")
-    target_link_libraries(Onyx_Shell  PUBLIC
+    target_link_libraries(Onyx_Shell PUBLIC
         "-framework AudioToolbox"
         "-framework CoreAudio"
         "-framework Cocoa"
         "-framework IOKit"
         "-framework CoreFoundation")
 else()
-    target_link_libraries(Onyx_Core   PUBLIC dl pthread m)
-    target_link_libraries(Onyx_Render PUBLIC GL)
+    target_link_libraries(Onyx_Core PUBLIC dl pthread m)
 endif()
 
 # Provide the engine's runtime font dir to consumers
@@ -671,8 +657,14 @@ if(ONYX_BUILD_TESTS)
             list(APPEND _lg_core "${CMAKE_CURRENT_SOURCE_DIR}/Include/Onyx/${_rel}.h")
         endif()
     endforeach()
+    # Task 11: this list source switched from the deleted ONYX_RENDER_SOURCES
+    # (GL) to ONYX_RENDERVK_SOURCES -- the Render layer LayerGuard now guards
+    # is the surviving (Vulkan) one, which is also why the forbidden pattern
+    # below widened to include glad/GL/: the deleted GL renderer was the only
+    # code that ever legitimately included them, so their reappearance in
+    # this layer would now always be a regression, not just a style choice.
     set(_lg_render "")
-    foreach(_f ${ONYX_RENDER_SOURCES})
+    foreach(_f ${ONYX_RENDERVK_SOURCES})
         list(APPEND _lg_render "${_f}")
         string(REGEX REPLACE ".*/Source/(.*)\\.cpp$" "\\1" _rel "${_f}")
         if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Include/Onyx/${_rel}.h")
@@ -687,9 +679,13 @@ if(ONYX_BUILD_TESTS)
         -DLISTFILE=${CMAKE_BINARY_DIR}/layerguard-core.txt
         "-DFORBIDDEN=imgui|implot|GLFW/|glad/"
         -P ${CMAKE_SOURCE_DIR}/cmake/LayerGuard.cmake)
+    # The swapchain lives in Shell (Window.cpp) -- GLFW must not appear in
+    # Render sources either, same as before Task 11. glad/GL/ join the
+    # forbidden set now that the Render layer this guards is Vulkan-only:
+    # any reappearance of either is a real GL regression, not a style nit.
     add_test(NAME LayerGuard.Render COMMAND ${CMAKE_COMMAND}
         -DLISTFILE=${CMAKE_BINARY_DIR}/layerguard-render.txt
-        "-DFORBIDDEN=imgui|implot|GLFW/"
+        "-DFORBIDDEN=imgui|implot|GLFW/|glad|GL/"
         -P ${CMAKE_SOURCE_DIR}/cmake/LayerGuard.cmake)
 
     add_subdirectory(Tests)

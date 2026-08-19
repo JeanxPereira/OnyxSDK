@@ -2,7 +2,7 @@
 #include <Onyx/Viewers/IDocumentContent.h>
 #include <Onyx/Rendering/Camera.h>
 #include <Onyx/Rendering/AxisGizmo.h>
-#include <Onyx/Rendering/SceneRenderer.h> // Rendering::RenderBatch/ShadingMode -- see .cpp top comment
+#include <Onyx/Rendering/RenderBatch.h> // Rendering::RenderBatch/ShadingMode -- see .cpp top comment
 #include <Onyx/Parsers/MeshData.h>
 #include <Onyx/Parsers/TextureData.h>
 #include <Onyx/Parsers/SceneNode.h>

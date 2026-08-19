@@ -8,41 +8,44 @@
 #include <Onyx/RenderVk/VkResources.h>
 
 // ═══════════════════════════════════════════════════════════════════════
-// RenderBatch reuse (task-5 brief's "bookkeeping question"): Tools/
-// OnyxOracle/RenderReport.{h,cpp} ALREADY takes std::vector<Rendering::
-// RenderBatch> directly and its own top comment states the reasoning this
-// file leans on: SceneRenderer.h only forward-declares `GLuint`/`GLenum`
-// as `using GLuint = unsigned int;` -- it does NOT include glad/GLFW, so
-// pulling it in here does not violate Onyx_RenderVk's "no GL calls/headers"
-// rule (verified: no GL header, no GL function call, just a plain integer
-// typedef reused as a bookkeeping field). Including it also does NOT
-// create a link dependency on Onyx_Render: RenderBatch's only non-trivial
-// member is `std::shared_ptr<GpuMesh>`, which SceneRendererVk never
-// constructs (it stays null-initialized; Vulkan geometry lives in this
-// file's own GpuBatch, not in a GL GpuMesh), so GpuMesh.cpp (which lives
-// in Onyx_Render and DOES touch real GL calls) is never pulled into this
-// target's link step.
+// RenderBatch reuse (task-5 brief's "bookkeeping question"; the shared
+// struct moved homes at Task 11 -- see Include/Onyx/Rendering/RenderBatch.h's
+// own top comment for the full story, this note keeps the parts still
+// load-bearing here): Tools/OnyxOracle/RenderReport.{h,cpp} ALREADY takes
+// std::vector<Rendering::RenderBatch> directly, and RenderBatch.h only
+// forward-declares `GLuint` as `using GLuint = unsigned int;` -- it does
+// NOT include glad, so pulling it in here does not violate Onyx_RenderVk's
+// "no GL calls/headers" rule (verified: no GL header, no GL function call,
+// just a plain integer typedef reused as a bookkeeping field).
+// RenderBatch's only non-trivial member is `std::shared_ptr<GpuMesh>`,
+// which SceneRendererVk never constructs (it stays null-initialized;
+// Vulkan geometry lives in this file's own GpuBatch, not in a GpuMesh) --
+// `GpuMesh` is now forward-declared only and never defined anywhere in the
+// codebase (its GL implementation was deleted alongside the rest of the GL
+// renderer at Task 11), which this file never notices since it only ever
+// holds a null shared_ptr to it.
 //
 // Given that, the minimal move is to reuse Rendering::RenderBatch
-// verbatim rather than extract a neutral struct: BuildReport()'s output
-// shape is pinned to RenderBatch's exact field set already, so extracting
-// a lookalike struct would only add a translation step (and a second
-// place these fields could drift out of sync) for zero benefit -- the
-// oracle's JSON report for a given scene comes out byte-identical whether
-// GL's SceneRenderer or this file populated the vector, which is exactly
-// the parity property task 5 exists to establish.
+// verbatim rather than extract a lookalike struct: BuildReport()'s output
+// shape is pinned to RenderBatch's exact field set already, so a second
+// struct would only add a translation step (and a second place these
+// fields could drift out of sync) for zero benefit -- the oracle's JSON
+// report for a given scene comes out byte-identical whether the (now
+// deleted) GL SceneRenderer or this file populated the vector, which was
+// exactly the parity property task 5 existed to establish and Task 7's
+// VkOracleParity still leans on today.
 //
 // The `GLuint texture0/texture1/texNormal/texAO/texGloss/texScatter`
 // fields are populated here as plain nonzero/zero SENTINELS (never a real
-// GPU handle of any kind, GL or Vulkan) -- their only consumers are
-// RenderReport's CountBoundRoleTextures (nonzero => bound) and this
-// struct's own hasTexture/hasEnvmap booleans, so a sentinel preserves
-// the report's semantics exactly without smuggling a GL concept into a
-// Vulkan translation unit. The real Vulkan-side texture/sampler state
+// GPU handle of any kind) -- their only consumers are RenderReport's
+// CountBoundRoleTextures (nonzero => bound) and this struct's own
+// hasTexture/hasEnvmap booleans, so a sentinel preserves the report's
+// semantics exactly without smuggling a GL concept into a Vulkan
+// translation unit. The real Vulkan-side texture/sampler state
 // (VkImageView + VkSampler, wired into each batch's descriptor set) lives
 // in this file's private GpuBatch, never in RenderBatch.
 // ═══════════════════════════════════════════════════════════════════════
-#include <Onyx/Rendering/SceneRenderer.h> // Rendering::RenderBatch, Rendering::ShadingMode
+#include <Onyx/Rendering/RenderBatch.h> // Rendering::RenderBatch, Rendering::ShadingMode, Rendering::ResolveRoleIndices
 
 #include <Onyx/Parsers/SceneNode.h>
 

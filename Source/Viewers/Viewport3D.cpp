@@ -109,6 +109,27 @@ struct Viewport3D::VulkanState {
 
 Viewport3D::Viewport3D(const std::string& name) : m_name(name) {
     m_vk = std::make_unique<VulkanState>();
+
+    // Task 11: Onyx::Rendering::Camera's constructor used to pull these
+    // same fields from AppConfig itself (see Camera.cpp's own comment for
+    // why that moved) -- applying them here, right after m_camera's default
+    // construction, keeps the "new viewport matches the user's last-session
+    // camera preferences" behavior exactly, just from the one Shell class
+    // that owns both AppConfig and the Camera instance. Mirrors
+    // Source/App/Panels/CameraPanel.cpp's own field list, which writes
+    // these same members back into AppConfig when the user edits them.
+    if (auto* cfg = Onyx::Services::AppConfig::Get()) {
+        m_camera.fov               = cfg->camFov;
+        m_camera.nearPlane         = cfg->camNearPlane;
+        m_camera.farPlane          = cfg->camFarPlane;
+        m_camera.autoNear          = cfg->camAutoNear;
+        m_camera.autoFar           = cfg->camAutoFar;
+        m_camera.manualNear        = cfg->camManualNear;
+        m_camera.manualFar         = cfg->camManualFar;
+        m_camera.nearDistanceScale = cfg->camNearDistanceScale;
+        m_camera.farMargin         = cfg->camFarMargin;
+        m_camera.nearFarRatioMax   = cfg->camNearFarRatioMax;
+    }
 }
 
 Viewport3D::~Viewport3D() {

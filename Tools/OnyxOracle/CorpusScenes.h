@@ -19,7 +19,7 @@
 // too -- see CorpusScene::mode and BuildCorpus().
 
 #include <Onyx/Parsers/SceneNode.h>
-#include <Onyx/Rendering/ShaderManager.h> // Rendering::ShadingMode
+#include <Onyx/Rendering/RenderBatch.h> // Rendering::ShadingMode
 
 #include <glm/glm.hpp>
 

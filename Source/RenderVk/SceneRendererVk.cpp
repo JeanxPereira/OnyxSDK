@@ -335,7 +335,9 @@ bool SceneRendererVk::BuildBatch(VkContext& ctx, const ScenePipelines& pipelines
         batch.metallic = mat.metallic;
 
         // Reused verbatim per the brief -- pure, public, no reimplementation.
-        std::array<int, 9> roles = Rendering::SceneRenderer::ResolveRoleIndices(mat);
+        // (Task 11: extracted from the deleted GL SceneRenderer into
+        // Rendering::ResolveRoleIndices, Include/Onyx/Rendering/RenderBatch.h.)
+        std::array<int, 9> roles = Rendering::ResolveRoleIndices(mat);
         auto imgFor = [&](TextureRole role) -> const Image2D* {
             int idx = roles[static_cast<size_t>(role)];
             if (idx >= 0 && static_cast<size_t>(idx) < m_textures.size() &&

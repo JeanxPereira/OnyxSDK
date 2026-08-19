@@ -89,9 +89,10 @@ void AppendBool(std::string& out, bool v) {
     out += v ? "true" : "false";
 }
 
-// Six GL role slots today: texture0, texture1, texNormal, texAO, texGloss,
+// Six role slots today: texture0, texture1, texNormal, texAO, texGloss,
 // texScatter. M4 widens the role array (see the RenderBatch comment in
-// SceneRenderer.h) -- extend this list alongside it when that lands.
+// Include/Onyx/Rendering/RenderBatch.h) -- extend this list alongside it
+// when that lands.
 int CountBoundRoleTextures(const RenderBatch& b) {
     const GLuint slots[] = {b.texture0, b.texture1, b.texNormal,
                              b.texAO,    b.texGloss, b.texScatter};

@@ -6,7 +6,6 @@
 #include <Onyx/Services/Appearance.h>
 #include "imgui.h"
 #include "imgui_internal.h"
-#include <Onyx/Rendering/ShaderManager.h>
 #include <Onyx/Services/AssetVisibility.h>
 #include <Onyx/Fonts/SFSymbols.h>
 #include <Onyx/App/Widgets.h>
@@ -542,9 +541,15 @@ void SettingsWindow::DrawViewportCategory() {
   ImGui::NewLine();
 
   if (BeginSubWindow("Shading Base")) {
-    if (ImGui::ColorEdit3("Matcap Base Color", &config->matcapR, flags)) {
-      Onyx::Rendering::ShaderManager::Get().GenerateMatcapTexture();
-    }
+    // Task 11: this used to regenerate the GL ShaderManager's procedural
+    // matcap texture on edit. Matcap shading has no Vulkan path (SceneRendererVk
+    // aliases ShadingMode::Matcap to Solid -- see Source/RenderVk/
+    // SceneRendererVk.cpp's own divergence-2 comment), and ShaderManager
+    // itself was deleted with the rest of the GL renderer, so the call is
+    // dropped rather than wired against nothing. The stored color survives
+    // (still a valid, persisted AppConfig value) in case a Vulkan matcap
+    // path lands later.
+    ImGui::ColorEdit3("Matcap Base Color", &config->matcapR, flags);
   }
   EndSubWindow();
 }

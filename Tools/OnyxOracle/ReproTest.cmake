@@ -1,12 +1,21 @@
 # ── ReproTest.cmake — OracleReproducible gate ──────────────────────────────
 #
-# Runs `onyx-oracle render-corpus` twice, into WORK/a and WORK/b, then
-# `onyx-oracle verify WORK/a WORK/b` to confirm the two runs are byte-
-# identical. Any exit 77 (no display session -- see HeadlessGL.h) from any
-# of the three invocations propagates as this script's own exit 77, via
+# Runs `onyx-oracle render-corpus --renderer vk` twice, into WORK/a and
+# WORK/b, then `onyx-oracle verify WORK/a WORK/b` to confirm the two runs
+# are byte-identical. Task 11 reworked this from the GL renderer (rendered
+# via a hidden GLFW window, HeadlessGL.h) onto the Vulkan renderer -- T5/T7
+# already established Vulkan output is deterministic on one machine/driver
+# (VkSceneSmoke's own repeated-render assertions; VkOracleParity's stable
+# pixelHash across 3 consecutive runs), so "render twice, diff exact" stays
+# a meaningful check, just against a different renderer. --renderer vk is
+# passed explicitly rather than relied on as onyx-oracle's default, so this
+# script keeps working unchanged even if that default ever changes again.
+#
+# Any exit 77 (no Vulkan-capable device/driver -- see VkContext::Init) from
+# any of the three invocations propagates as this script's own exit 77, via
 # cmake_language(EXIT), so ctest's SKIP_RETURN_CODE 77 on the OracleReproducible
 # test (set in CMakeLists.txt) turns the whole gate into a SKIP, not a FAIL,
-# on machines with no GL display. Any other nonzero exit is a real failure
+# on a machine with no usable GPU. Any other nonzero exit is a real failure
 # and becomes a FATAL_ERROR (ctest FAILED).
 #
 # ORACLE and WORK are passed in via -D from the add_test COMMAND in
@@ -34,15 +43,15 @@ function(run_oracle)
         message(STATUS "${errout}")
     endif()
     if(rc EQUAL 77)
-        message(STATUS "onyx-oracle exited 77 (no GL display session) -- skipping")
+        message(STATUS "onyx-oracle exited 77 (no Vulkan-capable device/driver) -- skipping")
         cmake_language(EXIT 77)
     elseif(NOT rc EQUAL 0)
         message(FATAL_ERROR "onyx-oracle ${ARGN} failed: exit ${rc}")
     endif()
 endfunction()
 
-run_oracle(render-corpus --out ${WORK}/a)
-run_oracle(render-corpus --out ${WORK}/b)
+run_oracle(render-corpus --renderer vk --out ${WORK}/a)
+run_oracle(render-corpus --renderer vk --out ${WORK}/b)
 run_oracle(verify ${WORK}/a ${WORK}/b)
 
-message(STATUS "OracleReproducible: two independent render-corpus runs are byte-identical")
+message(STATUS "OracleReproducible: two independent Vulkan render-corpus runs are byte-identical")

@@ -10,7 +10,7 @@
 #include <Onyx/Services/Diagnostics.h>
 #include <Onyx/Services/Jobs.h>
 
-#include <Onyx/Rendering/ShaderManager.h> // Rendering::ShadingMode
+#include <Onyx/Rendering/RenderBatch.h> // Rendering::ShadingMode
 #include <Onyx/RenderVk/OffscreenTarget.h>
 #include <Onyx/RenderVk/Pipelines.h>      // Onyx::RenderVk::VulkanProjection, ScenePipelines
 #include <Onyx/RenderVk/SceneRendererVk.h>
@@ -187,16 +187,22 @@ int CmdRender(Workspace& ws, const std::filesystem::path& path, std::string_view
 
     // ── camera: frame the decoded scene's object-space bbox with margin ──
     // Hand-rolled here rather than reusing Onyx::Rendering::Camera
-    // (Include/Onyx/Rendering/Camera.h): that class is pure glm math with
-    // no GL dependency of its own, but it compiles into Onyx_Render
-    // (ONYX_RENDER_SOURCES, CMakeLists.txt) alongside GpuMesh.cpp/
-    // SceneRenderer.cpp, which DO pull in glad + the platform GL lib
-    // (opengl32 on Windows). Linking Onyx::Render into onyxbox-cli just to
-    // reuse ~10 lines of Camera::FocusOn/UpdatePosition math would drag a
-    // whole unused GL toolchain dependency into a Vulkan-only headless CLI
-    // -- this mirrors Camera::FocusOn's exact formula (distance =
-    // radius/sin(halfFov/2)*1.2 margin, fixed 45deg/15deg orbit) without
-    // that link.
+    // (Include/Onyx/Rendering/Camera.h). Originally this was to dodge a GL
+    // link (Camera.cpp compiled into the GL Onyx_Render alongside
+    // GpuMesh.cpp/SceneRenderer.cpp, which pulled in glad + opengl32) --
+    // Task 11 deleted that GL renderer and Camera.cpp now compiles into the
+    // Vulkan-only Render layer with no GL dependency at all, so that
+    // specific reason is gone. Reusing Camera here regardless is a
+    // reasonable follow-up but is out of Task 11's own file list/scope;
+    // left hand-rolled for now, close to but NOT byte-identical to
+    // Camera::FocusOn's formula (Source/Rendering/Camera.cpp:116-127): this
+    // block clamps `radius` itself to >= 1.0 before dividing by
+    // sin(halfFov), where FocusOn divides the RAW (unclamped) bbox radius
+    // and only clamps the final `distance` to >= 0.1 -- the two formulas
+    // agree once radius >= 1.0 (the common case) and diverge only for a
+    // sub-unit bbox, where this CLI's version sits farther back than
+    // FocusOn would. Stated honestly rather than silently left claiming an
+    // "exact" match it was never quite making.
     glm::vec3 lo(std::numeric_limits<float>::max());
     glm::vec3 hi(-std::numeric_limits<float>::max());
     bool anyVertex = false;

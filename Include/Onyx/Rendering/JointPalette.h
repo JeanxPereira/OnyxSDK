@@ -2,32 +2,32 @@
 
 // ── JointPalette: pure, GL-free joint-skinning math ─────────────────────
 //
-// Extracted from Source/Rendering/SceneRenderer.cpp (GL) so the Vulkan
-// renderer (Source/RenderVk/SceneRendererVk.cpp) can share the EXACT same
-// rest-pose skinning math instead of carrying its own copy — T5 originally
-// ported these three functions verbatim into SceneRendererVk.cpp because
-// Onyx_RenderVk cannot link Onyx_Render (see SceneRendererVk.h's
-// RenderBatch-reuse comment for why); this header is the shared home both
-// GL and Vulkan now build against instead, compiled once into each of the
-// Onyx_Render / Onyx_RenderVk static libraries (same source file listed in
-// both CMake source lists — see CMakeLists.txt's ONYX_RENDER_SOURCES /
-// ONYX_RENDERVK_SOURCES) rather than pulling one library into the other.
+// Extracted from Source/Rendering/SceneRenderer.cpp (GL, deleted at Task
+// 11) so the Vulkan renderer (Source/RenderVk/SceneRendererVk.cpp) could
+// share the EXACT same rest-pose skinning math instead of carrying its own
+// copy — T5 originally ported these three functions verbatim into
+// SceneRendererVk.cpp because Onyx_RenderVk could not link Onyx_Render
+// (GL); this header became the shared home both renderers built against
+// instead, compiled once into each of the (then two) static libraries via
+// the same physical source file listed in both CMake source lists. Task 11
+// deleted Onyx_Render along with the rest of the GL renderer, so this file
+// now compiles exactly once, into Onyx_RenderVk only (CMakeLists.txt's
+// ONYX_RENDERVK_SOURCES) — no more twin-compile to keep in sync.
 //
 // No GL includes, no Vulkan includes — only glm and Parsers::ObjectData
 // (a plain data header). Every function here is pure: no globals, no
 // logging, no side effects beyond its return value.
 //
-// DANGER — asymmetric GLM_FORCE_DEPTH_ZERO_TO_ONE: this file is compiled
-// TWICE, once into Onyx_Render (no GLM_FORCE_DEPTH_ZERO_TO_ONE — GL's
-// [-1,1] NDC Z) and once into Onyx_RenderVk (GLM_FORCE_DEPTH_ZERO_TO_ONE
-// defined PRIVATE on that target — Vulkan's [0,1] NDC Z; see
-// CMakeLists.txt and Include/Onyx/RenderVk/Pipelines.h's own note). Every
-// function here must stay pure rest-pose/local-TRS math with NO clip-space
-// projection step. Never call glm::perspective/ortho/frustum/project/
-// unProject (or anything that reads GLM_DEPTH_CLIP_SPACE) from this file —
-// doing so would silently compile two different NDC-Z conventions into the
-// two object files sharing this one source, and the two renderers would
-// diverge without a compile error anywhere.
+// Every function here must stay pure rest-pose/local-TRS math with NO
+// clip-space projection step: never call glm::perspective/ortho/frustum/
+// project/unProject (or anything that reads GLM_DEPTH_CLIP_SPACE) from
+// this file. Before Task 11 that rule guarded against a specific, silent
+// failure mode (this source compiling under two different
+// GLM_FORCE_DEPTH_ZERO_TO_ONE settings across its two object files, one per
+// renderer, with no compile error marking the divergence); the twin-compile
+// is gone now, but the rule stays because it is still simply correct for
+// what this file is for — rest-pose math has no business touching a
+// projection convention at all, on either renderer.
 
 #include <Onyx/Parsers/SceneNode.h> // Parsers::ObjectData
 

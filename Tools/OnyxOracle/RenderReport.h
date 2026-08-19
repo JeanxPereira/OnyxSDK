@@ -4,21 +4,23 @@
 // Task 5 renders each corpus scene and calls BuildReport() to produce a
 // byte-stable JSON document describing what was drawn: scene name/size, a
 // hash of the rendered pixels, and a per-batch geometry/material summary in
-// Rendering::SceneRenderer::GetBatches() order. Byte-stability is the whole
-// point -- the report becomes the equality test between two runs of the GL
-// oracle, and later between the GL and Vulkan oracles -- so every value is
-// formatted deterministically: fixed-precision floats (FormatFloat), manual
-// string building (no ostream locale risk), explicit "\n" (never emitted
-// via anything that could turn into "\r\n"), and no timestamps, paths, or
-// pointers anywhere in the output.
+// SceneRendererVk::GetBatches() order (Task 11 deleted the GL SceneRenderer
+// this comment used to name; RenderBatch/GetBatches() outlived it, now the
+// Vulkan renderer's own surface). Byte-stability is the whole point -- the
+// report was the equality test between two runs of the GL oracle, and is
+// now between two runs of the Vulkan one (OracleReproducible) -- so every
+// value is formatted deterministically: fixed-precision floats
+// (FormatFloat), manual string building (no ostream locale risk), explicit
+// "\n" (never emitted via anything that could turn into "\r\n"), and no
+// timestamps, paths, or pointers anywhere in the output.
 //
-// This header pulls in Rendering::SceneRenderer.h for RenderBatch, which
-// only forward-declares GL types (GLuint/GLenum = unsigned int) -- it does
-// NOT include glad/GLFW, so RenderReport.{h,cpp} stay GL-free and can be
-// exercised from doctest without a GL context, same as CorpusTextures and
-// CorpusScenes.
+// This header pulls in Rendering::RenderBatch.h for RenderBatch, which only
+// forward-declares GLuint (= unsigned int) -- it does NOT include glad, so
+// RenderReport.{h,cpp} stay GL-free (there is no GL left to depend on) and
+// can be exercised from doctest without any GPU context, same as
+// CorpusTextures and CorpusScenes.
 
-#include <Onyx/Rendering/SceneRenderer.h>
+#include <Onyx/Rendering/RenderBatch.h>
 
 #include <cstddef>
 #include <cstdint>

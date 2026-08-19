@@ -1,28 +1,26 @@
-# -- OnyxOracle -- headless GL reference renderer (M0 oracle corpus) --------
-# Renders scenes off-screen through the real Onyx::Render shaders and writes
-# PNGs the future Vulkan renderer must match pixel-for-pixel. No UI: links
-# only Onyx::Render + glfw, the same composition-root exception Examples/
-# already takes.
-
+# -- OnyxOracle -- headless Vulkan reference renderer (oracle corpus) -------
+# Renders scenes off-screen through Onyx::RenderVk and writes PNGs checked
+# against the frozen GL goldens (Tests/Golden/corpus, produced before
+# Task 11 deleted the GL renderer that made them -- kept as the permanent
+# parity anchor VkOracleParity below still compares against). No UI: links
+# only Onyx::RenderVk -- Task 11 proved this standalone (no glfw, no
+# AppConfigStub.cpp, no Onyx::Render): see that task's report for the
+# link-completeness fixes (ResolveRoleIndices + Camera's AppConfig read)
+# that made it possible.
 add_executable(onyx-oracle
     Main.cpp
-    HeadlessGL.cpp
     PngWrite.cpp
     PngRead.cpp
     ImageCompare.cpp
-    AppConfigStub.cpp
     CorpusTextures.cpp
     CorpusScenes.cpp
     RenderReport.cpp
 )
 target_include_directories(onyx-oracle PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb)
-target_link_libraries(onyx-oracle PRIVATE Onyx::Render Onyx::RenderVk glfw)
+target_link_libraries(onyx-oracle PRIVATE Onyx::RenderVk)
 onyx_apply_common(onyx-oracle)
 
-add_test(NAME OracleGlSmoke COMMAND onyx-oracle --gl-smoke)
-set_tests_properties(OracleGlSmoke PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")
-
-# VkBootSmoke: mirrors OracleGlSmoke for the Vulkan boot path -- Init(false)
+# VkBootSmoke -- Init(false)
 # (headless, no swapchain), print the picked device name, Shutdown, exit 0.
 # Exit 77 (SKIP, not FAIL) when no Vulkan-capable device/driver is present.
 add_test(NAME VkBootSmoke COMMAND onyx-oracle --vk-smoke)
@@ -58,9 +56,16 @@ set_tests_properties(VkValidationSelfTest PROPERTIES SKIP_RETURN_CODE 77 LABELS 
 add_test(NAME VkSceneSmoke COMMAND onyx-oracle --vk-scene-smoke)
 set_tests_properties(VkSceneSmoke PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")
 
-# OracleReproducible: renders the corpus twice (WORK/a, WORK/b) and verifies
-# the two runs are byte-identical -- see ReproTest.cmake for the exit-77
-# (no display session) propagation this depends on.
+# OracleReproducible: renders the corpus twice (WORK/a, WORK/b) through the
+# Vulkan renderer and verifies the two runs are byte-identical (`verify`,
+# the same byte-exact comparator this test used against the GL renderer
+# before Task 11 deleted it) -- see ReproTest.cmake for the exit-77 (no
+# Vulkan-capable device/driver) propagation this depends on, and for why
+# "render twice, diff exact" is a meaningful determinism check even though
+# nothing here compares against a golden (T5/T7 already established the
+# Vulkan renderer is deterministic on one machine/driver -- see
+# VkSceneSmoke above, whose own repeated-render assertions this test
+# generalizes to the full corpus).
 add_test(NAME OracleReproducible
          COMMAND ${CMAKE_COMMAND}
            -DORACLE=$<TARGET_FILE:onyx-oracle>
@@ -68,19 +73,17 @@ add_test(NAME OracleReproducible
            -P ${CMAKE_CURRENT_SOURCE_DIR}/ReproTest.cmake)
 set_tests_properties(OracleReproducible PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")
 
-# OracleMatchesGolden: the gate -- compares a fresh render-corpus run
-# (produced by OracleReproducible, reused rather than re-rendered) against
-# the committed reference corpus in Tests/Golden/corpus.
-add_test(NAME OracleMatchesGolden
-         COMMAND onyx-oracle verify ${CMAKE_SOURCE_DIR}/Tests/Golden/corpus
-                 ${CMAKE_CURRENT_BINARY_DIR}/oracle-repro/a)
-set_tests_properties(OracleMatchesGolden PROPERTIES DEPENDS OracleReproducible
-         SKIP_RETURN_CODE 77 LABELS "render")
+# OracleMatchesGolden (byte-exact fresh-GL-render-vs-golden) died with the
+# GL renderer at Task 11 -- there is no GL render left to byte-compare
+# against Tests/Golden/corpus. VkOracleParity below is now the sole
+# comparator against those frozen goldens, deliberately tolerant (a
+# different rasterizer, never byte-exact -- see its own four-knob comment).
 
 # VkOracleParity (T7, "the milestone's teeth"): renders the 5-scene corpus
 # through the Vulkan path (render-corpus --renderer vk) and `compare`s it
-# against the FROZEN GL goldens (Tests/Golden/corpus -- never regenerated;
-# see OracleMatchesGolden above, which pins the GL side byte-exact).
+# against the FROZEN GL goldens (Tests/Golden/corpus -- produced by the GL
+# renderer before Task 11 deleted it, never regenerated since; kept as the
+# permanent parity anchor).
 #
 # FOUR-KNOB GATE (T7 fix round, adjudicated): T7's original BLOCKED report
 # measured every corpus scene needing maxChannelDelta in the 60-121 range
