@@ -1,5 +1,7 @@
 #include <Onyx/RenderVk/SceneRendererVk.h>
 
+#include <Onyx/Rendering/JointPalette.h>
+
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
@@ -45,57 +47,6 @@ int ShadingModeInt(ShadingMode mode) {
     }
 }
 
-// ── Idle-pose joint math -- exact port of Source/Rendering/SceneRenderer.cpp's
-// BuildLocalTRS (see that file for the full derivation comment; reproduced
-// here verbatim, math untouched, because SceneRendererVk cannot link
-// Onyx_Render to reuse the GL translation unit itself). ─────────────────
-glm::mat4 BuildLocalTRS(const ObjectData& obj, int i) {
-    const auto& v4 = obj.vectors4[i];  // local translation
-    const auto& v5 = obj.vectors5[i];  // rotation (Q.14 fixed-point)
-    const auto& v6 = obj.vectors6[i];  // local scale
-
-    const float Q14 = 1.0f / (1 << 14);
-
-    glm::mat4 S = glm::scale(glm::mat4(1.0f),
-                             glm::vec3(v6.x != 0.0f ? v6.x : 1.0f,
-                                       v6.y != 0.0f ? v6.y : 1.0f,
-                                       v6.z != 0.0f ? v6.z : 1.0f));
-
-    glm::quat rot;
-    const bool isQuat = obj.joints[i].isQuaternion;
-
-    if (isQuat) {
-        float qx = float(v5.x) * Q14;
-        float qy = float(v5.y) * Q14;
-        float qz = float(v5.z) * Q14;
-        float qw = float(v5.w) * Q14;
-        float qlen = std::sqrt(qx * qx + qy * qy + qz * qz + qw * qw);
-        if (qlen > 0.0001f) { qx /= qlen; qy /= qlen; qz /= qlen; qw /= qlen; }
-        else                 { qx = 0; qy = 0; qz = 0; qw = 1; }
-        rot = glm::quat(qw, qx, qy, qz);
-    } else {
-        const float halfToRad = (0.5f * glm::pi<float>()) / 180.0f;
-        float ex = float(v5.x) * Q14 * 360.0f * halfToRad;
-        float ey = float(v5.y) * Q14 * 360.0f * halfToRad;
-        float ez = float(v5.z) * Q14 * 360.0f * halfToRad;
-        float sx = std::sin(ex), cx = std::cos(ex);
-        float sy = std::sin(ey), cy = std::cos(ey);
-        float sz = std::sin(ez), cz = std::cos(ez);
-        float qx = sx * cy * cz - cx * sy * sz;
-        float qy = cx * sy * cz + sx * cy * sz;
-        float qz = cx * cy * sz - sx * sy * cz;
-        float qw = cx * cy * cz + sx * sy * sz;
-        float qlen = std::sqrt(qx * qx + qy * qy + qz * qz + qw * qw);
-        if (qlen > 0.0001f) { qx /= qlen; qy /= qlen; qz /= qlen; qw /= qlen; }
-        else                 { qx = 0; qy = 0; qz = 0; qw = 1; }
-        rot = glm::quat(qw, qx, qy, qz);
-    }
-
-    glm::mat4 R = glm::mat4_cast(rot);
-    glm::mat4 T = glm::translate(glm::mat4(1.0f), glm::vec3(v4.x, v4.y, v4.z));
-    return T * R * S;
-}
-
 // Persistently-mapped-buffer write helper -- every CPU_TO_GPU buffer this
 // file creates is mapped once at creation (Resources::CreateBuffer already
 // requests VMA_ALLOCATION_CREATE_MAPPED_BIT for that memory usage), so
@@ -106,36 +57,6 @@ void WriteMapped(void* mapped, const void* data, size_t size) {
 }
 
 } // namespace
-
-// ── Idle-pose joint palette ──────────────────────────────────────────────
-
-void SceneRendererVk::ComputeJointPalette(const ObjectData& skeleton) {
-    const size_t n = skeleton.joints.size();
-    m_jointPalette.assign(n, glm::mat4(1.0f));
-
-    std::vector<glm::mat4> globalMats(n, glm::mat4(1.0f));
-    for (size_t i = 0; i < n; ++i) {
-        const auto& j = skeleton.joints[i];
-        glm::mat4 local = BuildLocalTRS(skeleton, static_cast<int>(i));
-        if (j.parent >= 0 && static_cast<size_t>(j.parent) < n) {
-            globalMats[i] = globalMats[static_cast<size_t>(j.parent)] * local;
-        } else {
-            globalMats[i] = local;
-        }
-        m_jointPalette[i] = globalMats[i] * j.bindToJointMat;
-    }
-}
-
-std::vector<glm::mat4> SceneRendererVk::BuildBatchPalette(const std::vector<uint16_t>& jointMap) const {
-    if (jointMap.empty() || m_jointPalette.empty()) return {glm::mat4(1.0f)};
-
-    std::vector<glm::mat4> remapped(jointMap.size(), glm::mat4(1.0f));
-    for (size_t i = 0; i < jointMap.size(); ++i) {
-        uint16_t globalIdx = jointMap[i];
-        if (globalIdx < m_jointPalette.size()) remapped[i] = m_jointPalette[globalIdx];
-    }
-    return remapped;
-}
 
 // ── Build ─────────────────────────────────────────────────────────────────
 
@@ -197,8 +118,44 @@ bool SceneRendererVk::Build(VkContext& ctx, const ScenePipelines& pipelines, con
         m_textures[i] = img;
     }
 
-    // ── idle-pose joint palette (rest pose, no animation) ───────────────
-    if (scene.skeleton) ComputeJointPalette(*scene.skeleton);
+    // ── idle-pose joint palette (rest pose, no animation) -- shared math
+    // (Onyx::Rendering::ComputeJointPalette, JointPalette.h/.cpp) so GL and
+    // Vulkan skin identically. m_jointWorldPos is captured too, purely for
+    // RenderSkeleton's debug-line generation below (mirrors GL's own
+    // SceneRenderer::ComputeJointPalette, which fills both in one walk). ──
+    if (scene.skeleton) {
+        m_skeleton = scene.skeleton;
+        m_jointPalette = Rendering::ComputeJointPalette(*scene.skeleton, &m_jointWorldPos);
+
+        if (!m_skeleton->joints.empty()) {
+            // Upper-bound overlay vertex capacity: RenderSkeleton emits, per
+            // joint, at most 6 (root cross) + 4 (joint dot) + 6 (3 axis
+            // pairs) = 16 OverlayVertex entries (a non-root joint emits 2
+            // bone-line + 4 + 6 = 12, strictly fewer) -- see RenderSkeleton's
+            // doc comment. Sized once here, right after Build() learns the
+            // joint count, so RenderSkeleton only ever memcpy's into an
+            // already-live, already-mapped buffer -- never allocates
+            // mid-frame (see that method's doc comment for why it cannot).
+            const size_t maxOverlayVerts = m_skeleton->joints.size() * 16;
+            m_overlayVbo = Resources::CreateBuffer(ctx, sizeof(OverlayVertex) * maxOverlayVerts,
+                                                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                                   VMA_MEMORY_USAGE_CPU_TO_GPU, err);
+            if (m_overlayVbo.buf == VK_NULL_HANDLE) {
+                err = "SceneRendererVk::Build: overlay vertex buffer: " + err;
+                Clear(ctx);
+                return false;
+            }
+            VmaAllocationInfo ovInfo{};
+            vmaGetAllocationInfo(ctx.Allocator(), m_overlayVbo.alloc, &ovInfo);
+            m_overlayVboMapped = ovInfo.pMappedData;
+            m_overlayVboCapacity = maxOverlayVerts;
+            if (!m_overlayVboMapped) {
+                err = "SceneRendererVk::Build: overlay vertex buffer is not host-mapped";
+                Clear(ctx);
+                return false;
+            }
+        }
+    }
 
     // ── one shared descriptor pool: 2 frame sets + up to one set per
     // mesh part (an upper bound -- some parts may be skipped below for
@@ -428,7 +385,7 @@ bool SceneRendererVk::BuildBatch(VkContext& ctx, const ScenePipelines& pipelines
 
     // Bound even for unskinned batches, identity entry, per scene.vert's
     // comment -- a safety net FLAG_USE_JOINTS still gates whether it's read.
-    std::vector<glm::mat4> palette = useJoints ? BuildBatchPalette(batch.jointMap)
+    std::vector<glm::mat4> palette = useJoints ? Rendering::BuildBatchPalette(m_jointPalette, batch.jointMap)
                                                 : std::vector<glm::mat4>{glm::mat4(1.0f)};
     if (palette.empty()) palette.push_back(glm::mat4(1.0f));
 
@@ -664,6 +621,251 @@ bool SceneRendererVk::RenderBackground(VkContext& ctx, const BackgroundPipeline&
     return true;
 }
 
+// ── RenderGrid ────────────────────────────────────────────────────────────
+
+bool SceneRendererVk::RenderGrid(VkContext& ctx, const GridPipeline& pipeline, VkCommandBuffer cmd,
+                                 const glm::mat4& view, const glm::mat4& proj, const glm::vec4& gridColor,
+                                 float gridScale, int viewportW, int viewportH, std::string& err) {
+    if (m_gridSet == VK_NULL_HANDLE) {
+        VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1};
+        VkDescriptorPoolCreateInfo poolInfo{};
+        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.maxSets = 1;
+        poolInfo.poolSizeCount = 1;
+        poolInfo.pPoolSizes = &size;
+        VkResult vr = vkCreateDescriptorPool(ctx.Device(), &poolInfo, nullptr, &m_gridPool);
+        if (vr != VK_SUCCESS) {
+            err = "SceneRendererVk::RenderGrid: vkCreateDescriptorPool failed (VkResult " +
+                  std::to_string(static_cast<int>(vr)) + ")";
+            return false;
+        }
+
+        m_gridBuf = Resources::CreateBuffer(ctx, sizeof(GridUBO), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                            VMA_MEMORY_USAGE_CPU_TO_GPU, err);
+        if (m_gridBuf.buf == VK_NULL_HANDLE) {
+            err = "SceneRendererVk::RenderGrid: UBO buffer: " + err;
+            return false;
+        }
+        VmaAllocationInfo info{};
+        vmaGetAllocationInfo(ctx.Allocator(), m_gridBuf.alloc, &info);
+        m_gridBufMapped = info.pMappedData;
+        if (!m_gridBufMapped) {
+            err = "SceneRendererVk::RenderGrid: UBO buffer is not host-mapped";
+            return false;
+        }
+
+        VkDescriptorSetAllocateInfo ai{};
+        ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        ai.descriptorPool = m_gridPool;
+        ai.descriptorSetCount = 1;
+        ai.pSetLayouts = &pipeline.setLayout;
+        vr = vkAllocateDescriptorSets(ctx.Device(), &ai, &m_gridSet);
+        if (vr != VK_SUCCESS) {
+            err = "SceneRendererVk::RenderGrid: vkAllocateDescriptorSets failed (VkResult " +
+                  std::to_string(static_cast<int>(vr)) + ")";
+            return false;
+        }
+
+        VkDescriptorBufferInfo bi{m_gridBuf.buf, 0, sizeof(GridUBO)};
+        VkWriteDescriptorSet w{};
+        w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        w.dstSet = m_gridSet;
+        w.dstBinding = 0;
+        w.descriptorCount = 1;
+        w.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        w.pBufferInfo = &bi;
+        vkUpdateDescriptorSets(ctx.Device(), 1, &w, 0, nullptr);
+    }
+
+    // CPU side of GL's GridRenderer::Draw (Source/Rendering/GridRenderer.cpp)
+    // -- the grid line/LOD/axis-tint math itself lives in grid.frag,
+    // ported verbatim by T3. cameraPos: same expression Render() uses for
+    // SceneFrameUBO::cameraPos (Pipelines.h's "Camera convention" note).
+    GridUBO ubo{};
+    ubo.viewProj = proj * view;
+    ubo.invViewProj = glm::inverse(ubo.viewProj);
+    ubo.gridColor = gridColor;
+    ubo.cameraPos = glm::vec3(glm::inverse(view)[3]);
+    ubo.gridScale = gridScale;
+    WriteMapped(m_gridBufMapped, &ubo, sizeof(ubo));
+
+    VkViewport vp{};
+    vp.x = 0.0f;
+    vp.y = 0.0f;
+    vp.width = static_cast<float>(viewportW);
+    vp.height = static_cast<float>(viewportH);
+    vp.minDepth = 0.0f;
+    vp.maxDepth = 1.0f;
+    vkCmdSetViewport(cmd, 0, 1, &vp);
+
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = {static_cast<uint32_t>(viewportW), static_cast<uint32_t>(viewportH)};
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, 1, &m_gridSet, 0, nullptr);
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+    return true;
+}
+
+// ── RenderSkeleton ────────────────────────────────────────────────────────
+
+bool SceneRendererVk::RenderSkeleton(VkContext& ctx, const OverlayPipeline& pipeline, VkCommandBuffer cmd,
+                                     const glm::mat4& view, const glm::mat4& proj, int viewportW,
+                                     int viewportH, std::string& err) {
+    if (!m_skeleton || m_jointWorldPos.empty()) return true;
+
+    // ── build the line buffer -- exact port of GL's RenderSkeleton
+    // (Source/Rendering/SceneRenderer.cpp), one OverlayVertex per LineVert.
+    // Colors: GL's own cfg-null fallback constants, unconditionally -- see
+    // this method's doc comment for why RenderVk never reaches for
+    // Onyx::Services::AppConfig itself. ─────────────────────────────────
+    const glm::vec4 boneColor(0.0f, 1.0f, 0.4f, 1.0f);
+    const glm::vec4 rootColor(1.0f, 0.3f, 0.1f, 1.0f);
+    glm::vec4 jointDot = boneColor * 0.5f + glm::vec4(0.5f);
+    jointDot.a = 1.0f;
+
+    std::vector<OverlayVertex> lines;
+    lines.reserve(m_overlayVboCapacity);
+
+    for (size_t i = 0; i < m_skeleton->joints.size() && i < m_jointWorldPos.size(); ++i) {
+        const auto& joint = m_skeleton->joints[i];
+
+        glm::vec3 pos = glm::vec3(m_instanceTransform * glm::vec4(m_jointWorldPos[i], 1.0f));
+
+        if (joint.parent >= 0 && static_cast<size_t>(joint.parent) < m_jointWorldPos.size()) {
+            glm::vec3 parentPos =
+                glm::vec3(m_instanceTransform * glm::vec4(m_jointWorldPos[static_cast<size_t>(joint.parent)], 1.0f));
+            lines.push_back({parentPos, boneColor});
+            lines.push_back({pos, boneColor});
+        } else {
+            float s = 0.05f;
+            lines.push_back({pos + glm::vec3(-s, 0, 0), rootColor});
+            lines.push_back({pos + glm::vec3(s, 0, 0), rootColor});
+            lines.push_back({pos + glm::vec3(0, -s, 0), rootColor});
+            lines.push_back({pos + glm::vec3(0, s, 0), rootColor});
+            lines.push_back({pos + glm::vec3(0, 0, -s), rootColor});
+            lines.push_back({pos + glm::vec3(0, 0, s), rootColor});
+        }
+
+        float d = 0.02f;
+        lines.push_back({pos + glm::vec3(-d, 0, 0), jointDot});
+        lines.push_back({pos + glm::vec3(d, 0, 0), jointDot});
+        lines.push_back({pos + glm::vec3(0, -d, 0), jointDot});
+        lines.push_back({pos + glm::vec3(0, d, 0), jointDot});
+
+        // Per-joint orientation axes (X=red, Y=green, Z=blue), from the
+        // joint's world rest matrix -- renderMat defaults to identity for
+        // any skeleton that never populated it (e.g. the synthetic corpus
+        // scenes), matching GL exactly.
+        glm::mat4 worldMat = m_instanceTransform * joint.renderMat;
+        glm::vec3 ax = glm::vec3(worldMat[0]);
+        glm::vec3 ay = glm::vec3(worldMat[1]);
+        glm::vec3 az = glm::vec3(worldMat[2]);
+        float aLen = 0.04f;
+        glm::vec4 axR(1.0f, 0.2f, 0.2f, 1.0f);
+        glm::vec4 axG(0.2f, 1.0f, 0.2f, 1.0f);
+        glm::vec4 axB(0.3f, 0.5f, 1.0f, 1.0f);
+        lines.push_back({pos, axR});
+        lines.push_back({pos + glm::normalize(ax) * aLen, axR});
+        lines.push_back({pos, axG});
+        lines.push_back({pos + glm::normalize(ay) * aLen, axG});
+        lines.push_back({pos, axB});
+        lines.push_back({pos + glm::normalize(az) * aLen, axB});
+    }
+
+    if (lines.empty()) return true;
+
+    // Build()'s capacity (joints.size() * 16) is an exact upper bound on
+    // the loop above (root joints emit 16, non-root emit 12), so this
+    // should never trip -- guarded anyway rather than overrunning the
+    // mapped buffer if a future edit changes the per-joint vertex count
+    // without updating Build()'s capacity math to match.
+    if (lines.size() > m_overlayVboCapacity) {
+        err = "SceneRendererVk::RenderSkeleton: line buffer (" + std::to_string(lines.size()) +
+              " verts) exceeds the capacity Build() reserved (" + std::to_string(m_overlayVboCapacity) + ")";
+        return false;
+    }
+    WriteMapped(m_overlayVboMapped, lines.data(), sizeof(OverlayVertex) * lines.size());
+
+    if (m_overlaySet == VK_NULL_HANDLE) {
+        VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1};
+        VkDescriptorPoolCreateInfo poolInfo{};
+        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.maxSets = 1;
+        poolInfo.poolSizeCount = 1;
+        poolInfo.pPoolSizes = &size;
+        VkResult vr = vkCreateDescriptorPool(ctx.Device(), &poolInfo, nullptr, &m_overlayPool);
+        if (vr != VK_SUCCESS) {
+            err = "SceneRendererVk::RenderSkeleton: vkCreateDescriptorPool failed (VkResult " +
+                  std::to_string(static_cast<int>(vr)) + ")";
+            return false;
+        }
+
+        m_overlayBuf = Resources::CreateBuffer(ctx, sizeof(OverlayUBO), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                               VMA_MEMORY_USAGE_CPU_TO_GPU, err);
+        if (m_overlayBuf.buf == VK_NULL_HANDLE) {
+            err = "SceneRendererVk::RenderSkeleton: UBO buffer: " + err;
+            return false;
+        }
+        VmaAllocationInfo info{};
+        vmaGetAllocationInfo(ctx.Allocator(), m_overlayBuf.alloc, &info);
+        m_overlayBufMapped = info.pMappedData;
+        if (!m_overlayBufMapped) {
+            err = "SceneRendererVk::RenderSkeleton: UBO buffer is not host-mapped";
+            return false;
+        }
+
+        VkDescriptorSetAllocateInfo ai{};
+        ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        ai.descriptorPool = m_overlayPool;
+        ai.descriptorSetCount = 1;
+        ai.pSetLayouts = &pipeline.setLayout;
+        vr = vkAllocateDescriptorSets(ctx.Device(), &ai, &m_overlaySet);
+        if (vr != VK_SUCCESS) {
+            err = "SceneRendererVk::RenderSkeleton: vkAllocateDescriptorSets failed (VkResult " +
+                  std::to_string(static_cast<int>(vr)) + ")";
+            return false;
+        }
+
+        VkDescriptorBufferInfo bi{m_overlayBuf.buf, 0, sizeof(OverlayUBO)};
+        VkWriteDescriptorSet w{};
+        w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        w.dstSet = m_overlaySet;
+        w.dstBinding = 0;
+        w.descriptorCount = 1;
+        w.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        w.pBufferInfo = &bi;
+        vkUpdateDescriptorSets(ctx.Device(), 1, &w, 0, nullptr);
+    }
+
+    OverlayUBO ubo{};
+    ubo.viewProj = proj * view;
+    WriteMapped(m_overlayBufMapped, &ubo, sizeof(ubo));
+
+    VkViewport vp{};
+    vp.x = 0.0f;
+    vp.y = 0.0f;
+    vp.width = static_cast<float>(viewportW);
+    vp.height = static_cast<float>(viewportH);
+    vp.minDepth = 0.0f;
+    vp.maxDepth = 1.0f;
+    vkCmdSetViewport(cmd, 0, 1, &vp);
+
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = {static_cast<uint32_t>(viewportW), static_cast<uint32_t>(viewportH)};
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.layout, 0, 1, &m_overlaySet, 0, nullptr);
+    VkDeviceSize offset = 0;
+    vkCmdBindVertexBuffers(cmd, 0, 1, &m_overlayVbo.buf, &offset);
+    vkCmdDraw(cmd, static_cast<uint32_t>(lines.size()), 1, 0, 0);
+    return true;
+}
+
 // ── Clear ─────────────────────────────────────────────────────────────────
 
 void SceneRendererVk::Clear(VkContext& ctx) {
@@ -681,6 +883,8 @@ void SceneRendererVk::Clear(VkContext& ctx) {
     m_additiveIdx.clear();
     m_skyIdx.clear();
     m_jointPalette.clear();
+    m_skeleton.reset();
+    m_jointWorldPos.clear();
 
     if (m_descriptorPool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(ctx.Device(), m_descriptorPool, nullptr);
@@ -708,6 +912,25 @@ void SceneRendererVk::Clear(VkContext& ctx) {
     m_bgSet = VK_NULL_HANDLE;
     Resources::Destroy(ctx, m_bgBuf);
     m_bgBufMapped = nullptr;
+
+    if (m_gridPool != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(ctx.Device(), m_gridPool, nullptr);
+        m_gridPool = VK_NULL_HANDLE;
+    }
+    m_gridSet = VK_NULL_HANDLE;
+    Resources::Destroy(ctx, m_gridBuf);
+    m_gridBufMapped = nullptr;
+
+    if (m_overlayPool != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(ctx.Device(), m_overlayPool, nullptr);
+        m_overlayPool = VK_NULL_HANDLE;
+    }
+    m_overlaySet = VK_NULL_HANDLE;
+    Resources::Destroy(ctx, m_overlayBuf);
+    m_overlayBufMapped = nullptr;
+    Resources::Destroy(ctx, m_overlayVbo);
+    m_overlayVboMapped = nullptr;
+    m_overlayVboCapacity = 0;
 
     m_pipelines = nullptr;
     m_instanceTransform = glm::mat4(1.0f);

@@ -62,11 +62,16 @@ void PrintHelp() {
         "      independently, asserting (a) not every pixel equals the clear\n"
         "      color and (b) the two runs are byte-identical; repeats the same\n"
         "      two checks for a sphere-grid-textured render (Textured mode, PBR\n"
-        "      material path) for extra confidence; also exercises\n"
-        "      RenderBackground once, asserting a non-uniform, repeatable\n"
-        "      gradient. Writes PNGs for each. Exit 0 on success, 1 on any\n"
-        "      assertion/GPU failure, 77 if no Vulkan-capable device/driver is\n"
-        "      found.\n"
+        "      material path) for extra confidence. T6 extends this to the two\n"
+        "      skinned corpus scenes, same two checks each: skinned-cube (also\n"
+        "      asserts its render differs from the same scene rendered with\n"
+        "      every mesh part's jointMap cleared -- proof the joint palette\n"
+        "      actually deforms pixels) and joint-chain-200 (200 single-joint\n"
+        "      batches, pinning per-batch palette remapping at scale). Also\n"
+        "      exercises RenderBackground once, asserting a non-uniform,\n"
+        "      repeatable gradient. Writes PNGs for each. Exit 0 on success, 1\n"
+        "      on any assertion/GPU failure, 77 if no Vulkan-capable\n"
+        "      device/driver is found.\n"
         "\n"
         "  onyx-oracle render-corpus --out DIR\n"
         "      Renders all 5 corpus scenes to DIR/<name>.png + DIR/<name>.json,\n"
@@ -247,6 +252,97 @@ int RunVkSceneSmoke() {
                                        sphereTex.height, a, pngErr);
             std::printf("vk-scene-smoke: sphere-grid-textured: %dx%d non-uniform, byte-identical across "
                         "2 runs -- OK\n", sphereTex.width, sphereTex.height);
+        }
+    }
+
+    // ── skinned-cube, Solid mode -- pins the rest-pose skinning palette
+    // path (T6: SceneRendererVk no longer carries its own copy of the
+    // joint math -- it now shares GL's exact ComputeJointPalette/
+    // BuildBatchPalette/BuildLocalTRS via Onyx::Rendering::JointPalette,
+    // see Include/Onyx/Rendering/JointPalette.h). ───────────────────────
+    if (rc == 0) {
+        CorpusScene skinnedCube = Onyx::OracleTool::BuildSkinnedCube();
+        std::vector<uint8_t> a, b;
+        if (!RenderSceneTwice(ctx, scenePipes, skinnedCube.scene, skinnedCube.view, skinnedCube.proj,
+                              skinnedCube.mode, skinnedCube.width, skinnedCube.height, clearColor, a, b, err)) {
+            std::fprintf(stderr, "vk-scene-smoke: skinned-cube: %s\n", err.c_str());
+            rc = 1;
+        } else if (AllPixelsEqual(a, clearBytes)) {
+            std::fprintf(stderr, "vk-scene-smoke: skinned-cube: every pixel equals the clear color\n");
+            rc = 1;
+        } else if (!BytesIdentical(a, b)) {
+            std::fprintf(stderr, "vk-scene-smoke: skinned-cube: two independent Build()+Render() runs "
+                                 "are not byte-identical\n");
+            rc = 1;
+        } else {
+            std::string pngErr;
+            Onyx::OracleTool::WritePng("vk-scene-smoke-skinned-cube.png", skinnedCube.width, skinnedCube.height, a,
+                                       pngErr);
+            std::printf("vk-scene-smoke: skinned-cube: %dx%d non-uniform, byte-identical across 2 runs -- OK\n",
+                        skinnedCube.width, skinnedCube.height);
+
+            // ── controller mandate (T5 review): prove the joint palette
+            // actually deforms pixels in Vulkan -- the first pixel-level
+            // proof of the skinned path. Rebuild the identical scene
+            // (BuildSkinnedCube is pure/deterministic) with every mesh
+            // part's jointMap cleared: BuildBatch's `useJoints` gate goes
+            // false, scene.vert's FLAG_USE_JOINTS branch never fires, and
+            // geometry falls back to its authored rest positions -- the
+            // STRAIGHT box BuildRingedBox generated, not the pose the
+            // +30deg joint-1/joint-2 palette bends it into. Cheapest
+            // honest construction per the brief: no new corpus scene, no
+            // weight-zeroing pass, just the jointMap the batch already
+            // gates skinning on. ─────────────────────────────────────────
+            CorpusScene noSkin = Onyx::OracleTool::BuildSkinnedCube();
+            noSkin.name = "skinned-cube-no-skin";
+            for (auto& part : noSkin.scene.meshParts) part.jointMap.clear();
+
+            std::vector<uint8_t> nsA, nsB;
+            if (!RenderSceneTwice(ctx, scenePipes, noSkin.scene, noSkin.view, noSkin.proj, noSkin.mode,
+                                  noSkin.width, noSkin.height, clearColor, nsA, nsB, err)) {
+                std::fprintf(stderr, "vk-scene-smoke: skinned-cube-no-skin: %s\n", err.c_str());
+                rc = 1;
+            } else if (!BytesIdentical(nsA, nsB)) {
+                std::fprintf(stderr, "vk-scene-smoke: skinned-cube-no-skin: two independent Build()+Render() "
+                                     "runs are not byte-identical\n");
+                rc = 1;
+            } else if (BytesIdentical(a, nsA)) {
+                std::fprintf(stderr, "vk-scene-smoke: skinned-cube: render is byte-identical to the "
+                                     "skinning-disabled variant -- the joint palette deformed no pixel\n");
+                rc = 1;
+            } else {
+                std::string pngErr2;
+                Onyx::OracleTool::WritePng("vk-scene-smoke-skinned-cube-no-skin.png", noSkin.width, noSkin.height,
+                                           nsA, pngErr2);
+                std::printf("vk-scene-smoke: skinned-cube: differs from the skinning-disabled render -- the "
+                            "palette deforms pixels -- OK\n");
+            }
+        }
+    }
+
+    // ── joint-chain-200, Solid mode -- pins per-batch palette remapping at
+    // scale (200 single-joint batches; see CorpusScenes.h's top comment:
+    // every chain batch has paletteJointCount 1, so this does not exceed
+    // any fixed palette limit). ──────────────────────────────────────────
+    if (rc == 0) {
+        CorpusScene chain = Onyx::OracleTool::BuildJointChain200();
+        std::vector<uint8_t> a, b;
+        if (!RenderSceneTwice(ctx, scenePipes, chain.scene, chain.view, chain.proj, chain.mode, chain.width,
+                              chain.height, clearColor, a, b, err)) {
+            std::fprintf(stderr, "vk-scene-smoke: joint-chain-200: %s\n", err.c_str());
+            rc = 1;
+        } else if (AllPixelsEqual(a, clearBytes)) {
+            std::fprintf(stderr, "vk-scene-smoke: joint-chain-200: every pixel equals the clear color\n");
+            rc = 1;
+        } else if (!BytesIdentical(a, b)) {
+            std::fprintf(stderr, "vk-scene-smoke: joint-chain-200: two independent Build()+Render() runs "
+                                 "are not byte-identical\n");
+            rc = 1;
+        } else {
+            std::string pngErr;
+            Onyx::OracleTool::WritePng("vk-scene-smoke-joint-chain-200.png", chain.width, chain.height, a, pngErr);
+            std::printf("vk-scene-smoke: joint-chain-200: %dx%d non-uniform, byte-identical across 2 runs -- "
+                        "OK\n", chain.width, chain.height);
         }
     }
 
