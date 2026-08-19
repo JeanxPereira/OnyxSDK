@@ -53,8 +53,10 @@ int DefaultFontIndex();                     // preferred default UI font (bundle
 void BuildAtlas(int fontIndex, float fontSizePx);
 
 // ── GPU Upload ────────────────────────────────────────────────────────────
-// Destroys and recreates backend device objects (OpenGL textures).
-// MUST be called outside the ImGui frame (after ImGui::Render()).
+// imgui_impl_vulkan (T9) re-uploads a rebuilt atlas on its own, the next
+// time it renders a frame's draw data -- see UploadAtlas()'s own comment
+// in FontManager.cpp. Kept as a call site so BuildAtlas()'s "rebuild
+// pending" flag still gets cleared somewhere outside the ImGui frame.
 void UploadAtlas();
 
 // ── Monospace font (always-on secondary atlas font) ──────────────────────

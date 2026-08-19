@@ -87,7 +87,7 @@ add_library(imgui_lib STATIC
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/imgui_demo.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
 )
 target_include_directories(imgui_lib PUBLIC
     ${imgui_SOURCE_DIR}
@@ -251,6 +251,17 @@ target_link_libraries(volk PUBLIC Vulkan::Headers)
 target_compile_definitions(volk PUBLIC
     VK_NO_PROTOTYPES
     $<$<PLATFORM_ID:Windows>:VK_USE_PLATFORM_WIN32_KHR>)
+
+# imgui_lib's Vulkan backend (backends/imgui_impl_vulkan.cpp, wired in
+# above) resolves every Vulkan entry point through volk instead of a static
+# import library -- IMGUI_IMPL_VULKAN_USE_VOLK is imgui_impl_vulkan.h's own
+# configuration knob for that (see the "[Configuration] Convenience support
+# for Volk" block at that header's top). PUBLIC: Source/App/Window.cpp also
+# includes imgui_impl_vulkan.h directly (T9) and must see the same define,
+# or its Vulkan-include branch would disagree with the one the backend was
+# actually compiled against.
+target_compile_definitions(imgui_lib PUBLIC IMGUI_IMPL_VULKAN_USE_VOLK)
+target_link_libraries(imgui_lib PUBLIC volk::volk)
 
 # VulkanMemoryAllocator is header-only (INTERFACE target); it still needs
 # Vulkan's types, so it rides on the same pinned Vulkan::Headers.
@@ -486,11 +497,11 @@ onyx_apply_common(Onyx_Render)
 target_link_libraries(Onyx_Render PUBLIC Onyx_Core glad)
 
 # ── Onyx::RenderVk — Vulkan 1.3 renderer (M4); Core + volk + VMA only ─────
-# Not yet linked into the Onyx::Onyx aggregate or Onyx::Shell -- M4 grows
-# this alongside Onyx::Render until the parity gate passes (see
-# docs/design/2026-08-18-onyx-v1-architecture.md §8), at which point Shell
-# switches over and the GL renderer is deleted. For now it is opt-in, taken
-# by onyx-oracle's --vk-smoke mode only.
+# T9 links this PUBLIC into Onyx::Shell below (Window.cpp now owns the
+# VkContext/swapchain/RenderContext the whole app presents through) --
+# Onyx::Render (GL) stays linked alongside it for now, since Viewport3D/
+# ImageViewer/VideoPlayer still draw through GL until T10 moves them onto
+# SceneRendererVk/TexturePool. See docs/design/2026-08-18-onyx-v1-architecture.md §8.
 add_library(Onyx_RenderVk STATIC ${ONYX_RENDERVK_SOURCES})
 add_library(Onyx::RenderVk ALIAS Onyx_RenderVk)
 onyx_apply_common(Onyx_RenderVk)
@@ -544,6 +555,7 @@ target_compile_definitions(Onyx_Shell PUBLIC
 target_link_libraries(Onyx_Shell PUBLIC
     Onyx_Core
     Onyx_Render
+    Onyx_RenderVk
     imgui_lib
     implot_lib
     imgui_color_text_edit

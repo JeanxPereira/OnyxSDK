@@ -33,9 +33,22 @@ bool DeviceExtensionAvailable(VkPhysicalDevice pd, const char* name) {
 // requested, the platform windowing system. The Win32 presentation query
 // takes no VkSurfaceKHR -- it answers "could this queue family ever present
 // to a Win32 window", which is exactly what a surface-less boot can check.
-// Other platforms don't have an equivalent query wired yet (T9, once a real
-// surface exists there); presentSupport on non-Windows only affects the
-// VK_KHR_swapchain extension gate below.
+//
+// T9 rider: the portable equivalent of that pre-surface query is GLFW's own
+// glfwGetPhysicalDevicePresentationSupport(instance, pd, family) -- but
+// VkContext must never include GLFW (this directory's binding rule: no
+// GLFW in Onyx_RenderVk sources, see the plan's Global Constraints and the
+// task-9 brief). So on non-Windows platforms this function stays
+// permissive at the device-selection stage; presentSupport there only
+// gates the VK_KHR_swapchain extension request below. The REAL check for
+// those platforms happens one layer up, once Window.cpp has a live
+// VkSurfaceKHR: initVulkan() calls vkGetPhysicalDeviceSurfaceSupportKHR
+// against the actual surface right after creating it and logs (does not
+// yet hard-fail) a mismatch. That is later than device/queue-family
+// selection would ideally catch it, but it is the earliest point in the
+// boot sequence that does not require leaking GLFW into this file. Only
+// verified on Windows so far (T9's build/test environment); the Linux
+// branch below compiles but is untested.
 bool QueueFamilySuitable(VkPhysicalDevice pd, uint32_t family,
                          const VkQueueFamilyProperties& props, bool presentSupport) {
     if (!(props.queueFlags & VK_QUEUE_GRAPHICS_BIT)) return false;

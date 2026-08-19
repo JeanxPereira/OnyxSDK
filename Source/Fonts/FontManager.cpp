@@ -2,7 +2,6 @@
 #include <Onyx/Services/PathUtils.h>
 #include "Services/ScaleManager.h"
 #include "imgui.h"
-#include "imgui_impl_opengl3.h"
 
 #include <algorithm>
 #include <cmath>
@@ -209,12 +208,21 @@ void BuildAtlas(int fontIndex, float fontSizePx) {
 }
 
 // ── UploadAtlas ───────────────────────────────────────────────────────────
-// Destroys and recreates OpenGL device objects (font texture).
-// MUST be called outside ImGui frame (after ImGui::Render()).
-
+// GL backend note (pre-T9): used to force-recreate imgui_impl_opengl3's
+// device objects (font texture) here, since that backend never noticed an
+// atlas rebuilt mid-session on its own.
+//
+// imgui_impl_vulkan (T9) does not need that: Build() above already leaves
+// the atlas's ImTextureData marked dirty (WantCreate the first time,
+// WantUpdates on every later rebuild), and the backend re-uploads any
+// dirty texture it finds in ImDrawData::Textures automatically, inside
+// ImGui_ImplVulkan_RenderDrawData() -- see that backend's own 2025-06-11
+// changelog entry ("Added support for ImGuiBackendFlags_RendererHasTextures,
+// for dynamic font atlas"). This function now just clears the flag callers
+// poll via IsPendingRebuild(); kept (rather than deleted) so Window.cpp's
+// and Appearance.cpp's existing "if pending, upload" call sites need no
+// change.
 void UploadAtlas() {
-    ImGui_ImplOpenGL3_DestroyDeviceObjects();
-    ImGui_ImplOpenGL3_CreateDeviceObjects();
     s_pendingRebuild = false;
 }
 
