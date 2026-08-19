@@ -4,7 +4,7 @@
 // vk_mem_alloc.h, before any other Vulkan-touching header). VkResources.h
 // already pulls both in (via VkContext.h) in that order, so including it
 // first here keeps the rule honored without repeating it.
-#include <Onyx/RenderVk/VkResources.h>
+#include <Onyx/Rendering/VkResources.h>
 
 #include <cstdint>
 #include <string>

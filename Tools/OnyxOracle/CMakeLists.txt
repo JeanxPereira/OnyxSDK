@@ -50,7 +50,7 @@ set_tests_properties(VkValidationSelfTest PROPERTIES SKIP_RETURN_CODE 77 LABELS 
 # for skinned-cube (plus a skinning-disabled re-render asserting the
 # palette actually deforms pixels) and joint-chain-200 (200 single-joint
 # batches), and exercises RenderBackground once. T8 adds two RenderContext
-# (Include/Onyx/RenderVk/RenderContext.h) pass checks against the
+# (Include/Onyx/Rendering/RenderContext.h) pass checks against the
 # blend-stack scene: (a) a registered pass tints a 16x16 corner via
 # vkCmdClearAttachments -- readback proves the corner differs from a
 # no-pass render and everything else stays byte-identical; (b) a pass that

@@ -57,7 +57,7 @@ struct FrameHandles {
 /// throw point (binds a pipeline, writes a push constant, etc.) leaves that
 /// state in place for whatever runs after it this frame.
 ///
-/// Not copyable: matches every other RenderVk class's convention
+/// Not copyable: matches every other Render-layer class's convention
 /// (OffscreenTarget, SceneRendererVk) even though this one owns no GPU
 /// resource itself, just registered callbacks -- there is no use case for
 /// copying or moving a live registry mid-frame.

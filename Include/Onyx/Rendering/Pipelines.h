@@ -4,7 +4,7 @@
 // vk_mem_alloc.h, before any other Vulkan-touching header). VkContext.h
 // already pulls both in, in that order, so including it first here keeps
 // the rule honored without repeating it.
-#include <Onyx/RenderVk/VkContext.h>
+#include <Onyx/Rendering/VkContext.h>
 
 #include <glm/glm.hpp>
 
@@ -49,7 +49,7 @@ namespace Onyx::Rendering {
 // Onyx_Render's own sources (Camera.cpp, SceneRendererVk.cpp, ...) as
 // well as onyx-oracle (CorpusScenes.cpp, Main.cpp), onyxbox-cli
 // (Render.cpp) and onyx_tests, since all of them link Onyx::Render. This
-// is also why Source/RenderVk/Shaders/grid.frag had to change its NDC-Z
+// is also why Source/Rendering/Shaders/grid.frag had to change its NDC-Z
 // handling (see that file's divergence-3 comment) while scene.vert/
 // scene.frag did not need to (neither reads/writes clip-space Z directly)
 // -- that shader-side half of the contract was never in question here.
@@ -63,7 +63,7 @@ namespace Onyx::Rendering {
 // NOT by flipping the viewport (VkViewport.height negative + y offset) —
 // that alternate trick works too but is explicitly NOT the convention
 // this milestone uses, so mixing the two must never happen. No shader in
-// Source/RenderVk/Shaders performs a Y-flip itself; gl_Position is always
+// Source/Rendering/Shaders performs a Y-flip itself; gl_Position is always
 // `projection * view * worldPos` unchanged from the GL source.
 //
 // VulkanProjection() below is that Y-flip step, named as a contract every

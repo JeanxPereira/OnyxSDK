@@ -13,7 +13,7 @@
 // first (or exclusively) -- every later Vulkan header (vk_mem_alloc.h
 // included) picks up volk's already-configured vulkan.h through its own
 // `#include <vulkan/vulkan.h>` and the include guard makes that a no-op.
-// This rule is binding for every RenderVk task after this one.
+// This rule is binding for every Render-layer task after this one.
 #include <volk.h>
 #include <vk_mem_alloc.h>
 
@@ -64,7 +64,7 @@ public:
     /// presentSupport=true is the one that must supply
     /// glfwGetRequiredInstanceExtensions()'s result here -- VkContext
     /// itself must never link GLFW (see this header's include-order rule
-    /// and every RenderVk task's binding "no GLFW in Onyx_Render" rule),
+    /// and every Render-layer task's binding "no GLFW in Onyx_Render" rule),
     /// so it cannot ask GLFW what a surface needs; the caller that already
     /// has a GLFWwindow is the only one that can. Entries are
     /// de-duplicated against VkContext's own list (and each other) before

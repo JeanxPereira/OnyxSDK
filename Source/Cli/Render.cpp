@@ -7,7 +7,7 @@
 // ONYX_CLIRENDER_SOURCES/`Onyx::CliRender` target). That target links
 // Onyx_Core and Onyx_Render PUBLIC, and nothing links back into it from
 // either side, so the cycle Render.h's top comment explains simply cannot
-// form -- this file is free to include Vulkan/glm/RenderVk headers
+// form -- this file is free to include Vulkan/glm/Render-layer headers
 // exactly like it always could, just from a linkable static library
 // instead of an executable's own source list.
 //
@@ -45,7 +45,7 @@
 // itself to detect "no device" and return 77, a CLI-exit-code concern
 // RenderToImage has no business encoding.
 #include <Onyx/Rendering/RenderToImage.h>
-#include <Onyx/RenderVk/VkContext.h>
+#include <Onyx/Rendering/VkContext.h>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>

@@ -1,5 +1,5 @@
-#include <Onyx/RenderVk/OffscreenTarget.h>
-#include <Onyx/RenderVk/Pipelines.h> // kColorFormat/kDepthFormat/kSampleCount
+#include <Onyx/Rendering/OffscreenTarget.h>
+#include <Onyx/Rendering/Pipelines.h> // kColorFormat/kDepthFormat/kSampleCount
 
 #include <cstring>
 

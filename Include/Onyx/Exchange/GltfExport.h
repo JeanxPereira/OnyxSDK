@@ -108,7 +108,7 @@
 //     joint in ObjectData::joints order, so jointMap[local] is already the
 //     correct glTF joint index with no further translation.
 //
-// A part exports as skinned exactly when Source/RenderVk/
+// A part exports as skinned exactly when Source/Rendering/
 // SceneRendererVk.cpp's own draw-time gate would treat it as skinned:
 // `scene.HasSkeleton() && !part.jointMap.empty()` — the renderer decides
 // what is skinned, this exporter only describes what the renderer draws.

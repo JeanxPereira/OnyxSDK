@@ -1,4 +1,4 @@
-#include <Onyx/RenderVk/VkResources.h>
+#include <Onyx/Rendering/VkResources.h>
 
 #include <algorithm>
 #include <cmath>

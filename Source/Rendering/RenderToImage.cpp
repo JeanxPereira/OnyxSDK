@@ -4,14 +4,14 @@
 // projection-convention contract, why the background fields exist, and
 // why Viewport3D deliberately stays off this API). This .cpp is compiled
 // into Onyx_Render (root CMakeLists.txt's ONYX_RENDER_SOURCES), the same
-// target every RenderVk header already assumes -- see VkContext.h's own
+// target every Render-layer header already assumes -- see VkContext.h's own
 // include-order rule (volk.h, then vk_mem_alloc.h, before any other
 // Vulkan-touching header), which VkContext.h itself enforces.
-#include <Onyx/RenderVk/OffscreenTarget.h>
-#include <Onyx/RenderVk/Pipelines.h>
-#include <Onyx/RenderVk/SceneRendererVk.h>
-#include <Onyx/RenderVk/VkContext.h>
-#include <Onyx/RenderVk/VkResources.h>
+#include <Onyx/Rendering/OffscreenTarget.h>
+#include <Onyx/Rendering/Pipelines.h>
+#include <Onyx/Rendering/SceneRendererVk.h>
+#include <Onyx/Rendering/VkContext.h>
+#include <Onyx/Rendering/VkResources.h>
 
 namespace Onyx::Rendering {
 

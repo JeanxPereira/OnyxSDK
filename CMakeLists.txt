@@ -229,7 +229,7 @@ FetchContent_Declare(cgltf
     SOURCE_SUBDIR  _skip_add_subdirectory)
 FetchContent_MakeAvailable(cgltf)
 
-# ── Vulkan (RenderVk: Vulkan-Headers + volk + VMA + glslang) ───────────────
+# ── Vulkan (Render layer: Vulkan-Headers + volk + VMA + glslang) ──────────
 # Vulkan-Headers pins the API surface every other Vulkan dep below builds
 # against; declared first so volk and VMA link against these exact headers
 # rather than whatever the system Vulkan SDK happens to have on PATH.
@@ -243,7 +243,7 @@ FetchContent_Declare(
 set(VULKAN_HEADERS_ENABLE_TESTS   OFF CACHE BOOL "" FORCE)
 set(VULKAN_HEADERS_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 # The C++20 vulkan.hpp module target is autodetected ON for MSVC>=19.41/
-# Clang>=16/GCC>=14 when the CMake version allows it -- RenderVk only uses
+# Clang>=16/GCC>=14 when the CMake version allows it -- the Render layer only uses
 # volk's C API, never vulkan.hpp, and module support varies enough across
 # CI's compilers that autodetection is a determinism risk not worth taking
 # for a target nothing links.
@@ -457,14 +457,14 @@ set(ONYX_RENDER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/JointPalette.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/RenderBatch.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/RenderToImage.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/OffscreenTarget.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/Pipelines.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/RenderContext.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/SceneRendererVk.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/TexturePool.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VkContext.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VkResources.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VmaImpl.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/OffscreenTarget.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/Pipelines.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/RenderContext.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/SceneRendererVk.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/TexturePool.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/VkContext.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/VkResources.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/VmaImpl.cpp
 )
 
 set(ONYX_SHELL_SOURCES
@@ -613,7 +613,7 @@ onyx_apply_common(Onyx_Render)
 target_compile_definitions(Onyx_Render PUBLIC
     VK_NO_PROTOTYPES
     VMA_STATIC_VULKAN_FUNCTIONS=0)
-# T3's fixed camera convention (Include/Onyx/RenderVk/Pipelines.h's "Camera
+# T3's fixed camera convention (Include/Onyx/Rendering/Pipelines.h's "Camera
 # convention" note): every source that builds a projection matrix via
 # <glm/gtc/matrix_transform.hpp> gets Vulkan's [0,1] clip-space Z instead of
 # GL's [-1,1].
@@ -658,19 +658,19 @@ target_link_libraries(Onyx_Render PUBLIC
     volk::volk
     Vulkan::Headers
     GPUOpen::VulkanMemoryAllocator)
-# T3: compile Source/RenderVk/Shaders/*.vert|*.frag to embedded SPIR-V
+# T3: compile Source/Rendering/Shaders/*.vert|*.frag to embedded SPIR-V
 # headers (cmake/ShaderCompile.cmake) -- must run after the target and its
 # link libraries exist (onyx_add_spirv adds an include dir + a build-order
 # dependency onto Onyx_Render itself).
 onyx_add_spirv(Onyx_Render
-    Source/RenderVk/Shaders/scene.vert
-    Source/RenderVk/Shaders/scene.frag
-    Source/RenderVk/Shaders/grid.vert
-    Source/RenderVk/Shaders/grid.frag
-    Source/RenderVk/Shaders/background.vert
-    Source/RenderVk/Shaders/background.frag
-    Source/RenderVk/Shaders/overlay.vert
-    Source/RenderVk/Shaders/overlay.frag)
+    Source/Rendering/Shaders/scene.vert
+    Source/Rendering/Shaders/scene.frag
+    Source/Rendering/Shaders/grid.vert
+    Source/Rendering/Shaders/grid.frag
+    Source/Rendering/Shaders/background.vert
+    Source/Rendering/Shaders/background.frag
+    Source/Rendering/Shaders/overlay.vert
+    Source/Rendering/Shaders/overlay.frag)
 
 # ── Onyx::CliRender — CmdRender; links Core + Render, nothing links back
 # into it (M5 Task 6) ─────────────────────────────────────────────────────
@@ -720,7 +720,7 @@ if(ONYX_COMPONENT_MEDIA)
     # needs Onyx::Rendering::Resources/VkContext to upload frames as Vulkan
     # textures -- Onyx_Media cannot link Onyx_Shell to reach the same
     # symbols (that would be the real link cycle the dual-compile avoids),
-    # but linking the lower RenderVk layer directly is cycle-free.
+    # but linking the lower Render layer directly is cycle-free.
     target_link_libraries(Onyx_Media PUBLIC Onyx_Core Onyx_Render imgui_lib miniaudio ffmpeg_lib)
     target_link_libraries(Onyx_Shell PUBLIC Onyx_Media)
 endif()

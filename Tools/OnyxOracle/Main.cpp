@@ -4,12 +4,12 @@
 #include "RenderToImageSmoke.h"
 
 #include <Onyx/Rendering/RenderToImage.h> // M5 Task 7: RunRenderCorpusVk's pixel path
-#include <Onyx/RenderVk/OffscreenTarget.h>
-#include <Onyx/RenderVk/Pipelines.h>
-#include <Onyx/RenderVk/RenderContext.h>
-#include <Onyx/RenderVk/SceneRendererVk.h>
-#include <Onyx/RenderVk/VkContext.h>
-#include <Onyx/RenderVk/VkResources.h>
+#include <Onyx/Rendering/OffscreenTarget.h>
+#include <Onyx/Rendering/Pipelines.h>
+#include <Onyx/Rendering/RenderContext.h>
+#include <Onyx/Rendering/SceneRendererVk.h>
+#include <Onyx/Rendering/VkContext.h>
+#include <Onyx/Rendering/VkResources.h>
 #include <Onyx/TestKit/RenderCompare.h>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -230,7 +230,7 @@ bool ReadWholeFile(const fs::path& path, std::vector<char>& out) {
 // this corpus's specific camera geometry.
 //
 // The correction itself has a name -- Onyx::Rendering::VulkanProjection
-// (Include/Onyx/RenderVk/Pipelines.h, right next to the Camera convention
+// (Include/Onyx/Rendering/Pipelines.h, right next to the Camera convention
 // note this comment used to duplicate) -- so every future Vulkan camera
 // call site in this codebase applies the SAME helper instead of each
 // reinventing "negate [1][1]" on its own (which is exactly how this
@@ -685,7 +685,7 @@ int RunVkSceneSmoke() {
     }
 
     // ── RenderContext pass smoke (T8) ───────────────────────────────────
-    // Proves the raw-floor RenderContext (Include/Onyx/RenderVk/
+    // Proves the raw-floor RenderContext (Include/Onyx/Rendering/
     // RenderContext.h) actually lets a caller record real Vulkan commands
     // into the frame, at the exact point in the frame the Shell's T9
     // Execute() call will sit: after the scene draw, before EndFrame/UI.

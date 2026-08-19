@@ -4,7 +4,7 @@
 // non-empty `constexpr uint32_t` array whose first word is the SPIR-V magic
 // number -- no VkContext, no device, nothing Vulkan-runtime touched here.
 //
-// Also T8's pure registry tests for RenderContext (Include/Onyx/RenderVk/
+// Also T8's pure registry tests for RenderContext (Include/Onyx/Rendering/
 // RenderContext.h) -- AddPass id uniqueness, RemovePass, registration
 // order, and exception containment. None of this touches a real VkDevice:
 // RenderContext::Execute never dereferences a single field of the
@@ -17,8 +17,8 @@
 // see Tests/CMakeLists.txt's OnyxRenderContext/CTest wiring note.
 #include <doctest/doctest.h>
 
-#include <Onyx/RenderVk/RenderContext.h>
-#include <Onyx/RenderVk/TexturePool.h>
+#include <Onyx/Rendering/RenderContext.h>
+#include <Onyx/Rendering/TexturePool.h>
 
 #include "scene_vert_spv.h"
 #include "scene_frag_spv.h"

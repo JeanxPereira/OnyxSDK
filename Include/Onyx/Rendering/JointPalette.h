@@ -3,7 +3,7 @@
 // ── JointPalette: pure, GL-free joint-skinning math ─────────────────────
 //
 // Extracted from Source/Rendering/SceneRenderer.cpp (GL, deleted at Task
-// 11) so the Vulkan renderer (Source/RenderVk/SceneRendererVk.cpp) could
+// 11) so the Vulkan renderer (Source/Rendering/SceneRendererVk.cpp) could
 // share the EXACT same rest-pose skinning math instead of carrying its own
 // copy — T5 originally ported these three functions verbatim into
 // SceneRendererVk.cpp because Onyx_Render could not link Onyx_Render

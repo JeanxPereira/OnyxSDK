@@ -1,4 +1,4 @@
-#include <Onyx/RenderVk/SceneRendererVk.h>
+#include <Onyx/Rendering/SceneRendererVk.h>
 
 #include <Onyx/Rendering/JointPalette.h>
 
@@ -749,7 +749,7 @@ bool SceneRendererVk::RenderSkeleton(VkContext& ctx, const OverlayPipeline& pipe
     // ── build the line buffer -- exact port of GL's RenderSkeleton
     // (Source/Rendering/SceneRenderer.cpp), one OverlayVertex per LineVert.
     // Colors: GL's own cfg-null fallback constants, unconditionally -- see
-    // this method's doc comment for why RenderVk never reaches for
+    // this method's doc comment for why the Render layer never reaches for
     // Onyx::Services::AppConfig itself. ─────────────────────────────────
     const glm::vec4 boneColor(0.0f, 1.0f, 0.4f, 1.0f);
     const glm::vec4 rootColor(1.0f, 0.3f, 0.1f, 1.0f);

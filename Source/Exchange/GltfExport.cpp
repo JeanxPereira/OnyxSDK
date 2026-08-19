@@ -196,7 +196,7 @@ bool ExportSceneData(const SceneData& scene, const std::filesystem::path& out,
     const ObjectData* skel = hasSkin ? scene.skeleton.get() : nullptr;
     const size_t jointCount = skel ? skel->joints.size() : 0;
 
-    // Matches Source/RenderVk/SceneRendererVk.cpp's own skinning gate
+    // Matches Source/Rendering/SceneRendererVk.cpp's own skinning gate
     // exactly (`batch.hasSkeleton && !batch.jointMap.empty()`, no
     // useBindToJoint check) -- the renderer decides what is skinned, this
     // exporter must describe what the renderer draws, not apply its own

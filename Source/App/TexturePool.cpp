@@ -5,7 +5,7 @@
 // model that makes that safe.
 #include <Onyx/App/TexturePool.h>
 
-#include <Onyx/RenderVk/VkContext.h>
+#include <Onyx/Rendering/VkContext.h>
 
 #include "imgui_impl_vulkan.h"
 

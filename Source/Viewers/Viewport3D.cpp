@@ -47,7 +47,7 @@
 // because no scene entry exists to open. Stated here, honestly, rather
 // than implied.
 //
-// Feature gaps inherited from SceneRendererVk (Include/Onyx/RenderVk/
+// Feature gaps inherited from SceneRendererVk (Include/Onyx/Rendering/
 // SceneRendererVk.h), not introduced by this task -- do not "fix" these
 // here, per the brief's "MSAA + outline parity comes from the renderer --
 // do not reimplement effects in the viewer":
@@ -92,10 +92,10 @@
 
 #include <Onyx/Viewers/Viewport3D.h>
 #include <Onyx/App/TexturePool.h>
-#include <Onyx/RenderVk/OffscreenTarget.h>
-#include <Onyx/RenderVk/Pipelines.h>
-#include <Onyx/RenderVk/SceneRendererVk.h>
-#include <Onyx/RenderVk/VkContext.h>
+#include <Onyx/Rendering/OffscreenTarget.h>
+#include <Onyx/Rendering/Pipelines.h>
+#include <Onyx/Rendering/SceneRendererVk.h>
+#include <Onyx/Rendering/VkContext.h>
 #include <Onyx/Services/Events.h>
 #include <imgui.h>
 #include <Onyx/Services/AppConfig.h>
@@ -239,9 +239,10 @@ void Viewport3D::ComputeBounds() {
         // (git show 7525d1f:Source/Rendering/SceneRenderer.cpp) and said
         // why: FocusOn's camera framing has to cover every vertex as it
         // actually draws, and SceneRendererVk::Build applies this same
-        // instanceTransform (Source/RenderVk/SceneRendererVk.cpp, "GOW2
-        // models face -Z, GOWR is already screen-correct -- identical to
-        // GL's SceneRenderer::Build") before rasterizing. Skipping this
+        // instanceTransform (Source/Rendering/SceneRendererVk.cpp, "a
+        // per-game bind-pose orientation convention: some source formats
+        // author models facing -Z ... others are already screen-correct --
+        // identical to GL's SceneRenderer::Build") before rasterizing. Skipping this
         // transform here left ComputeBounds silently out of sync with
         // what the renderer draws: any asset with a non-identity
         // instanceTransform framed on the wrong center, and any GOW2

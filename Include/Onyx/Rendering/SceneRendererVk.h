@@ -4,8 +4,8 @@
 // vk_mem_alloc.h, before any other Vulkan-touching header). VkResources.h
 // / Pipelines.h already pull both in (via VkContext.h) in that order, so
 // including them first here keeps the rule honored without repeating it.
-#include <Onyx/RenderVk/Pipelines.h>
-#include <Onyx/RenderVk/VkResources.h>
+#include <Onyx/Rendering/Pipelines.h>
+#include <Onyx/Rendering/VkResources.h>
 
 // ═══════════════════════════════════════════════════════════════════════
 // RenderBatch reuse (task-5 brief's "bookkeeping question"; the shared
@@ -156,7 +156,7 @@ public:
     /// as RenderBackground.
     ///
     /// AxisGizmo (Source/Rendering/AxisGizmo.cpp) is NOT ported here or
-    /// anywhere in RenderVk: it draws entirely through ImGui's own
+    /// anywhere in the Render layer: it draws entirely through ImGui's own
     /// ImDrawList (screen-space discs, hit-tested against
     /// ImGui::GetIO().MousePos) and never issues a GL or Vulkan call, so it
     /// already works unmodified against a Vulkan-rendered frame the same
@@ -178,7 +178,7 @@ public:
     /// every point before pushing it to its own line buffer. Colors use
     /// GL's own hardcoded fallback constants (the now-deleted GL
     /// SceneRenderer.cpp's `cfg ? ... : glm::vec4(...)` branch)
-    /// unconditionally -- RenderVk has no dependency on
+    /// unconditionally -- the Render layer has no dependency on
     /// Onyx::Services::AppConfig at all (its Get() definition lives in
     /// Onyx_Shell, which this target never links; Task 11 closed the two
     /// gaps that used to make an AppConfig stub necessary anywhere in this

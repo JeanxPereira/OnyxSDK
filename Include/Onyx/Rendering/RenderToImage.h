@@ -10,7 +10,7 @@
 // (Onyx::Rendering::SceneRendererVk) took a caller-supplied VkContext&, a
 // VkCommandBuffer already open inside a dynamic-rendering pass, and a
 // caller-created ScenePipelines/OffscreenTarget pair -- the RAW floor,
-// correctly documented as such (Include/Onyx/RenderVk/*.h), with no ready
+// correctly documented as such (Include/Onyx/Rendering/*.h), with no ready
 // floor above it. All three in-tree consumers that just want "a
 // Parsers::SceneData in, an RGBA image out" (Source/Cli/Render.cpp,
 // Tools/OnyxOracle/Main.cpp's render-corpus loop, and -- see the note
@@ -25,7 +25,7 @@
 // ── the projection-convention decision (BINDING; read before calling) ──
 // RenderRequest::proj is a PLAIN projection matrix -- e.g. straight out of
 // glm::perspective() (which, thanks to GLM_FORCE_DEPTH_ZERO_TO_ONE being
-// PUBLIC on the Onyx_Render CMake target -- see Include/Onyx/RenderVk/
+// PUBLIC on the Onyx_Render CMake target -- see Include/Onyx/Rendering/
 // Pipelines.h's "Camera convention" note -- already carries Vulkan's [0,1]
 // clip depth for any TU that links Onyx::Render). Do NOT pre-apply
 // Onyx::Rendering::VulkanProjection() to it yourself: RenderToImage applies
@@ -55,7 +55,7 @@
 // knowledge," a guard that silently vanishes in the default build
 // configuration is not a guarantee. SceneRendererVk::Render() itself
 // separately keeps its own OWN, PRE-EXISTING Debug-only assert
-// (Source/RenderVk/SceneRendererVk.cpp, checking proj[1][1] < 0 on the
+// (Source/Rendering/SceneRendererVk.cpp, checking proj[1][1] < 0 on the
 // already-flipped matrix RenderToImage hands it downstream) -- left
 // unchanged on purpose, because it guards the RAW floor, a different
 // audience (every direct SceneRendererVk::Render() caller) that is

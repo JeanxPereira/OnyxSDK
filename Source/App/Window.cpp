@@ -5,7 +5,7 @@
 // types instead of the void*-typedef fallback GLFW declares when it has
 // never seen vulkan.h. This is a single-translation-unit ordering rule --
 // see VkContext.h's "include-order rule" comment for the general form and
-// why it binds every RenderVk-touching TU, including this Shell one that
+// why it binds every Render-layer-touching TU, including this Shell one that
 // only forward-declares VkContext/RenderContext in its own header.
 #include <volk.h>
 #include <vk_mem_alloc.h>
@@ -24,9 +24,9 @@
 #include "imgui_impl_vulkan.h"
 #include "implot.h"
 
-#include <Onyx/RenderVk/RenderContext.h>
-#include <Onyx/RenderVk/TexturePool.h>
-#include <Onyx/RenderVk/VkContext.h>
+#include <Onyx/Rendering/RenderContext.h>
+#include <Onyx/Rendering/TexturePool.h>
+#include <Onyx/Rendering/VkContext.h>
 
 #include <Onyx/Services/PathUtils.h>
 #include <Onyx/Services/TaskManager.h>
@@ -51,7 +51,7 @@ namespace {
 // triple-buffering could update this literal and silently under-retire
 // every pooled texture (destroying a descriptor/image a still-in-flight
 // third frame slot could be reading). Now the SAME symbol
-// Onyx::Rendering::kFramesInFlight (Include/Onyx/RenderVk/TexturePool.h)
+// Onyx::Rendering::kFramesInFlight (Include/Onyx/Rendering/TexturePool.h)
 // backs both -- see that constant's own doc comment.
 constexpr uint32_t kFramesInFlight = Onyx::Rendering::kFramesInFlight;
 
@@ -335,7 +335,7 @@ void Window::initVulkan() {
     m_vkContext = std::make_unique<Onyx::Rendering::VkContext>();
     m_renderContext = std::make_unique<Onyx::Rendering::RenderContext>();
 
-    // F1 fix: VkContext must never link GLFW (RenderVk's own binding rule
+    // F1 fix: VkContext must never link GLFW (the Render layer's own binding rule
     // -- see VkContext.h's include-order comment), so it cannot ask GLFW
     // what the current platform's surface needs; this is the one place
     // that both has a live GLFWwindow and is about to request

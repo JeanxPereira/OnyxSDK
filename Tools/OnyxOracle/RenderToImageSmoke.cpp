@@ -5,7 +5,7 @@
 // own public header (which itself forward-declares VkContext and never
 // pulls in volk.h -- see RenderToImage.h's own top comment), the corpus
 // scene builder, and the oracle's own PngWrite helper (also Vulkan-free --
-// see PngWrite.h). No <Onyx/RenderVk/*.h>, no volk.h, no VkContext/
+// see PngWrite.h). No <Onyx/Rendering/*.h>, no volk.h, no VkContext/
 // VkCommandBuffer/Vk* symbol anywhere below -- calling RenderToImage's
 // one-shot overload is genuinely all a caller needs to do to get a real
 // Vulkan-rendered image, without knowing Vulkan exists.
