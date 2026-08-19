@@ -13,11 +13,17 @@ add_executable(onyx-oracle
     RenderReport.cpp
 )
 target_include_directories(onyx-oracle PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb)
-target_link_libraries(onyx-oracle PRIVATE Onyx::Render glfw)
+target_link_libraries(onyx-oracle PRIVATE Onyx::Render Onyx::RenderVk glfw)
 onyx_apply_common(onyx-oracle)
 
 add_test(NAME OracleGlSmoke COMMAND onyx-oracle --gl-smoke)
 set_tests_properties(OracleGlSmoke PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")
+
+# VkBootSmoke: mirrors OracleGlSmoke for the Vulkan boot path -- Init(false)
+# (headless, no swapchain), print the picked device name, Shutdown, exit 0.
+# Exit 77 (SKIP, not FAIL) when no Vulkan-capable device/driver is present.
+add_test(NAME VkBootSmoke COMMAND onyx-oracle --vk-smoke)
+set_tests_properties(VkBootSmoke PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")
 
 # OracleReproducible: renders the corpus twice (WORK/a, WORK/b) and verifies
 # the two runs are byte-identical -- see ReproTest.cmake for the exit-77

@@ -3,6 +3,7 @@
 #include "RenderReport.h"
 
 #include <Onyx/Rendering/SceneRenderer.h>
+#include <Onyx/RenderVk/VkContext.h>
 
 #include <cstdio>
 #include <cstring>
@@ -27,6 +28,11 @@ void PrintHelp() {
         "  onyx-oracle --gl-smoke\n"
         "      Creates a hidden GL context, renders one 64x64 frame, exits 0 on\n"
         "      success. Exit 77 if GL init fails (no display session).\n"
+        "\n"
+        "  onyx-oracle --vk-smoke\n"
+        "      Boots a headless Vulkan 1.3 instance/device/VMA allocator via\n"
+        "      VkContext, prints the picked device name, tears down, exits 0 on\n"
+        "      success. Exit 77 if no Vulkan-capable device/driver is found.\n"
         "\n"
         "  onyx-oracle render-corpus --out DIR\n"
         "      Renders all 5 corpus scenes to DIR/<name>.png + DIR/<name>.json,\n"
@@ -211,6 +217,18 @@ int main(int argc, char** argv) {
         std::vector<uint8_t> rgba;
         if (!gl.EndFrame(rgba, err)) { std::fprintf(stderr, "%s\n", err.c_str()); return 1; }
         return rgba.size() == 64u * 64u * 4u ? 0 : 1;
+    }
+
+    if (argc >= 2 && std::strcmp(argv[1], "--vk-smoke") == 0) {
+        Onyx::RenderVk::VkContext ctx;
+        std::string err;
+        if (!ctx.Init(/*presentSupport=*/false, err)) {
+            std::fprintf(stderr, "skip: %s\n", err.c_str());
+            return 77;
+        }
+        std::printf("device: %s\n", ctx.Info().deviceName.c_str());
+        ctx.Shutdown();
+        return 0;
     }
 
     if (argc >= 2 && std::strcmp(argv[1], "render-corpus") == 0) {

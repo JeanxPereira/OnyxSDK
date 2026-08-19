@@ -202,6 +202,86 @@ FetchContent_Declare(tomlplusplus
     SOURCE_SUBDIR  _skip_add_subdirectory)
 FetchContent_MakeAvailable(tomlplusplus)
 
+# ── Vulkan (RenderVk: Vulkan-Headers + volk + VMA + glslang) ───────────────
+# Vulkan-Headers pins the API surface every other Vulkan dep below builds
+# against; declared first so volk and VMA link against these exact headers
+# rather than whatever the system Vulkan SDK happens to have on PATH.
+FetchContent_Declare(
+    vulkan_headers
+    GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+    GIT_TAG        v1.3.296
+    GIT_SHALLOW    TRUE
+    UPDATE_DISCONNECTED TRUE
+)
+set(VULKAN_HEADERS_ENABLE_TESTS   OFF CACHE BOOL "" FORCE)
+set(VULKAN_HEADERS_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+# The C++20 vulkan.hpp module target is autodetected ON for MSVC>=19.41/
+# Clang>=16/GCC>=14 when the CMake version allows it -- RenderVk only uses
+# volk's C API, never vulkan.hpp, and module support varies enough across
+# CI's compilers that autodetection is a determinism risk not worth taking
+# for a target nothing links.
+set(VULKAN_HEADERS_ENABLE_MODULE  OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(vulkan_headers)
+
+# volk's tag naming diverged from Vulkan-Headers' `vX.Y.Z` scheme -- it now
+# mirrors the LunarG Vulkan SDK's dotted-quad (`vulkan-sdk-X.Y.Z.W`), and
+# `1.3.296` (the tag the plan named) does not exist. `vulkan-sdk-1.3.296.0`
+# is the tag matching the exact header generation as Vulkan-Headers v1.3.296
+# pinned above -- same version, different spelling, not a downgrade.
+FetchContent_Declare(
+    volk
+    GIT_REPOSITORY https://github.com/zeux/volk.git
+    GIT_TAG        vulkan-sdk-1.3.296.0
+    GIT_SHALLOW    TRUE
+    UPDATE_DISCONNECTED TRUE
+)
+# volk's own CMakeLists otherwise tries find_package(Vulkan)/$ENV{VULKAN_SDK}
+# for headers -- OFF here and an explicit Vulkan::Headers link below keeps it
+# on the exact pinned headers instead of whatever is installed system-wide.
+set(VOLK_PULL_IN_VULKAN OFF CACHE BOOL "" FORCE)
+set(VOLK_INSTALL        OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(volk)
+target_link_libraries(volk PUBLIC Vulkan::Headers)
+# PUBLIC (not just on Onyx_RenderVk): volk.c itself must be compiled with
+# VK_USE_PLATFORM_WIN32_KHR for the Win32 platform entry points (e.g.
+# vkGetPhysicalDeviceWin32PresentationSupportKHR) to exist as link symbols
+# at all -- a downstream-only define would leave volk.c compiled without
+# them while callers expect them, an unresolved-external at link time.
+target_compile_definitions(volk PUBLIC
+    VK_NO_PROTOTYPES
+    $<$<PLATFORM_ID:Windows>:VK_USE_PLATFORM_WIN32_KHR>)
+
+# VulkanMemoryAllocator is header-only (INTERFACE target); it still needs
+# Vulkan's types, so it rides on the same pinned Vulkan::Headers.
+FetchContent_Declare(
+    vma
+    GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+    GIT_TAG        v3.1.0
+    GIT_SHALLOW    TRUE
+    UPDATE_DISCONNECTED TRUE
+)
+FetchContent_MakeAvailable(vma)
+target_link_libraries(VulkanMemoryAllocator INTERFACE Vulkan::Headers)
+
+# glslang: fetched here for T3 (runtime/offline shader compilation), not yet
+# linked by anything. ENABLE_GLSLANG_BINARIES is already ON by default but
+# forced explicitly since T3 depends on it existing: it builds the
+# `glslang-standalone` CLI target (binary OUTPUT_NAME `glslang`). The
+# library targets consumers link are `glslang::glslang` and `glslang::SPIRV`.
+# Requires a Python 3 interpreter on PATH at configure time (StandAlone's
+# code-gen step) -- present on this machine, noted for CI images.
+FetchContent_Declare(
+    glslang
+    GIT_REPOSITORY https://github.com/KhronosGroup/glslang.git
+    GIT_TAG        14.3.0
+    GIT_SHALLOW    TRUE
+    UPDATE_DISCONNECTED TRUE
+)
+set(ENABLE_OPT              OFF CACHE BOOL "" FORCE)
+set(GLSLANG_TESTS           OFF CACHE BOOL "" FORCE)
+set(ENABLE_GLSLANG_BINARIES ON  CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(glslang)
+
 # ── Generated version header ──────────────────────────────────────────────
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Version.h.in"
@@ -280,6 +360,11 @@ set(ONYX_MEDIA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/VideoPlayer.cpp
 )
 
+set(ONYX_RENDERVK_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VkContext.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VmaImpl.cpp
+)
+
 set(ONYX_SHELL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Api/ToolkitApi.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/ActiveAnimation.cpp
@@ -341,7 +426,7 @@ endif()
 file(GLOB_RECURSE _onyx_all_cpp CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp")
 set(_onyx_listed ${ONYX_CORE_SOURCES} ${ONYX_RENDER_SOURCES}
-                 ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES})
+                 ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES} ${ONYX_RENDERVK_SOURCES})
 foreach(_f ${_onyx_all_cpp})
     if(NOT _f IN_LIST _onyx_listed)
         message(FATAL_ERROR "Source file not assigned to a layer: ${_f}")
@@ -378,6 +463,24 @@ add_library(Onyx_Render STATIC ${ONYX_RENDER_SOURCES})
 add_library(Onyx::Render ALIAS Onyx_Render)
 onyx_apply_common(Onyx_Render)
 target_link_libraries(Onyx_Render PUBLIC Onyx_Core glad)
+
+# ── Onyx::RenderVk — Vulkan 1.3 renderer (M4); Core + volk + VMA only ─────
+# Not yet linked into the Onyx::Onyx aggregate or Onyx::Shell -- M4 grows
+# this alongside Onyx::Render until the parity gate passes (see
+# docs/design/2026-08-18-onyx-v1-architecture.md §8), at which point Shell
+# switches over and the GL renderer is deleted. For now it is opt-in, taken
+# by onyx-oracle's --vk-smoke mode only.
+add_library(Onyx_RenderVk STATIC ${ONYX_RENDERVK_SOURCES})
+add_library(Onyx::RenderVk ALIAS Onyx_RenderVk)
+onyx_apply_common(Onyx_RenderVk)
+target_compile_definitions(Onyx_RenderVk PUBLIC
+    VK_NO_PROTOTYPES
+    VMA_STATIC_VULKAN_FUNCTIONS=0)
+target_link_libraries(Onyx_RenderVk PUBLIC
+    Onyx_Core
+    volk::volk
+    Vulkan::Headers
+    GPUOpen::VulkanMemoryAllocator)
 
 # ── Onyx::Shell — the ImGui application framework ────────────────────────
 add_library(Onyx_Shell STATIC
