@@ -535,6 +535,20 @@ module (W5) is that proof. During any wave, if a Core change needs
 `if (gowr)` — or any game name — it is an architecture bug and goes back to
 the drawing board, not into the tree.
 
+> **Amended 2026-08-19, at the v1.0.0 tag.** The COMI toy module was cut
+> mid-M5 by a scope decision, so the proof named above was never built.
+> The exit exam became a **public-surface audit** instead
+> (`docs/design/2026-08-19-public-surface-audit.md`): four audits —
+> include, link, capability, and a cold-start TU — over the toolkits the
+> SDK already ships, producing the same ranked gap list a second module
+> would have. This paragraph and the W5 row in §14 are left as written,
+> because they are the dated record of what v1 was planned to prove; this
+> note records what it actually proved. The substitution is weaker in one
+> specific way, stated at the tag itself (`CHANGELOG.md`, v1.0.0): an audit
+> proves the surface is *reachable*, where a second real toolkit would have
+> proven it *sufficient*. The rule in the paragraph above — no game name in
+> a Core change — is unaffected and still binds.
+
 ## 14. Out of scope for v1 (recorded backlog)
 
 - Viewport UX rebuild (skeleton toggles, visualisation controls, gizmos) —
