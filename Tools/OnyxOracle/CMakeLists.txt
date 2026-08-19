@@ -8,7 +8,8 @@ add_executable(onyx-oracle
     Main.cpp
     HeadlessGL.cpp
     AppConfigStub.cpp
-    # Tasks 2-4 append CorpusTextures.cpp, CorpusScenes.cpp, RenderReport.cpp
+    CorpusTextures.cpp
+    # Tasks 3-4 append CorpusScenes.cpp, RenderReport.cpp
 )
 target_include_directories(onyx-oracle PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb)
 target_link_libraries(onyx-oracle PRIVATE Onyx::Render glfw)

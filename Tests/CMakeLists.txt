@@ -35,8 +35,11 @@ add_executable(onyx_tests
     cli_test.cpp
     statusbarformat_test.cpp
     infotabfilter_test.cpp
+    oracle_corpus_test.cpp
+    ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle/CorpusTextures.cpp
 )
 target_link_libraries(onyx_tests PRIVATE Onyx::Onyx Onyx_ExampleBox doctest::doctest imgui_lib)
+target_include_directories(onyx_tests PRIVATE ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle)
 if(MSVC)
     target_compile_options(onyx_tests PRIVATE /utf-8)
 endif()
@@ -72,6 +75,7 @@ add_test(NAME OnyxMaterialDesc    COMMAND onyx_tests "--test-case=*ResolveRoleIn
 add_test(NAME OnyxCli             COMMAND onyx_tests "--test-case=*cli probe prints a table*,*cli list json contains type key*,*cli extract writes payloadSize*,*cli extract skips unsafe entry names*,*cli decode text entry prints hello box*,*cli decode strict returns kStrictErrors*,*cli decode unknown entry name*,*cli list returns kNoModule*,*cli Run dispatches probe list extract*,*cli Run returns kUsage to err*,*cli probe returns kNoModule when the ranking*,*cli decode returns kOk when a capability exists*,*cli Run --game hint overrides ranking*")
 add_test(NAME OnyxStatusBarFormat COMMAND onyx_tests "--test-case=*StatusBarFormat:*")
 add_test(NAME OnyxInfoTabFilter   COMMAND onyx_tests "--test-case=*InfoTabFilter:*")
+add_test(NAME OnyxOracleCorpus    COMMAND onyx_tests "--test-case=*OracleCorpus:*")
 
 add_test(NAME MinimalViewer_SelfTest
     COMMAND MinimalViewer --selftest $<TARGET_FILE:MinimalViewer>)
