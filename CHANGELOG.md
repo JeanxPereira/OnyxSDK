@@ -642,7 +642,38 @@ or both.
   that was fixed). Every consumer of it sees a bare `::PathUtils::...`
   rather than something nested under `Onyx::`. Cosmetic, audit-ranked, not
   touched this milestone; carries past v1.0, so fixing it later is a
-  MAJOR-class rename under this tag's own stability policy.
+  MAJOR-class rename under this tag's own stability policy. **The same
+  header also `#include`s `<windows.h>` unconditionally on Windows**, at
+  global scope, in a file `<Onyx/Onyx.h>` includes — with no `#ifndef`
+  guard on its own `WIN32_LEAN_AND_MEAN` define and no `NOMINMAX` of its
+  own (`onyx_apply_common()` sets `NOMINMAX` PUBLIC, so anyone linking an
+  Onyx target inherits it; anyone including the header without linking
+  does not). This is not purely cosmetic: it is how `<wingdi.h>`'s `TextOut`
+  macro reached the decoder contract and broke the umbrella's link promise
+  (see `DecodedText` under "Changed"). The rename closed that instance; the
+  leak that carried it is still here. Post-v1: give the header a
+  platform-shim of its own, or forward-declare the two Win32 entry points
+  it actually uses instead of pulling the whole header in.
+- **Five public headers use quoted includes for a third-party header.**
+  `App/App.h`, `App/TypeVisuals.h`, `App/Widgets.h`, `Services/Appearance.h`
+  and `Services/ThemeManager.h` all `#include "imgui.h"` rather than
+  `<imgui.h>`. It works (the cold-start exam compiles them), but the quoted
+  form searches the includer's own directory first and is the wrong signal
+  for a third-party header. Cosmetic; post-v1.
+- **`Include/Onyx/Cli/Gltf.h` declares a symbol that ships in no library.**
+  `MakeGltfExportFn` is compiled into `Examples/OnyxCli`'s own executable,
+  so a consumer who includes this public header gets an unresolved external
+  no target can satisfy — structurally the audit's G1 again, in the one
+  place it was not closed. It is deliberately NOT named by `<Onyx/Onyx.h>`
+  or any sibling umbrella, so nothing hands it to a consumer by accident,
+  and the header's own top comment explains the link-cycle reasoning behind
+  the placement. Post-v1 fix: either ship the composition-root helper in a
+  real target, or move the header out of `Include/`.
+- **`Tools/OnyxOracle/CMakeLists.txt` names an AI model in a shipped build
+  file** ("Adjudication (opus) POSITIVELY identified..."). Pre-existing from
+  M4, outside this milestone's diff, and one word wide; the repo's standing
+  no-AI-attribution rule says it should go. Post-v1 cleanup, deliberately
+  not swept into this tag's diff.
 - **`Examples/**` still names one raw `Onyx_*` target: `Onyx_ExampleBox`**
   (the remainder of audit G6). Every SDK target the examples link is now
   spelled `Onyx::` (fixed at the final review, see "Changed"), but
