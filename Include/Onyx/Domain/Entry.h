@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include <Onyx/Domain/ByteRange.h>
 #include <Onyx/Domain/MediaKind.h>
 #include <Onyx/Schema/AssetNode.h>
 #include <Onyx/Types/TypeId.h>
@@ -29,8 +30,7 @@ enum class NodeFlags : uint8_t { None = 0, Failed = 1 };
 struct AssetEntry {
     std::string           name;
     std::string           wadName;
-    uint32_t              size = 0;
-    uint32_t              offset = 0;
+    ByteRange              source;
     uint64_t              hash = 0;
 
     // Compiled type identifier

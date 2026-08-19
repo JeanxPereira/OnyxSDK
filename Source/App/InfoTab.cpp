@@ -20,9 +20,9 @@ static void PropRow(const char* key, const std::string& value) {
     }
 }
 
-static std::string FormatHex32(uint32_t v) {
+static std::string FormatHex64(uint64_t v) {
     std::stringstream ss;
-    ss << "0x" << std::hex << std::setfill('0') << std::setw(8) << v;
+    ss << "0x" << std::hex << std::setfill('0') << std::setw(16) << v;
     return ss.str();
 }
 
@@ -86,8 +86,8 @@ void InfoTab::Draw() {
 
         PropRow("Name",   label);
         PropRow("Type",   std::string(m_workspace.Catalog().KeyOf(entry->typeId)));
-        PropRow("Size",   FormatBytes(entry->size));
-        PropRow("Offset", FormatHex32(entry->offset));
+        PropRow("Size",   FormatBytes(entry->source.size));
+        PropRow("Offset", FormatHex64(entry->source.offset));
 
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);

@@ -95,7 +95,7 @@ void PrintTree(std::ostream& out, const std::vector<Domain::AssetEntry>& entries
                Types::TypeCatalog& cat, int depth) {
     for (const auto& e : entries) {
         out << std::string(size_t(depth) * 2, ' ') << e.name << "  " << cat.KeyOf(e.typeId)
-            << "  " << e.size << " bytes";
+            << "  " << e.source.size << " bytes";
         if ((static_cast<uint8_t>(e.flags) & static_cast<uint8_t>(Domain::NodeFlags::Failed)) != 0) out << " [FAILED]";
         out << "\n";
         PrintTree(out, e.children, cat, depth + 1);
@@ -105,7 +105,7 @@ void PrintTree(std::ostream& out, const std::vector<Domain::AssetEntry>& entries
 void WriteEntryJson(std::ostream& out, const Domain::AssetEntry& e, Types::TypeCatalog& cat) {
     out << "{\"name\":\"" << JsonEscape(e.name) << "\","
         << "\"type\":\"" << JsonEscape(cat.KeyOf(e.typeId)) << "\","
-        << "\"size\":" << e.size << ","
+        << "\"size\":" << e.source.size << ","
         << "\"failed\":" << ((static_cast<uint8_t>(e.flags) & static_cast<uint8_t>(Domain::NodeFlags::Failed)) != 0 ? "true" : "false") << ","
         << "\"children\":[";
     for (size_t i = 0; i < e.children.size(); ++i) {
@@ -176,11 +176,11 @@ void ExtractEntries(std::ostream& out, const std::vector<Domain::AssetEntry>& en
             continue;
         }
 
-        std::vector<uint8_t> buf(e.size);
+        std::vector<uint8_t> buf(e.source.size);
         size_t got = 0;
-        if (e.size > 0) {
-            file.Seek(int64_t(e.offset), SEEK_SET);
-            got = file.Read(buf.data(), e.size);
+        if (e.source.size > 0) {
+            file.Seek(int64_t(e.source.offset), SEEK_SET);
+            got = file.Read(buf.data(), e.source.size);
         }
 
         const std::filesystem::path outPath = outDir / e.name;
@@ -191,7 +191,7 @@ void ExtractEntries(std::ostream& out, const std::vector<Domain::AssetEntry>& en
             }
         }
 
-        if (got != e.size) {
+        if (got != e.source.size) {
             // A short/failed read means the bytes on disk are truncated or
             // garbage -- never leave a zero-padded file behind for the
             // caller to mistake for a real payload.
@@ -201,7 +201,7 @@ void ExtractEntries(std::ostream& out, const std::vector<Domain::AssetEntry>& en
             continue;
         }
 
-        out << "extracted " << e.name << " (" << e.size << " bytes)\n";
+        out << "extracted " << e.name << " (" << e.source.size << " bytes)\n";
     }
 }
 

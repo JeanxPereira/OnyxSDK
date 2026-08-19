@@ -191,8 +191,8 @@ ParseResult OnyxBoxModule::ParseContainer(ContainerContext& ctx) {
 
         Onyx::Domain::AssetEntry entry;
         entry.name = name;
-        entry.offset = payloadOffset;
-        entry.size = payloadSize;
+        entry.source.offset = payloadOffset;
+        entry.source.size = payloadSize;
 
         switch (kind) {
             case 1:
