@@ -6,11 +6,17 @@
 // directly to build a working toolkit on Onyx -- boot the app, register a
 // module, parse/decode/browse assets, drive the document/viewer/selection
 // pipeline, theme the UI, and consume the renderer's header-only ("ready
-// floor") surface. Concretely, that means: if a class whose header is
-// already in this umbrella calls a function or posts an event declared in
-// some OTHER header, that other header belongs here too -- a consumer who
-// can construct/subscribe-to the umbrella's own classes must not have to
-// leave the umbrella to fully use them. Services/EventManager.h and
+// floor") surface. Concretely, the test is what the CONSUMER must NAME,
+// not what an umbrella class happens to call: a header belongs here if
+// using an umbrella class through its public interface requires naming a
+// type, function or constant that header declares -- to construct it, to
+// call it, or to receive what it hands back (an event it fires counts,
+// because subscribing means naming the event type). A header an umbrella
+// class merely calls INTO on its own behalf does not qualify, because the
+// consumer never writes that name. That is the line between this list and
+// the exclusions below, and it is why Viewers/DocumentWindow.h is here
+// while App/Widgets.h, App/UIHelpers.h, App/TexturePool.h and the
+// App/Panels/* headers its .cpp calls are not. Services/EventManager.h and
 // Services/Events.h are included on exactly this basis: Viewers/
 // DocumentWindow.h and Viewers/Viewport3D.h (both already below) post
 // EventDocumentOpened/EventAnimationLoaded through them
