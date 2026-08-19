@@ -11,6 +11,7 @@ option(ONYX_BUILD_EXAMPLES "Build the Onyx example apps" ON)
 option(ONYX_BUILD_TESTS    "Build the Onyx engine unit tests" ON)
 
 include(FetchContent)
+include(cmake/ShaderCompile.cmake)
 
 # ── GLFW ───────────────────────────────────────────────────────────────────
 FetchContent_Declare(
@@ -361,6 +362,7 @@ set(ONYX_MEDIA_SOURCES
 )
 
 set(ONYX_RENDERVK_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/Pipelines.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VkContext.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VkResources.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VmaImpl.cpp
@@ -477,11 +479,38 @@ onyx_apply_common(Onyx_RenderVk)
 target_compile_definitions(Onyx_RenderVk PUBLIC
     VK_NO_PROTOTYPES
     VMA_STATIC_VULKAN_FUNCTIONS=0)
+# T3's fixed camera convention (Include/Onyx/RenderVk/Pipelines.h's "Camera
+# convention" note): every Onyx_RenderVk source that builds a projection
+# matrix via <glm/gtc/matrix_transform.hpp> gets Vulkan's [0,1] clip-space Z
+# instead of GL's [-1,1]. PRIVATE, deliberately NOT PUBLIC: this milestone's
+# composition roots (onyx-oracle, onyx_tests) link BOTH Onyx::Render (GL)
+# and Onyx::RenderVk in the same executable to run the GL golden corpus
+# alongside Vulkan smoke tests. A PUBLIC definition here was tried first and
+# caught live: it leaked into Tools/OnyxOracle/CorpusScenes.cpp's
+# glm::perspective() calls (compiled as part of onyx-oracle, which links
+# both libraries), silently changing the GL corpus's clip-space Z range and
+# breaking OracleMatchesGolden (Tests/Golden/corpus is frozen this
+# milestone -- the plan's Global Constraints forbid ANY GL behavior change
+# before T9). PRIVATE confines the define to Onyx_RenderVk's own sources
+# (where T5's SceneRendererVk/Camera port also lives), which is exactly
+# where it is needed and nowhere GL still runs.
+target_compile_definitions(Onyx_RenderVk PRIVATE GLM_FORCE_DEPTH_ZERO_TO_ONE)
 target_link_libraries(Onyx_RenderVk PUBLIC
     Onyx_Core
     volk::volk
     Vulkan::Headers
     GPUOpen::VulkanMemoryAllocator)
+# T3: compile Source/RenderVk/Shaders/*.vert|*.frag to embedded SPIR-V
+# headers (cmake/ShaderCompile.cmake) -- must run after the target and its
+# link libraries exist (onyx_add_spirv adds an include dir + a build-order
+# dependency onto Onyx_RenderVk itself).
+onyx_add_spirv(Onyx_RenderVk
+    Source/RenderVk/Shaders/scene.vert
+    Source/RenderVk/Shaders/scene.frag
+    Source/RenderVk/Shaders/grid.vert
+    Source/RenderVk/Shaders/grid.frag
+    Source/RenderVk/Shaders/background.vert
+    Source/RenderVk/Shaders/background.frag)
 
 # ── Onyx::Shell — the ImGui application framework ────────────────────────
 add_library(Onyx_Shell STATIC
