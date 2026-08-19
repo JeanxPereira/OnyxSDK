@@ -6,7 +6,25 @@
 // directly to build a working toolkit on Onyx -- boot the app, register a
 // module, parse/decode/browse assets, drive the document/viewer/selection
 // pipeline, theme the UI, and consume the renderer's header-only ("ready
-// floor") surface. It deliberately excludes:
+// floor") surface. Concretely, that means: if a class whose header is
+// already in this umbrella calls a function or posts an event declared in
+// some OTHER header, that other header belongs here too -- a consumer who
+// can construct/subscribe-to the umbrella's own classes must not have to
+// leave the umbrella to fully use them. Services/EventManager.h and
+// Services/Events.h are included on exactly this basis: Viewers/
+// DocumentWindow.h and Viewers/Viewport3D.h (both already below) post
+// EventDocumentOpened/EventAnimationLoaded through them
+// (Source/Viewers/DocumentWindow.cpp, Source/Viewers/Viewport3D.cpp) --
+// withholding the event catalog those umbrella-included classes actually
+// use would leave a consumer unable to subscribe to events the umbrella's
+// own document/viewer pipeline fires. (Services/EventBus.h -- a newer,
+// non-singleton pub/sub EventManager's own header says it will eventually
+// replace -- is already transitively reachable via App/Window.h and
+// Modules/Workspace.h, both below; EventManager/Events.h stay because they
+// are what DocumentWindow/Viewport3D actually call TODAY, not instead of
+// EventBus.)
+//
+// It deliberately excludes:
 //
 //   - Shell-INTERNAL detail headers a toolkit author has no reason to name
 //     directly: individual App::Panels/*, low-level UI helper headers
@@ -15,10 +33,6 @@
 //     their own `#include <Onyx/Subsystem/Header.h>` for an author who does
 //     want to reach into the Shell's own toolbox, same as any header not
 //     itemized below.
-//   - The legacy global-singleton event system (Services/EventManager.h,
-//     Services/Events.h) -- superseded by Services/EventBus.h (already
-//     below); EventBus.h's own top comment names EventManager as the thing
-//     it replaces, and nothing outside Source/App/** still calls it.
 //   - The Vulkan-touching half of the renderer (VkContext, Pipelines,
 //     OffscreenTarget, RenderContext, SceneRendererVk, TexturePool,
 //     VkResources): every one of those headers `#include`s volk.h/
@@ -77,6 +91,8 @@
 #include <Onyx/Services/AssetVisibility.h>
 #include <Onyx/Services/FrameScheduler.h>
 #include <Onyx/Services/TaskManager.h>
+#include <Onyx/Services/EventManager.h>
+#include <Onyx/Services/Events.h>
 #include <Onyx/Platform/SystemTheme.h>
 #include <Onyx/Api/ToolkitApi.h>
 
