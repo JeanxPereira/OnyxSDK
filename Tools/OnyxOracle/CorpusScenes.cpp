@@ -173,14 +173,7 @@ CorpusScene BuildSphereGrid() {
             float x = -2.0f + 2.0f * float(col);
             float y = -2.0f + 2.0f * float(row);
 
-            // NOTE: the spec also calls for "metallic in {0, 0.5, 1} by
-            // column", but Parsers::MaterialDesc carries no metallic field
-            // and Rendering::SceneRenderer::Build() never derives
-            // RenderBatch::metallic from a MaterialDesc (it stays at its
-            // 0.0f default regardless of what we put in SceneData). Wiring
-            // that is out of Task 3's scope (SceneNode.h / SceneRenderer.cpp
-            // are not owned files here); the intended value is recorded in
-            // the part name below so a future task can find it.
+            // metallic in {0, 0.5, 1} by column.
             float metallic = float(col) * 0.5f;
             MeshPart part = BuildUvSphere(
                 0.8f, 24, 32, glm::vec3(x, y, 0.0f),
@@ -195,6 +188,7 @@ CorpusScene BuildSphereGrid() {
             mat.baseColor[2] = 0.6f;
             mat.baseColor[3] = 1.0f;
             mat.blendMode = BlendMode::Normal;
+            mat.metallic = metallic;
             mat.textures[TextureRole::Diffuse] = 0;
             mat.textures[TextureRole::Normal] = 1;
             mat.textures[TextureRole::Occlusion] = 2;

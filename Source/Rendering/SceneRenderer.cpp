@@ -114,6 +114,7 @@ void SceneRenderer::Build(const Parsers::SceneData& scene) {
             batch.blendMode = mat.blendMode;
             batch.uvOffset[0] = mat.uvOffset[0];
             batch.uvOffset[1] = mat.uvOffset[1];
+            batch.metallic = mat.metallic;
 
             auto at = [&textureIds](int idx) -> GLuint {
                 return (idx >= 0 && (size_t)idx < textureIds.size()) ? textureIds[idx] : 0;

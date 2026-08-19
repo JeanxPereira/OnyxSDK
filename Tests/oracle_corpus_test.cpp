@@ -169,6 +169,19 @@ TEST_CASE("OracleCorpus: sphere-grid every material binds all 9 roles in-range")
     }
 }
 
+TEST_CASE("OracleCorpus: sphere-grid metallic is {0, 0.5, 1} by column") {
+    auto cs = BuildSphereGrid();
+    const auto& scene = cs.scene;
+
+    REQUIRE(scene.materials.size() == 9);
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            float expected = float(col) * 0.5f;
+            CHECK(scene.materials[row * 3 + col].metallic == doctest::Approx(expected));
+        }
+    }
+}
+
 TEST_CASE("OracleCorpus: skinned-cube has a skeleton and every vertex's weights sum to 1") {
     auto cs = BuildSkinnedCube();
     const auto& scene = cs.scene;
