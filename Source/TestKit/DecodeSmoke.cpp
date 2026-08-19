@@ -15,11 +15,25 @@ bool InAllowlist(const std::vector<std::string>& allowlist, const std::string& n
     return std::find(allowlist.begin(), allowlist.end(), name) != allowlist.end();
 }
 
+bool IsFailed(const Domain::AssetEntry& e) {
+    return (static_cast<uint8_t>(e.flags) & static_cast<uint8_t>(Domain::NodeFlags::Failed)) != 0;
+}
+
 // One entry's decode attempt. Priority mirrors Source/Cli/Commands.cpp's
 // CmdDecode exactly (Scene > Image > Text -- spec §11's shared-routing
 // contract): only one branch ever runs per entry.
 void DecodeOne(Modules::Workspace& ws, Modules::Document& doc, const Domain::AssetEntry& entry,
                 const std::vector<std::string>& allowlist, SmokeResult& out) {
+    // Same rule as Source/App/ViewerOpening.cpp's OpenSelection: a node
+    // already flagged Failed at parse time is never handed to a decoder --
+    // its parser already reported the defect as a diag, so decoding it
+    // anyway would double-count that one root cause as a second, decode-
+    // time failure under a different name (see this header's top comment).
+    if (IsFailed(entry)) {
+        ++out.skippedFailed;
+        return;
+    }
+
     Modules::DecoderRegistry& reg = ws.Decoders();
     Services::Progress progress;
 

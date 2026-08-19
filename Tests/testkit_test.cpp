@@ -114,6 +114,41 @@ std::filesystem::path WriteCorruptEntryBox() {
     return path;
 }
 
+// Two entries: "huge" (kind=0/blob, declared payloadSize 0xFFFFFFFF -- the
+// same spec §5.4 widening shape Tests/cli_test.cpp's WriteHugeSizeBox uses)
+// whose declared range vastly exceeds the file, so ParseContainer flags it
+// Failed at PARSE time (not a decode-time salvage failure -- decode is
+// never even attempted for it); and "txt" (kind=2, valid, in-bounds), a
+// genuinely decodable sibling in the same container. Distinct from
+// WriteCorruptEntryBox above: "liar" there is deliberately IN-BOUNDS at
+// parse time (never flagged Failed) so its failure only surfaces once the
+// decoder itself inspects the payload -- this fixture instead exercises the
+// PARSE-time Failed path DecodeAll must recognize and skip outright.
+std::filesystem::path WriteParseFailedSiblingBox() {
+    const std::string textPayload = "hello sibling";
+
+    const uint32_t headerSize = 4 + 4 + uint32_t(2 + 4 + 1 + 4 + 4)   // "huge"
+                                       + uint32_t(2 + 3 + 1 + 4 + 4); // "txt"
+    const uint32_t sharedOffset = headerSize;
+    const uint32_t hugeSize = 0xFFFFFFFF; // declared -- no such bytes actually follow
+    const uint32_t textSize = uint32_t(textPayload.size());
+
+    std::vector<uint8_t> buf;
+    buf.insert(buf.end(), {uint8_t('O'), uint8_t('B'), uint8_t('X'), uint8_t('1')});
+    PutU32LE(buf, 2);
+
+    PutTocHeader(buf, "huge", 0, sharedOffset, hugeSize);
+    PutTocHeader(buf, "txt", 2, sharedOffset, textSize);
+
+    buf.insert(buf.end(), textPayload.begin(), textPayload.end());
+
+    auto path = std::filesystem::temp_directory_path() / "onyx_testkit_parse_failed_sibling.obx";
+    std::ofstream f(path, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
+    f.close();
+    return path;
+}
+
 std::unique_ptr<OnyxBox::OnyxBoxModule> MakeModule() {
     return std::make_unique<OnyxBox::OnyxBoxModule>();
 }
@@ -283,6 +318,36 @@ TEST_CASE("TestKit: DecodeAll honors an allowlist for a known-failing entry") {
     CHECK(result.failed == 0);
     CHECK(result.skipped >= 1);
     CHECK(result.errors.empty());
+
+    ws.Close(id);
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("TestKit: DecodeAll skips a parse-time Failed entry as skippedFailed, not failed") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+    auto path = WriteParseFailedSiblingBox();
+
+    Onyx::Modules::DocumentId id = ws.Open(path);
+    REQUIRE(id != 0);
+    Onyx::Modules::Document* doc = ws.Get(id);
+    REQUIRE(doc != nullptr);
+    REQUIRE(doc->roots.size() == 2);
+    // Sanity: ParseContainer really did flag "huge" Failed (not this
+    // fixture accidentally exercising some other path).
+    const Onyx::Domain::AssetEntry& huge = doc->roots[0];
+    REQUIRE(huge.name == "huge");
+    CHECK((static_cast<uint8_t>(huge.flags) & static_cast<uint8_t>(Onyx::Domain::NodeFlags::Failed)) !=
+          0);
+
+    Onyx::TestKit::SmokeResult result = Onyx::TestKit::DecodeAll(ws, id);
+    CHECK(result.skippedFailed == 1);
+    CHECK(result.failed == 0);
+    CHECK(result.decoded == 1); // the "txt" sibling still decodes
+    CHECK(result.errors.empty());
+    for (const auto& e : result.errors) {
+        CHECK(e.find("huge") == std::string::npos);
+    }
 
     ws.Close(id);
     std::filesystem::remove(path);
