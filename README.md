@@ -113,13 +113,18 @@ All under the `Onyx::` namespace. Never link the raw `Onyx_*` names — those ar
 
 ### Headers
 
-| Include | Surface |
-|---|---|
-| `<Onyx/Onyx.h>` | The umbrella for everything `Onyx::Onyx`/`Shell`/`Core` ships (that file's top comment states the exact inclusion rule) |
-| `<Onyx/Render.h>` | The Vulkan-touching renderer surface, `Onyx::Render` alone, without the Shell |
-| `<Onyx/Media.h>` | `VideoPlayer`, when `ONYX_COMPONENT_MEDIA` is on |
+One umbrella per target you have to link. Each declares only what its own target defines, so anything an umbrella hands you also links:
 
-Splitting these three keeps a headless consumer of `Onyx::Core`/`Onyx::CliRender` from ever having to put `volk.h`, `vk_mem_alloc.h`, or FFmpeg's headers on its include path.
+| Include | Link | Surface |
+|---|---|---|
+| `<Onyx/Onyx.h>` | `Onyx::Onyx` | Everything the aggregate itself links — Core + Render + Shell — minus the two cost-based exclusions below (that file's top comment states the exact inclusion rule) |
+| `<Onyx/Render.h>` | `Onyx::Render` | The Vulkan-touching renderer surface, without the Shell |
+| `<Onyx/Media.h>` | `Onyx::Media` | `VideoPlayer`, when `ONYX_COMPONENT_MEDIA` is on |
+| `<Onyx/Exchange.h>` | `Onyx::Exchange` | glTF export |
+| `<Onyx/CliRender.h>` | `Onyx::CliRender` | `Onyx::Cli::CmdRender`, the headless `render` subcommand |
+| `<Onyx/TestKit.h>` | `Onyx::TestKit` | Golden / decode-smoke / render-compare helpers, for your test executable |
+
+`<Onyx/Onyx.h>` leaves out the Vulkan half of the renderer and the video viewer even though `Onyx::Onyx` does link them, so a headless consumer never has to put `volk.h`, `vk_mem_alloc.h`, or FFmpeg's headers on its include path; `<Onyx/Render.h>` and `<Onyx/Media.h>` are where those live. The other three siblings exist for the opposite reason: their targets are **not** part of `Onyx::Onyx`, so declaring them from the main umbrella would compile and then fail at link.
 
 ## CLI Usage
 

@@ -1,66 +1,102 @@
 #pragma once
 // Onyx SDK — umbrella public header.
 //
-// Inclusion rule (audit gap G2 fix): this header pulls in every header that
-// declares a public ENTRY POINT a toolkit author is expected to call
-// directly to build a working toolkit on Onyx -- boot the app, register a
-// module, parse/decode/browse assets, drive the document/viewer/selection
-// pipeline, theme the UI, and consume the renderer's header-only ("ready
-// floor") surface. Concretely, the test is what the CONSUMER must NAME,
-// not what an umbrella class happens to call: a header belongs here if
-// using an umbrella class through its public interface requires naming a
-// type, function or constant that header declares -- to construct it, to
-// call it, or to receive what it hands back (an event it fires counts,
-// because subscribing means naming the event type). A header an umbrella
-// class merely calls INTO on its own behalf does not qualify, because the
-// consumer never writes that name. That is the line between this list and
-// the exclusions below, and it is why Viewers/DocumentWindow.h is here
-// while App/Widgets.h, App/UIHelpers.h, App/TexturePool.h and the
-// App/Panels/* headers its .cpp calls are not. Services/EventManager.h and
-// Services/Events.h are included on exactly this basis: Viewers/
-// DocumentWindow.h and Viewers/Viewport3D.h (both already below) post
-// EventDocumentOpened/EventAnimationLoaded through them
-// (Source/Viewers/DocumentWindow.cpp, Source/Viewers/Viewport3D.cpp) --
-// withholding the event catalog those umbrella-included classes actually
-// use would leave a consumer unable to subscribe to events the umbrella's
-// own document/viewer pipeline fires. (Services/EventBus.h -- a newer,
-// non-singleton pub/sub EventManager's own header says it will eventually
-// replace -- is already transitively reachable via App/Window.h and
-// Modules/Workspace.h, both below; EventManager/Events.h stay because they
-// are what DocumentWindow/Viewport3D actually call TODAY, not instead of
-// EventBus.)
+// ── The inclusion rule ────────────────────────────────────────────────────
+// A header is NAMED by this umbrella when BOTH of the following hold. Both
+// are checkable against the tree, so this is a rule that predicts the list
+// below rather than a description written after it. (The test decides what
+// this file names DIRECTLY; a header reached transitively through one it
+// names is in the closure either way.)
 //
-// It deliberately excludes:
+//   (1) LINKABLE. Everything the header declares ships in a target that
+//       Onyx::Onyx itself links -- Onyx_Core, Onyx_Render, Onyx_Shell
+//       (root CMakeLists.txt, `target_link_libraries(Onyx INTERFACE ...)`).
+//       README's "Consuming Onyx" tells a consumer to link exactly that
+//       aggregate, so a declaration handed over from here whose definition
+//       ships somewhere else is not a free convenience -- it is an LNK2019
+//       with a delay fuse, which is the same defect as the audit's
+//       blocking gap G1 (a public header whose symbol shipped in no
+//       library) seen from the umbrella's side. Public headers that fail
+//       this test are not demoted: they move to a sibling umbrella that
+//       names the one extra target to link -- <Onyx/Render.h>
+//       (Onyx::Render), <Onyx/Media.h> (Onyx::Media), <Onyx/Exchange.h>
+//       (Onyx::Exchange), <Onyx/CliRender.h> (Onyx::CliRender),
+//       <Onyx/TestKit.h> (Onyx::TestKit).
 //
-//   - Shell-INTERNAL detail headers a toolkit author has no reason to name
-//     directly: individual App::Panels/*, low-level UI helper headers
-//     (Formatting, InfoTab*, StatusBarFormat, TypeVisuals, UIHelpers,
-//     Widgets, TexturePool), icon/font tables. These stay reachable via
-//     their own `#include <Onyx/Subsystem/Header.h>` for an author who does
-//     want to reach into the Shell's own toolbox, same as any header not
-//     itemized below.
+//   (2) REQUIRED OF THE CONSUMER. Building a toolkit on Onyx cannot be
+//       done without naming something the header declares, at one of the
+//       two places the SDK hands the work over:
+//         (a) driving an umbrella class through its public interface --
+//             to construct it, to call it, to receive what it hands back,
+//             or to subscribe to an event it fires (subscribing means
+//             naming the event type). This is why
+//             Viewers/DocumentWindow.h is named here, and with it
+//             Services/EventManager.h and Services/Events.h:
+//             DocumentWindow/Viewport3D post EventDocumentOpened/
+//             EventAnimationLoaded through them (Source/Viewers/
+//             DocumentWindow.cpp, Source/Viewers/Viewport3D.cpp), and
+//             withholding that catalog would leave a consumer unable to
+//             subscribe to events the umbrella's own pipeline fires.
+//         (b) implementing what the SDK asks the consumer to implement,
+//             and booting it: an IGameModule with its parsers and
+//             decoders, and the composition root that starts the app or
+//             the CLI. Onyx cannot perform either on the consumer's
+//             behalf -- only the module knows a chunk of bytes is
+//             IMA-ADPCM audio (Audio/AdpcmDecoder.h, named here although
+//             no umbrella class ever hands one back or calls one: the SDK
+//             has no call site for it at all), and only the consumer's
+//             own main() calls Onyx::Cli::Run (Cli/Commands.h).
+//
+//       "Required", not "merely useful". A header the Shell or the
+//       renderer calls INTO on its own behalf fails (2) even when a
+//       consumer could find a use for it -- the consumer never has to
+//       write that name.
+//
+// ── What that rule excludes, and where it lives instead ───────────────────
+//   - Shell-INTERNAL detail headers: App/Widgets.h, App/UIHelpers.h,
+//     App/Formatting.h, App/TypeVisuals.h, App/TexturePool.h,
+//     App/StatusBarFormat.h, App/InfoTab*.h, Fonts/IconTable.h and every
+//     App/Panels/* header. These are how the Shell draws the panels IT
+//     owns; a consumer registers an IPanel/IDocumentContent and never
+//     writes those names. They stay reachable through their own
+//     `#include <Onyx/Subsystem/Header.h>` for an author who does want to
+//     reach into the Shell's toolbox -- same as any header not itemized
+//     below.
 //   - The Vulkan-touching half of the renderer (VkContext, Pipelines,
 //     OffscreenTarget, RenderContext, SceneRendererVk, TexturePool,
-//     VkResources): every one of those headers `#include`s volk.h/
-//     vk_mem_alloc.h directly or transitively, and this umbrella is also
-//     included by headless/CLI-only consumers that should never pay for
-//     Vulkan headers just to parse a container. That half lives in the
-//     sibling <Onyx/Render.h> instead -- see its own top comment.
+//     VkResources). These pass (1) -- they ship in Onyx_Render -- and are
+//     left out on a separate, explicitly-stated cost ground: every one of
+//     them `#include`s volk.h/vk_mem_alloc.h directly or transitively, and
+//     this umbrella is also included by headless/CLI-only consumers that
+//     should never pay for Vulkan headers just to parse a container. They
+//     live in the sibling <Onyx/Render.h> -- see its own top comment.
 //     Rendering/RenderToImage.h is the one exception: it is deliberately
-//     Vulkan-header-free (forward-declares VkContext only -- see its own
-//     top comment), so the "ready floor" one-call render entry point ships
-//     in THIS header, not the sibling.
-//   - Viewers/VideoPlayer.h: unlike every other viewer, its header (not
-//     just its .cpp) directly #includes libavformat/libavcodec/libswscale/
-//     libswresample and miniaudio.h. ONYX_COMPONENT_MEDIA (root
-//     CMakeLists.txt) can build Onyx WITHOUT FFmpeg at all -- unconditionally
-//     including this header would break `#include <Onyx/Onyx.h>` itself for
-//     that configuration, not just cost extra compile time. It lives in the
-//     sibling <Onyx/Media.h>, included only when ONYX_COMPONENT_MEDIA is on.
+//     Vulkan-header-free (it forward-declares VkContext only -- see its
+//     own top comment), so the "ready floor" one-call render entry point
+//     ships in THIS header, not the sibling.
+//   - Viewers/VideoPlayer.h, on the same cost ground plus a configuration
+//     one: unlike every other viewer, its header (not just its .cpp)
+//     directly #includes libavformat/libavcodec/libswscale/libswresample
+//     and miniaudio.h, and ONYX_COMPONENT_MEDIA (root CMakeLists.txt) can
+//     build Onyx WITHOUT FFmpeg at all -- unconditionally including it
+//     would break `#include <Onyx/Onyx.h>` itself for that configuration.
+//     It lives in the sibling <Onyx/Media.h>.
+//   - Everything Onyx::Onyx does not link, by clause (1):
+//     Exchange/GltfExport.h -> <Onyx/Exchange.h> (link Onyx::Exchange),
+//     Cli/Render.h -> <Onyx/CliRender.h> (link Onyx::CliRender),
+//     TestKit/*.h -> <Onyx/TestKit.h> (link Onyx::TestKit).
+//     Through v0.6.0 this file named all five of those headers, arguing
+//     the declarations were "free" without the link. They are not free:
+//     they compile and then fail at link the moment a consumer calls one,
+//     which is exactly what the umbrella promises will not happen.
+//     Cli/Gltf.h is out for a stricter form of the same reason -- its
+//     MakeGltfExportFn is compiled into the example CLI executable, so it
+//     ships in no library at all (recorded in CHANGELOG.md's post-v1
+//     backlog).
 //
 // Apps may include this, plus <Onyx/Render.h> for the raw Vulkan floor and
-// <Onyx/Media.h> for the video viewer, for the full public surface -- or
-// include individual <Onyx/Subsystem/Header.h> directly.
+// <Onyx/Media.h> for the video viewer, for the full Onyx::Onyx-linkable
+// surface -- or include individual <Onyx/Subsystem/Header.h> directly.
 #include <Onyx/Version.h>
 
 // Core data
@@ -132,17 +168,10 @@
 #include <Onyx/Rendering/AxisGizmo.h>
 #include <Onyx/Rendering/RenderToImage.h>
 
-// Exchange (glTF export)
-#include <Onyx/Exchange/GltfExport.h>
-
-// CLI (Onyx::Cli::Run/CmdProbe/CmdList/CmdExtract/CmdDecode/CmdRender)
+// CLI (Onyx::Cli::Run/CmdProbe/CmdList/CmdExtract/CmdDecode) -- the argv
+// dispatcher a consumer's own main() calls. `render` is the one subcommand
+// whose implementation ships outside Onyx::Onyx (Onyx_CliRender): its
+// CmdRender declaration lives in the sibling <Onyx/CliRender.h>, and Run()
+// reaches it through the RenderFn hook Commands.h declares here.
 #include <Onyx/Cli/Commands.h>
-#include <Onyx/Cli/Render.h>
 
-// TestKit -- opt-in target (Onyx::TestKit), but the declarations are free to
-// include here same as everything else: a consumer only pays for it by
-// linking Onyx::TestKit, same as the CLI/Render headers above only cost
-// anything once Onyx::CliRender is linked.
-#include <Onyx/TestKit/DecodeSmoke.h>
-#include <Onyx/TestKit/Goldens.h>
-#include <Onyx/TestKit/RenderCompare.h>

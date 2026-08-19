@@ -241,32 +241,59 @@ below and `.github/workflows/ci.yml`'s own header comment).
 - **`<Onyx/Onyx.h>` broadened to a stated, testable inclusion rule** (M5,
   audit gap G2) — the umbrella used to reach 49 of 108 public headers
   while its own comment claimed "the full public surface." The rule is
-  now explicit and predictive rather than descriptive: a header belongs
-  in the umbrella when using an already-included umbrella class through
-  its public interface requires the *consumer* to name something that
-  header declares (an event counts — subscribing means naming the type);
-  a header a class merely calls into on the consumer's behalf does not
-  qualify. Applying that rule pulled in `Modules/DecoderRegistry.h`,
-  `Modules/Selection.h`, `App/ViewerOpening.h`/`ViewerRouting.h`, the
-  whole CLI, `Services/ThemeManager.h`/`PathUtils.h`, and
+  now explicit and predictive rather than descriptive, and it has two
+  clauses, both checkable against the tree. **(1) Linkable:** everything
+  a named header declares ships in a target `Onyx::Onyx` itself links
+  (`Onyx_Core`/`Onyx_Render`/`Onyx_Shell`). **(2) Required of the
+  consumer:** building a toolkit cannot be done without naming something
+  it declares — either to drive an umbrella class through its public
+  interface (construct, call, receive, or subscribe to an event it fires)
+  or to implement what the SDK delegates (an `IGameModule` with its
+  decoders, and the composition root that boots the app or the CLI).
+  "Required", not merely useful: a header the Shell or renderer calls
+  into on its own behalf does not qualify. Applying it pulled in
+  `Modules/DecoderRegistry.h`, `Modules/Selection.h`,
+  `App/ViewerOpening.h`/`ViewerRouting.h`, `Cli/Commands.h`,
+  `Audio/AdpcmDecoder.h`, `Services/ThemeManager.h`/`PathUtils.h`, and
   `Services/EventManager.h`/`Events.h` (`DocumentWindow`/`Viewport3D`,
   both already in the umbrella, post `EventDocumentOpened`/
   `EventAnimationLoaded` through them — withholding the event catalog
   would leave a consumer of the umbrella's own document/viewer pipeline
   unable to subscribe to events it fires). The Vulkan-touching half of
-  the renderer and `Viewers/VideoPlayer.h` stay out on purpose — see the
-  new sibling umbrellas below.
+  the renderer and `Viewers/VideoPlayer.h` stay out on a separate,
+  explicitly-stated cost ground — see the sibling umbrellas below.
+- **The umbrella now declares only what `Onyx::Onyx` links** (M5, final
+  review C1/M3) — an earlier cut of the G2 work had `<Onyx/Onyx.h>` name
+  `Exchange/GltfExport.h`, `Cli/Render.h` and the three `TestKit/*`
+  headers, arguing in its own comment that the declarations were "free"
+  without linking those targets. They were not free: a consumer who
+  followed "Consuming Onyx" verbatim (`Onyx::Onyx` and nothing else)
+  compiled clean and then got `LNK2019` the moment they called one —
+  reproduced on `Onyx::Exchange::ExportSceneData` and
+  `Onyx::TestKit::SnapshotTree`. That is the audit's blocking gap G1 (a
+  public declaration whose symbol ships in no library the consumer
+  linked) seen from the umbrella's side, at three targets instead of one.
+  The five headers moved to sibling umbrellas that each name the target
+  to link — **`<Onyx/Exchange.h>`**, **`<Onyx/CliRender.h>`**,
+  **`<Onyx/TestKit.h>`** — following the `<Onyx/Render.h>`/`<Onyx/Media.h>`
+  precedent, and clause (1) of the inclusion rule above exists so the
+  same defect cannot be reintroduced by argument. Nothing left the public
+  surface: every one of those headers is still installed, still standalone
+  compilable, and still reachable by its own `#include`. Caught by the
+  final whole-branch review before the tag was pushed, so no released
+  version ever carried the trap.
 - **`<Onyx/Render.h>` and `<Onyx/Media.h>`** (M5, audit gap G2) — sibling
-  umbrellas for the two halves `<Onyx/Onyx.h>` deliberately excludes: the
-  7 Vulkan-touching renderer headers (every one pulls in `volk.h`/
-  `vk_mem_alloc.h` directly or transitively) and `Viewers/VideoPlayer.h`
-  (the one viewer whose *header* directly includes FFmpeg/miniaudio, which
-  would break `#include <Onyx/Onyx.h>` itself when `ONYX_COMPONENT_MEDIA`
-  is off). Each documents its own third-party dependency list in its top
-  comment; `Render.h`'s list was found incomplete (`AxisGizmo.h` silently
-  needs `imgui.h`) and corrected — the underlying design smell (a
-  Vulkan-rendering target's public header with a hard ImGui dependency)
-  is flagged, deliberately unfixed, in "Known gaps" below.
+  umbrellas for the two halves `<Onyx/Onyx.h>` excludes on cost grounds
+  rather than link grounds: the 7 Vulkan-touching renderer headers (every
+  one pulls in `volk.h`/`vk_mem_alloc.h` directly or transitively) and
+  `Viewers/VideoPlayer.h` (the one viewer whose *header* directly includes
+  FFmpeg/miniaudio, which would break `#include <Onyx/Onyx.h>` itself when
+  `ONYX_COMPONENT_MEDIA` is off). Each documents its own third-party
+  dependency list in its top comment; `Render.h`'s list was found
+  incomplete (`AxisGizmo.h` silently needs `imgui.h`) and corrected — the
+  underlying design smell (a Vulkan-rendering target's public header with
+  a hard ImGui dependency) is flagged, deliberately unfixed, in "Known
+  gaps" below.
 - **`Include/Onyx/Version.h` checked into the source tree** (M5, audit gap
   G3) — previously generated only into `build/generated/Onyx/Version.h`
   and never present for a consumer who had cloned the repo but not yet
