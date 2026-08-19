@@ -18,8 +18,15 @@ capability, and cold-start-TU — over the toolkits the SDK already ships
 (`MinimalViewer`, `OnyxBox`, `OnyxCli`), producing the same ranked gaps
 list a built module would have. That is weaker in one specific way, worth
 stating plainly at this tag: an audit proves the surface is *reachable*;
-a second real toolkit would have proven it *sufficient*. The gaps it found
-were fixed within this milestone (below); none are deferred past v1.0.
+a second real toolkit would have proven it *sufficient*. Gap by gap, of the
+six it found: **G1** (blocking) fixed, **G2** and **G3** (forcing a
+workaround) fixed, **G4** not fixed but resolved as a documented scope
+decision — there is still no `install()`/`export()` in this tree — **G5**
+half fixed, with the `PathUtils` global-namespace half confirmed still
+open, and **G6** fixed for every SDK target, leaving only one
+example-local library name that has no `Onyx::` alias to move to. So one
+gap carries past v1.0 unfixed and one carries half-fixed, both cosmetic,
+both named in "Known gaps" below.
 **Two human gates are recorded as PENDING, not satisfied by this tag:**
 Blender validation of the exported glTF skinned corpus model against a
 real DCC tool (`docs/gltf-validation.md` says so explicitly), and the
