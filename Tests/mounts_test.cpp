@@ -674,3 +674,63 @@ TEST_CASE("OnyxBox obxpak: mounted pak proven end to end through Cli::Commands")
     std::filesystem::remove_all(outDir);
     std::filesystem::remove(path);
 }
+
+// Task 8 fix round 1: the (fileIndex, name) re-keying in FindTocEntry/
+// DecodeImage/DecodeText is correct by inspection but was unproven by the
+// e2e test above -- CmdDecode's name-only DFS (Commands.cpp's
+// FindEntryByName) always resolves to boxA's "shared.txt" first, which the
+// OLD name-only FindTocEntry would also have gotten right by coincidence.
+// This test bypasses CmdDecode entirely: it walks doc->roots by hand to
+// reach boxB's "shared.txt" AssetEntry specifically, then invokes the
+// registered text decoder directly (the same DecoderRegistry path the GUI
+// uses) against that exact entry. Under the pre-fix name-only lookup, this
+// would have decoded boxA's bytes ("FROM-BOX-A") for a request that named
+// boxB's entry -- this assertion is the one that distinguishes the fix
+// from the bug.
+TEST_CASE("OnyxBox obxpak: decoding boxB's shared.txt by entry (not by name-only lookup) returns boxB's bytes") {
+    auto boxA = BuildObx({{"shared.txt", 2, "FROM-BOX-A"}});
+    auto boxB = BuildObx({{"shared.txt", 2, "FROM-BOX-B"},
+                           {"corrupt.bin", 0, "xxxx"}},
+                          /*corruptLast=*/true);
+
+    auto pakBytes = BuildObxPak({{"boxA.obx", boxA}, {"boxB.obx", boxB}});
+    auto path = write_temp_bytes("onyx_mounts_test_obxpak_decode_disambig.obxpak", pakBytes);
+
+    Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(std::make_unique<OnyxBox::OnyxBoxModule>());
+
+    DocumentId id = ws.Open(path);
+    REQUIRE(id != 0);
+    Document* doc = ws.Get(id);
+    REQUIRE(doc);
+    REQUIRE(doc->roots.size() == 2);
+
+    // Find boxB's subtree by name, then its "shared.txt" child directly --
+    // no name-only tree search across both subtrees.
+    const Onyx::Domain::AssetEntry* boxBSubtree = nullptr;
+    for (const auto& root : doc->roots) {
+        if (root.name == "boxB.obx") { boxBSubtree = &root; break; }
+    }
+    REQUIRE(boxBSubtree != nullptr);
+
+    const Onyx::Domain::AssetEntry* boxBShared = nullptr;
+    for (const auto& child : boxBSubtree->children) {
+        if (child.name == "shared.txt") { boxBShared = &child; break; }
+    }
+    REQUIRE(boxBShared != nullptr);
+    // Sanity: this entry really is addressed at boxB's file-table slot,
+    // not boxA's.
+    CHECK(boxBShared->source.fileIndex == 2);
+
+    // Invoke the text decoder the way the GUI path does: through the
+    // module's registered DecoderRegistry entry for this exact AssetEntry.
+    Onyx::Services::Progress progress;
+    Onyx::Modules::DecodeContext ctx{*doc, *boxBShared, doc->diags, progress};
+    std::optional<Onyx::Modules::TextOut> decoded = ws.Decoders().DecodeText(ctx);
+
+    REQUIRE(decoded.has_value());
+    CHECK(decoded->text == "FROM-BOX-B");   // NOT "FROM-BOX-A" -- the bug this fix closes
+
+    ws.Close(id);
+    std::filesystem::remove(path);
+}
