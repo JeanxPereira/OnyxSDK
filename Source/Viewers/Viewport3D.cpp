@@ -70,6 +70,24 @@
 // doc comment: "empirically verified top-down for this target") and
 // ImGui's own UV convention is top-down too, so the Vulkan path below
 // draws with the plain uv0=(0,0)/uv1=(1,1) -- no flip.
+//
+// M5 Task 7 note: this class deliberately does NOT route RenderFrame()
+// through the new Onyx::Rendering::RenderToImage (Include/Onyx/Rendering/
+// RenderToImage.h) -- see that header's own top comment ("Source/Viewers/
+// Viewport3D.cpp: deliberately NOT routed through this API") for the full
+// reasoning. Short version: RenderFrame() renders into a PERSISTENT
+// OffscreenTarget this class owns across many frames and samples live via
+// ImGui (never reads it back to the CPU), layers a background gradient
+// plus optional skeleton/grid passes on top of the scene through pipeline
+// objects built once and reused every redraw, and already carries one
+// disclosed perf gap (a blocking OneShot submit every redraw). RenderToImage
+// owns a target for exactly one call and hands back CPU bytes, which is
+// the opposite shape from what a live, multi-pass, GPU-resident viewport
+// needs -- spec §2's own principle ("the ready floor never hides the raw
+// floor -- if a toolkit outgrows a stock path, it drops one floor without
+// leaving the SDK") is why this class stays on the raw floor (VkContext +
+// Pipelines + SceneRendererVk + OffscreenTarget directly) below, unchanged
+// by that task.
 // ═══════════════════════════════════════════════════════════════════════
 
 #include <Onyx/Viewers/Viewport3D.h>

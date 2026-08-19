@@ -1,7 +1,9 @@
 #include "PngWrite.h"
 #include "CorpusScenes.h"
 #include "RenderReport.h"
+#include "RenderToImageSmoke.h"
 
+#include <Onyx/Rendering/RenderToImage.h> // M5 Task 7: RunRenderCorpusVk's pixel path
 #include <Onyx/RenderVk/OffscreenTarget.h>
 #include <Onyx/RenderVk/Pipelines.h>
 #include <Onyx/RenderVk/RenderContext.h>
@@ -84,6 +86,19 @@ void PrintHelp() {
         "      are captured. Writes PNGs for each. Exit 0 on success, 1 on any\n"
         "      assertion/GPU failure, 77 if no Vulkan-capable device/driver is\n"
         "      found.\n"
+        "\n"
+        "  onyx-oracle --render-to-image-smoke\n"
+        "      M5 Task 7: renders the blend-stack corpus scene through\n"
+        "      Onyx::Rendering::RenderToImage's one-shot overload (the ready\n"
+        "      floor's own entry point -- Include/Onyx/Rendering/RenderToImage.h),\n"
+        "      twice independently, asserting non-uniform output and byte-\n"
+        "      identical reproducibility -- the same shape --vk-scene-smoke's\n"
+        "      blend-stack check uses, but through the ready floor instead of the\n"
+        "      raw VkContext/Pipelines/OffscreenTarget/SceneRendererVk sequence.\n"
+        "      This check's own source is written without including a single\n"
+        "      Vulkan header -- the proof that entry point needs no Vulkan\n"
+        "      knowledge to use. Exit 0 on success, 1 on any assertion failure,\n"
+        "      77 if no Vulkan-capable device/driver is found.\n"
         "\n"
         "  onyx-oracle render-corpus --out DIR [--renderer vk]\n"
         "      Renders all 5 corpus scenes to DIR/<name>.png + DIR/<name>.json,\n"
@@ -797,16 +812,38 @@ int RunRenderCorpusVk(const fs::path& outDir) {
         return 77;
     }
 
-    Onyx::Rendering::ScenePipelines scenePipes;
-    if (!Onyx::Rendering::Pipelines::CreateScene(ctx, scenePipes, err)) {
+    // M5 Task 7: this loop's PIXEL path (target create, SceneRendererVk::
+    // Build, the OneShot BeginFrame/RenderBackground/Render/EndFrame
+    // recording, Readback, and unwinding all of it) now goes through
+    // Include/Onyx/Rendering/RenderToImage.h's context-reusing overload --
+    // see that header's own top comment for the full contract, including
+    // why it grew hasBackground/backgroundTop/backgroundBottom fields
+    // specifically so this loop (named in that header's own doc comment)
+    // could move onto it without dropping the gradient every corpus PNG's
+    // non-geometry pixels show. RenderToImage builds its own
+    // ScenePipelines[+BackgroundPipeline] fresh on every call rather than
+    // sharing the single `scenePipes`/`bgPipe` this loop used to create
+    // once outside it -- functionally identical rasterization either way
+    // (a VkPipeline built from the same shaders/state produces the same
+    // pixels regardless of which specific pipeline object draws them), so
+    // this does not touch VkOracleParity/OracleReproducible's byte-
+    // identical-goldens gate; it costs 5x pipeline creation instead of 1x
+    // for this 5-scene corpus, an acceptable trade for a tool that is not
+    // itself perf-sensitive.
+    //
+    // `reportPipes`/`reportRenderer` below are a SEPARATE, second Build()
+    // this loop still does per scene -- not for pixels (Build() alone
+    // never creates a target, records a command buffer, or reads back a
+    // pixel, so it cannot affect the PNG's bytes), but because
+    // RenderToImage's contract is deliberately scene-in/rgba-out only and
+    // does not expose the SceneRendererVk it builds internally to produce
+    // the PNG; BuildReport() below needs that instance's GetBatches() (and
+    // each batch's jointMap size) for the JSON report, which RenderToImage
+    // was never meant to answer -- "what did the scene resolve to" is a
+    // different question from "what did it render to".
+    Onyx::Rendering::ScenePipelines reportPipes;
+    if (!Onyx::Rendering::Pipelines::CreateScene(ctx, reportPipes, err)) {
         std::fprintf(stderr, "render-corpus: %s\n", err.c_str());
-        ctx.Shutdown();
-        return 1;
-    }
-    Onyx::Rendering::BackgroundPipeline bgPipe;
-    if (!Onyx::Rendering::Pipelines::CreateBackground(ctx, bgPipe, err)) {
-        std::fprintf(stderr, "render-corpus: %s\n", err.c_str());
-        Onyx::Rendering::Pipelines::Destroy(ctx, scenePipes);
         ctx.Shutdown();
         return 1;
     }
@@ -814,57 +851,36 @@ int RunRenderCorpusVk(const fs::path& outDir) {
     std::error_code ec;
     fs::create_directories(outDir, ec);
 
-    // Same clear color HeadlessGL::BeginFrame uses (black) before its own
-    // RenderBackground call -- the background pipeline is depth-off/
-    // blend-off and draws a fullscreen triangle covering every pixel, so
-    // the clear color underneath is always fully overdrawn on both paths;
+    // Same clear color HeadlessGL::BeginFrame used to use (black) before
+    // its own RenderBackground call -- the background pipeline is depth-
+    // off/blend-off and draws a fullscreen triangle covering every pixel,
+    // so the clear color underneath is always fully overdrawn either way;
     // kept identical anyway so nothing about this frame's setup diverges
-    // from the GL path for a reason that isn't the renderer itself. Same
-    // top/bottom gradient colors RunRenderCorpus feeds SceneRenderer::
-    // RenderBackground above (neutral, not app-config dependent).
-    const float clearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    // from the (now-deleted) GL path for a reason that isn't the renderer
+    // itself. Same top/bottom gradient colors this loop has always fed
+    // RenderBackground (neutral, not app-config dependent).
+    const glm::vec4 clearColor(0.0f, 0.0f, 0.0f, 1.0f);
     const glm::vec3 topColor(0.10f, 0.11f, 0.13f);
     const glm::vec3 bottomColor(0.03f, 0.03f, 0.04f);
 
     int rc = 0;
     std::vector<CorpusScene> corpus = Onyx::OracleTool::BuildCorpus();
     for (const CorpusScene& cs : corpus) {
-        Onyx::Rendering::OffscreenTarget target;
-        if (!target.Create(ctx, cs.width, cs.height, err)) {
-            std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
-            rc = 1;
-            break;
-        }
-
-        Onyx::Rendering::SceneRendererVk renderer;
-        if (!renderer.Build(ctx, scenePipes, cs.scene, err)) {
-            std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
-            renderer.Clear(ctx);
-            target.Destroy(ctx);
-            rc = 1;
-            break;
-        }
-
-        bool bgOk = true;
-        bool ok = Onyx::Rendering::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
-            target.BeginFrame(cmd, clearColor);
-            bgOk = renderer.RenderBackground(ctx, bgPipe, cmd, topColor, bottomColor, err);
-            renderer.Render(cmd, cs.view, VkProj(cs.proj), cs.mode, cs.width, cs.height);
-            target.EndFrame(cmd);
-        }, err);
-        if (!ok || !bgOk) {
-            std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
-            renderer.Clear(ctx);
-            target.Destroy(ctx);
-            rc = 1;
-            break;
-        }
+        // cs.proj is CorpusScenes.cpp's own plain glm::perspective() result
+        // (never VulkanProjection()-converted there) -- exactly the "plain
+        // projection" RenderToImage's own contract wants (see its header's
+        // "the projection-convention decision"); it applies the Y-flip
+        // internally now, so VkProj()'s call site that used to sit right
+        // here is gone.
+        Onyx::Rendering::RenderRequest request{cs.scene, cs.width, cs.height, cs.view, cs.proj, cs.mode};
+        request.hasBackground    = true;
+        request.backgroundTop    = topColor;
+        request.backgroundBottom = bottomColor;
+        request.clearColor       = clearColor;
 
         std::vector<uint8_t> rgba;
-        if (!target.Readback(ctx, rgba, err)) {
+        if (!Onyx::Rendering::RenderToImage(ctx, request, rgba, err)) {
             std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
-            renderer.Clear(ctx);
-            target.Destroy(ctx);
             rc = 1;
             break;
         }
@@ -874,13 +890,19 @@ int RunRenderCorpusVk(const fs::path& outDir) {
         fs::path pngPath = outDir / (cs.name + ".png");
         if (!Onyx::OracleTool::WritePng(pngPath, cs.width, cs.height, rgba, err)) {
             std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
-            renderer.Clear(ctx);
-            target.Destroy(ctx);
             rc = 1;
             break;
         }
 
-        std::vector<Onyx::Rendering::RenderBatch>& batches = renderer.GetBatches();
+        Onyx::Rendering::SceneRendererVk reportRenderer;
+        if (!reportRenderer.Build(ctx, reportPipes, cs.scene, err)) {
+            std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
+            reportRenderer.Clear(ctx);
+            rc = 1;
+            break;
+        }
+
+        std::vector<Onyx::Rendering::RenderBatch>& batches = reportRenderer.GetBatches();
         std::vector<size_t> paletteJointCounts;
         paletteJointCounts.reserve(batches.size());
         for (const auto& b : batches) paletteJointCounts.push_back(b.jointMap.size());
@@ -893,8 +915,7 @@ int RunRenderCorpusVk(const fs::path& outDir) {
         if (!jf) {
             std::fprintf(stderr, "render-corpus: %s: failed to open %s for writing\n",
                         cs.name.c_str(), jsonPath.string().c_str());
-            renderer.Clear(ctx);
-            target.Destroy(ctx);
+            reportRenderer.Clear(ctx);
             rc = 1;
             break;
         }
@@ -903,8 +924,7 @@ int RunRenderCorpusVk(const fs::path& outDir) {
         if (!jf) {
             std::fprintf(stderr, "render-corpus: %s: failed writing %s\n",
                         cs.name.c_str(), jsonPath.string().c_str());
-            renderer.Clear(ctx);
-            target.Destroy(ctx);
+            reportRenderer.Clear(ctx);
             rc = 1;
             break;
         }
@@ -912,12 +932,10 @@ int RunRenderCorpusVk(const fs::path& outDir) {
         std::printf("%s: %dx%d pixelHash=%llu batches=%zu\n", cs.name.c_str(), cs.width,
                     cs.height, static_cast<unsigned long long>(pixelHash), batches.size());
 
-        renderer.Clear(ctx);
-        target.Destroy(ctx);
+        reportRenderer.Clear(ctx);
     }
 
-    Onyx::Rendering::Pipelines::Destroy(ctx, bgPipe);
-    Onyx::Rendering::Pipelines::Destroy(ctx, scenePipes);
+    Onyx::Rendering::Pipelines::Destroy(ctx, reportPipes);
     ctx.Shutdown();
 
     if (rc == 0 && ctx.ValidationMessageCount() != 0) {
@@ -1440,6 +1458,10 @@ int main(int argc, char** argv) {
 
     if (argc >= 2 && std::strcmp(argv[1], "--vk-scene-smoke") == 0) {
         return RunVkSceneSmoke();
+    }
+
+    if (argc >= 2 && std::strcmp(argv[1], "--render-to-image-smoke") == 0) {
+        return Onyx::OracleTool::RunRenderToImageSmoke();
     }
 
     if (argc >= 2 && std::strcmp(argv[1], "--vk-validation-selftest") == 0) {

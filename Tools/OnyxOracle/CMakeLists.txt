@@ -19,6 +19,7 @@ add_executable(onyx-oracle
     CorpusTextures.cpp
     CorpusScenes.cpp
     RenderReport.cpp
+    RenderToImageSmoke.cpp
 )
 target_include_directories(onyx-oracle PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb)
 target_link_libraries(onyx-oracle PRIVATE Onyx::Render Onyx::TestKit)
@@ -59,6 +60,19 @@ set_tests_properties(VkValidationSelfTest PROPERTIES SKIP_RETURN_CODE 77 LABELS 
 # device/driver is present, same as every other Vk* test above.
 add_test(NAME VkSceneSmoke COMMAND onyx-oracle --vk-scene-smoke)
 set_tests_properties(VkSceneSmoke PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")
+
+# RenderToImageSmoke (M5 Task 7, task-7-brief.md Step 1's required test):
+# same "render the blend-stack corpus scene twice, assert non-uniform +
+# byte-identical" shape VkSceneSmoke's own blend-stack check uses, but
+# through Onyx::Rendering::RenderToImage's one-shot overload (Include/Onyx/
+# Rendering/RenderToImage.h) instead of a hand-rolled VkContext/Pipelines/
+# OffscreenTarget/SceneRendererVk sequence -- RenderToImageSmoke.cpp itself
+# includes no Vulkan header at all, which is the actual proof this task's
+# ready-floor entry point needs no Vulkan knowledge to call. SKIP (77) when
+# no Vulkan-capable device/driver is present, same as every other Vk*/
+# Render*-labeled test above.
+add_test(NAME RenderToImageSmoke COMMAND onyx-oracle --render-to-image-smoke)
+set_tests_properties(RenderToImageSmoke PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")
 
 # OracleReproducible: renders the corpus twice (WORK/a, WORK/b) through the
 # Vulkan renderer and verifies the two runs are byte-identical (`verify`,

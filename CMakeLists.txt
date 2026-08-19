@@ -456,6 +456,7 @@ set(ONYX_RENDER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/Camera.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/JointPalette.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/RenderBatch.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/RenderToImage.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/OffscreenTarget.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/Pipelines.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/RenderContext.cpp

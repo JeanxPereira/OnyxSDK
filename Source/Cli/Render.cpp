@@ -36,12 +36,16 @@
 #include <Onyx/Services/Diagnostics.h>
 #include <Onyx/Services/Jobs.h>
 
-#include <Onyx/Rendering/RenderBatch.h> // Rendering::ShadingMode
-#include <Onyx/RenderVk/OffscreenTarget.h>
-#include <Onyx/RenderVk/Pipelines.h>      // Onyx::Rendering::VulkanProjection, ScenePipelines
-#include <Onyx/RenderVk/SceneRendererVk.h>
+// M5 Task 7: this file used to include OffscreenTarget.h/Pipelines.h/
+// SceneRendererVk.h/VkResources.h directly and hand-roll the pipeline-
+// create/target-create/Build/OneShot-render/Readback/cleanup sequence
+// those headers exist for -- RenderToImage.h's context-reusing overload
+// now owns all of that (see its own top comment for the full contract);
+// only VkContext.h stays, since this command still needs vkCtx.Init()
+// itself to detect "no device" and return 77, a CLI-exit-code concern
+// RenderToImage has no business encoding.
+#include <Onyx/Rendering/RenderToImage.h>
 #include <Onyx/RenderVk/VkContext.h>
-#include <Onyx/RenderVk/VkResources.h>    // Resources::OneShot
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -331,12 +335,11 @@ int CmdRender(Workspace& ws, const std::filesystem::path& path, std::string_view
     const float aspect = float(width) / float(height);
     const float nearPlane = std::max(distance * 0.002f, 0.01f);
     const float farPlane = distance + radius * 2.2f + 1.0f;
-    glm::mat4 proj = glm::perspective(glm::radians(kFovYDeg), aspect, nearPlane, farPlane);
-    // Every Vulkan draw in this codebase must route its projection through
-    // this before handing it to SceneRendererVk::Render() -- see Include/
-    // Onyx/RenderVk/Pipelines.h's "Camera convention" note; Render() itself
-    // asserts (Debug builds) that this was not forgotten.
-    proj = Onyx::Rendering::VulkanProjection(proj);
+    const glm::mat4 proj = glm::perspective(glm::radians(kFovYDeg), aspect, nearPlane, farPlane);
+    // NOT VulkanProjection()-converted here -- Onyx::Rendering::RenderToImage
+    // (called below) applies that Y-flip internally exactly once. See
+    // RenderToImage.h's "the projection-convention decision" for the full
+    // contract and why a plain matrix is what this API wants.
 
     // ── headless Vulkan boot ──────────────────────────────────────────────
     Onyx::Rendering::VkContext vkCtx;
@@ -346,46 +349,20 @@ int CmdRender(Workspace& ws, const std::filesystem::path& path, std::string_view
         return 77; // tool convention (Tools/OnyxOracle's Vk* entry points): SKIP, not FAIL
     }
 
-    Onyx::Rendering::ScenePipelines scenePipes;
-    if (!Onyx::Rendering::Pipelines::CreateScene(vkCtx, scenePipes, vkErr)) {
-        out << "render: " << vkErr << "\n";
-        vkCtx.Shutdown();
-        return kUsage;
-    }
-
-    Onyx::Rendering::OffscreenTarget target;
-    if (!target.Create(vkCtx, width, height, vkErr)) {
-        out << "render: " << vkErr << "\n";
-        Onyx::Rendering::Pipelines::Destroy(vkCtx, scenePipes);
-        vkCtx.Shutdown();
-        return kUsage;
-    }
-
-    Onyx::Rendering::SceneRendererVk renderer;
-    if (!renderer.Build(vkCtx, scenePipes, *scene, vkErr)) {
-        out << "render: " << vkErr << "\n";
-        renderer.Clear(vkCtx);
-        target.Destroy(vkCtx);
-        Onyx::Rendering::Pipelines::Destroy(vkCtx, scenePipes);
-        vkCtx.Shutdown();
-        return kUsage;
-    }
-
-    // Same neutral clear color Tools/OnyxOracle/Main.cpp's render-corpus
-    // --renderer vk path uses -- not app-config dependent (this tool has
-    // no AppConfig instance).
-    const float clearColor[4] = {0.10f, 0.11f, 0.13f, 1.0f};
+    // M5 Task 7: RenderToImage's context-reusing overload owns pipeline
+    // creation, target creation, SceneRendererVk::Build, the OneShot Render
+    // call, Readback, and unwinding all of it -- this file no longer spells
+    // any of that out by hand. `mode` stays the default (Solid, matching
+    // this command's pre-existing behavior exactly -- render never exposed
+    // a --shading flag); no background is requested (also pre-existing:
+    // render's own frame was always a flat clear color, never a gradient --
+    // clearColor below reproduces that exact neutral gray, same value
+    // Tools/OnyxOracle/Main.cpp's render-corpus --renderer vk path uses,
+    // not app-config dependent since this tool has no AppConfig instance).
+    Onyx::Rendering::RenderRequest request{*scene, width, height, view_, proj};
+    request.clearColor = glm::vec4(0.10f, 0.11f, 0.13f, 1.0f);
     std::vector<uint8_t> rgba;
-    bool ok = Onyx::Rendering::Resources::OneShot(vkCtx, [&](VkCommandBuffer cmd) {
-        target.BeginFrame(cmd, clearColor);
-        renderer.Render(cmd, view_, proj, Onyx::Rendering::ShadingMode::Solid, width, height);
-        target.EndFrame(cmd);
-    }, vkErr);
-    if (ok) ok = target.Readback(vkCtx, rgba, vkErr);
-
-    renderer.Clear(vkCtx);
-    target.Destroy(vkCtx);
-    Onyx::Rendering::Pipelines::Destroy(vkCtx, scenePipes);
+    bool ok = Onyx::Rendering::RenderToImage(vkCtx, request, rgba, vkErr);
 
     if (!ok) {
         out << "render: " << vkErr << "\n";
@@ -399,10 +376,10 @@ int CmdRender(Workspace& ws, const std::filesystem::path& path, std::string_view
     // to for this command's own ctest -- see Examples/OnyxCli/
     // RenderTest.cmake's top comment.)
     const uint8_t clearBytes[4] = {
-        static_cast<uint8_t>(clearColor[0] * 255.0f + 0.5f),
-        static_cast<uint8_t>(clearColor[1] * 255.0f + 0.5f),
-        static_cast<uint8_t>(clearColor[2] * 255.0f + 0.5f),
-        static_cast<uint8_t>(clearColor[3] * 255.0f + 0.5f),
+        static_cast<uint8_t>(request.clearColor.r * 255.0f + 0.5f),
+        static_cast<uint8_t>(request.clearColor.g * 255.0f + 0.5f),
+        static_cast<uint8_t>(request.clearColor.b * 255.0f + 0.5f),
+        static_cast<uint8_t>(request.clearColor.a * 255.0f + 0.5f),
     };
     if (AllPixelsEqual(rgba, clearBytes)) {
         out << "render: every pixel equals the clear color -- geometry did not rasterize\n";
