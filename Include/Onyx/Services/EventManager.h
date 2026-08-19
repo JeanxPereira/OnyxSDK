@@ -18,9 +18,9 @@
 
 // ── Event definition macros ────────────────────────────────────────────────
 // Usage:
-//   EVENT_DEF(EventWadOpened, AssetContainer*);
-//   EventWadOpened::subscribe([](AssetContainer* wad) { ... });
-//   EventWadOpened::post(wadPtr);
+//   EVENT_DEF(EventDocumentOpened, Onyx::Viewers::IDocumentContent*);
+//   EventDocumentOpened::subscribe([](Onyx::Viewers::IDocumentContent* doc) { ... });
+//   EventDocumentOpened::post(docPtr);
 
 #define EVENT_DEF_IMPL(event_name, event_name_string, should_log, ...)                                                  \
     struct event_name final : public Onyx::Services::impl::Event<__VA_ARGS__> {                                          \

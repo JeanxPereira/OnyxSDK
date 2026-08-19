@@ -37,6 +37,13 @@ public:
     size_t Count(Severity atLeast = Severity::Info) const;
     bool   HasErrors() const;                  // Count(Error) > 0
 
+    // Non-destructive copy of every diag collected so far (Drain() without
+    // the clear). Exists for readers that need message content -- not just
+    // Count()'s tally -- but must not disturb what Drain()'s eventual owner
+    // (or another reader's own Count()) will see, e.g. a UI panel that
+    // filters diags by which entry they mention and redraws every frame.
+    std::vector<Diag> Snapshot() const;
+
 private:
     mutable std::mutex m_mutex;
     std::vector<Diag> m_diags;

@@ -47,7 +47,13 @@ struct Document {
     Services::DiagSink diags;
     ModuleState state;
     std::atomic<bool> ready{false};       // true once parse finished (ok or not)
-    // parseJob: handle to the in-flight async parse; M3b wires progress/cancel.
+    // parseJob: handle to the in-flight async parse. Only OpenAsync
+    // populates it -- a document from the synchronous Open() leaves it
+    // default-constructed (Valid() == false, since the parse is already
+    // over by the time Open() returns). Callers poll progress via
+    // parseJob.Peek() and request cooperative cancellation via
+    // Workspace::CancelOpen(id) (which calls parseJob.Cancel() -- see
+    // Jobs.h for the cooperative-cancel contract).
     Services::JobHandle parseJob;
 };
 
@@ -91,9 +97,37 @@ public:
     Document*   Get(DocumentId);
     void        Close(DocumentId);        // posts DocumentClosed
 
+    // Every currently-open document, insertion order. Read-only view for
+    // callers that need to iterate the whole set (e.g. the Shell's generic
+    // document browser, M3b Task 3) rather than look one up by id.
+    const std::vector<std::shared_ptr<Document>>& Documents() const;
+
+    // Cooperative cancel of a document's in-flight async parse: calls
+    // parseJob.Cancel() (a fire-and-forget flag; the module's
+    // ParseContainer must poll it via Progress::CancelRequested() and
+    // return on its own -- see Jobs.h). Returns whether a cancel was
+    // issued: false if `id` names no document, or if that document's
+    // parseJob is not Valid() (e.g. it was opened synchronously via
+    // Open(), which never populates parseJob). A cancelled parse still
+    // runs the normal OpenAsync completion path -- TreeReady{ok=false}
+    // follows once the module notices and returns.
+    bool CancelOpen(DocumentId id);
+
     Services::EventBus& Events();
     Services::JobQueue& Jobs();
     Services::Settings& WorkspaceSettings();
+
+    // Replaces the workspace-scope Settings by loading `path` (via
+    // Settings::Load -- a missing file yields an empty, clean instance).
+    // Discards whatever was loaded before, including any unsaved
+    // Dirty() changes. Must be called before any Open/OpenAsync that
+    // relies on workspace settings: ContainerContext::settings is a
+    // reference into m_settings, so an in-flight parse (OpenAsync,
+    // running on a worker thread) reading through that reference while
+    // this swaps the instance out from under it is a data race --
+    // Settings is documented not thread-safe.
+    void SetWorkspaceSettingsPath(const std::filesystem::path& path);
+
     class DecoderRegistry& Decoders();    // defined in Task 3
     Types::TypeCatalog&  Catalog();
 

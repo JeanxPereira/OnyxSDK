@@ -242,10 +242,10 @@ set(ONYX_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Domain/MediaKind.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Modules/DecoderRegistry.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Modules/Probe.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Modules/Selection.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Modules/Workspace.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Schema/NodeInstance.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Schema/StructDef.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/AssetDatabase.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/AssetVisibility.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Diagnostics.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/EventBus.cpp
@@ -253,7 +253,6 @@ set(ONYX_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Jobs.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Logger.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Metrics.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/ProfileManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/RecentFiles.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/SessionLog.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Settings.cpp
@@ -289,12 +288,13 @@ set(ONYX_SHELL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/AssetNodeRenderer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/FontDebuggerWindow.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/InfoTab.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/InfoTabFilter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/NativeMenuBar.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/AnimCurveView.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/CameraPanel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/DocumentBrowser.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/Dopesheet.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/IsoBrowser.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/PakBrowser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/InspectorPanel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/UiGallery.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Panels/WadStatsView.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Platform/NativeWindow_linux.cpp
@@ -304,8 +304,11 @@ set(ONYX_SHELL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Platform/Window_windows.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/SettingsWindow.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/StatusBar.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/StatusBarFormat.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/TitleBar.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/ViewerOpening.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/ViewerRegistry.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/ViewerRouting.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Widgets.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/Window.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/WindowDecorator.cpp

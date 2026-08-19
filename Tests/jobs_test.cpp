@@ -108,3 +108,33 @@ TEST_CASE("JobQueue destruction drops queued-but-unstarted jobs on the same lane
     CHECK_FALSE(secondWorkRan);
     CHECK_FALSE(secondDoneRan);
 }
+
+TEST_CASE("JobQueue destruction releases resources captured by unstarted jobs' Work closures") {
+    std::atomic<bool> aRunning{false}, releaseA{false};
+    auto shared = std::make_shared<int>(42);
+    std::weak_ptr<int> weak = shared;
+    {
+        Onyx::Services::JobQueue q(1); // single worker: B and C can never
+                                        // start while A is still mid-flight,
+                                        // even though they sit on other lanes
+        q.Submit(1, [&](Onyx::Services::Progress&) {
+            aRunning = true;
+            while (!releaseA)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        });
+        q.Submit(2, [](Onyx::Services::Progress&) {});          // B: never starts
+        q.Submit(3, [shared](Onyx::Services::Progress&) {});    // C: captures `shared`
+
+        while (!aRunning) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+
+        shared.reset();               // C's Work closure is the only other owner now
+        CHECK_FALSE(weak.expired());  // ... so the int is still alive
+
+        // Release A so the destructor's join can return, then destroy the
+        // queue while B and C are still sitting unstarted in m_pending.
+        releaseA = true;
+    } // ~JobQueue: joins the worker, then drains B and C's Work closures --
+      // C's captured shared_ptr<int> must release here.
+
+    CHECK(weak.expired());
+}

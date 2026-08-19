@@ -1,5 +1,6 @@
 # -- MinimalViewer -- second Onyx consumer (boundary proof) ------------------
-# Knows nothing about God of War. Links ONLY Onyx::Onyx.
+# Knows nothing about God of War. Links Onyx::Onyx plus the OnyxBox example
+# module (Onyx_ExampleBox) it registers with the Workspace at boot (M3b).
 
 file(GLOB MINIMALVIEWER_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp"
@@ -7,7 +8,7 @@ file(GLOB MINIMALVIEWER_SOURCES CONFIGURE_DEPENDS
 
 add_executable(MinimalViewer ${MINIMALVIEWER_SOURCES})
 target_include_directories(MinimalViewer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
-target_link_libraries(MinimalViewer PRIVATE Onyx::Onyx)
+target_link_libraries(MinimalViewer PRIVATE Onyx::Onyx Onyx_ExampleBox)
 
 if(WIN32)
     set_target_properties(MinimalViewer PROPERTIES WIN32_EXECUTABLE $<CONFIG:Release>)

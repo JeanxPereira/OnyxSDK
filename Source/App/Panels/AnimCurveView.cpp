@@ -1,6 +1,5 @@
 #include <Onyx/App/Panels/AnimCurveView.h>
 
-#include <Onyx/Services/AssetDatabase.h>
 #include <Onyx/Services/Events.h>
 #include <Onyx/Rendering/AnimationPlayer.h>
 #include "App/ActiveAnimation.h"

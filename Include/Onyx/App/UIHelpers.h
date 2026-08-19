@@ -23,9 +23,11 @@ using Onyx::App::MatchesFilter;
 // -- Platform dialogs -------------------------------------------------------
 #include <string>
 #include <vector>
-#include <Onyx/Domain/IAssetProfile.h>
+#include <Onyx/Modules/GameModule.h>
 
-// Native open dialog filtered to the given profile groups plus an auto-added
-// union group and an All Files group. Empty list: All Files.
-std::string SystemOpenFileDialog(const std::vector<Onyx::Domain::OpenFilter>& filters = {});
+// Native open dialog filtered to the given module groups (M3b Task 6: was
+// filtered by IAssetProfile::GetOpenFilter, now by IGameModule::Info()'s
+// openFilters) plus an auto-added union group and an All Files group. Empty
+// list: All Files.
+std::string SystemOpenFileDialog(const std::vector<Onyx::Modules::OpenFilter>& filters = {});
 std::string SystemSaveFileDialog(const std::string& defaultName);

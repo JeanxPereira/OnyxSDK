@@ -5,33 +5,19 @@
 
 namespace Onyx::Viewers {
 
-DocumentWindow::DocumentWindow() {
-    // Subscribe to EventAssetSelected — when an asset is selected in any browser,
-    // DocumentWindow tracks it for potential future auto-preview behavior.
-    // Currently this enables the Inspector to query active document state and
-    // ensures DocumentWindow is wired into the event pipeline (M3.T2).
-    EventAssetSelected::subscribe(this, [this](AssetEntry* /*entry*/, AssetContainer* /*wad*/) {
-        // Track selection for future preview tab policy.
-        // Explicit viewer opens (double-click, context menu) go through AddTab().
-        // Auto-preview on single-click deferred to UX decision — see D0011.
-    });
+// M3b Task 6: DocumentWindow used to subscribe to EventAssetSelected (track
+// selection for a future preview policy) and EventWadClosed/EventAllClosed
+// (close every tab as a safe default when a WAD closed) -- all three raw-
+// pointer asset events are gone along with AssetDatabase/IAssetProfile.
+// Nothing has replaced the "close my tabs when my source document closes"
+// policy yet: viewer tabs opened through the Workspace path (see
+// DocumentBrowser/OpenSelection) don't currently track which Document
+// produced them, so there is nothing here to subscribe *to* until that
+// association exists. App's "Close All" menu item now closes both the
+// Workspace's documents and every DocumentWindow tab directly instead.
+DocumentWindow::DocumentWindow() {}
 
-    EventWadClosed::subscribe(this, [this](size_t /*wadIdx*/) {
-        // For now, close all tabs as a safe default when any WAD is closed.
-        // In the future (M4), viewers should hold metadata about their source WAD to allow selective closing.
-        CloseAll();
-    });
-
-    EventAllClosed::subscribe(this, [this]() {
-        CloseAll();
-    });
-}
-
-DocumentWindow::~DocumentWindow() {
-    EventAssetSelected::unsubscribe(this);
-    EventWadClosed::unsubscribe(this);
-    EventAllClosed::unsubscribe(this);
-}
+DocumentWindow::~DocumentWindow() {}
 
 void DocumentWindow::AddTab(std::shared_ptr<IDocumentContent> tab) {
     if (tab) {

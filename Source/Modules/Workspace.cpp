@@ -185,6 +185,10 @@ Document* Workspace::Get(DocumentId id) {
     return nullptr;
 }
 
+const std::vector<std::shared_ptr<Document>>& Workspace::Documents() const {
+    return m_documents;
+}
+
 void Workspace::Close(DocumentId id) {
     auto it = std::find_if(m_documents.begin(), m_documents.end(),
                             [id](const std::shared_ptr<Document>& d) { return d->id == id; });
@@ -193,9 +197,21 @@ void Workspace::Close(DocumentId id) {
     m_events.Post(DocumentClosed{id});
 }
 
+bool Workspace::CancelOpen(DocumentId id) {
+    Document* doc = Get(id);
+    if (!doc || !doc->parseJob.Valid()) return false;
+    doc->parseJob.Cancel();
+    return true;
+}
+
 Services::EventBus& Workspace::Events() { return m_events; }
 Services::JobQueue& Workspace::Jobs() { return m_jobs; }
 Services::Settings& Workspace::WorkspaceSettings() { return m_settings; }
+
+void Workspace::SetWorkspaceSettingsPath(const std::filesystem::path& path) {
+    m_settings = Services::Settings::Load(path);
+}
+
 class DecoderRegistry& Workspace::Decoders() { return *m_decoders; }
 Types::TypeCatalog& Workspace::Catalog() { return m_catalog; }
 

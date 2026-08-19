@@ -10,6 +10,8 @@
 
 #include "App/SettingsWindow.h"
 #include "App/StatusBar.h"
+#include <Onyx/App/Panels/DocumentBrowser.h>
+#include <Onyx/App/Panels/InspectorPanel.h>
 #include <Onyx/App/Panels/UiGallery.h>
 
 // Viewer headers
@@ -19,7 +21,6 @@
 // Core subsystems
 #include <Onyx/Services/Events.h>
 #include <Onyx/Services/TaskManager.h>
-#include <Onyx/Services/ProfileManager.h>
 #include <Onyx/Api/ToolkitApi.h>
 
 #include <Onyx/Services/Logger.h>
@@ -35,11 +36,23 @@ void App::registerPanels() {
   // Other generic panels (Iso/Pak Browser, Camera, Anim Curves, Dopesheet,
   // WAD Stats) are now public + opt-in: apps add the ones they want in their
   // registrar (see Onyx/App/Panels/*.h).
-  m_panels.add(std::make_unique<StatusBar>());
+  // StatusBar now reads the Workspace directly (M3b Task 5), same as
+  // DocumentBrowser below -- m_workspace is set at the top of init(),
+  // before this runs, so it is only ever null if some future call site
+  // invokes registerPanels() before that assignment; guarded defensively.
+  if (m_workspace)
+    m_panels.add(std::make_unique<StatusBar>(*m_workspace));
   m_panels.add(std::make_unique<SettingsWindow>());
   // UI test mode. Hidden by default (the panel's ctor clears `visible`); the
   // View menu picks it up automatically because it iterates the registry.
   m_panels.add(std::make_unique<UiGallery>());
+  // Generic Workspace document tree (M3b).
+  if (m_workspace)
+    m_panels.add(std::make_unique<DocumentBrowser>(*m_workspace));
+  // Generic Workspace inspector -- hosts InfoTab's Draw() (M3b Task 6; the
+  // profile-era AssetDatabase leg InfoTab used to also support is gone).
+  if (m_workspace)
+    m_panels.add(std::make_unique<InspectorPanel>(*m_workspace));
 
   // ── Game (app) panels/viewers ──────────────────────────────────────────────
   // Injected by the executable so the engine stays game-agnostic. Supplies
@@ -55,13 +68,16 @@ void App::registerPanels() {
 
 App::App() {}
 
-void App::init(GLFWwindow *window, Onyx::Services::AppConfig *config) {
+void App::init(GLFWwindow *window, Onyx::Services::AppConfig *config,
+                Onyx::Modules::Workspace *workspace) {
   m_window = window;
   m_config = config;
+  // Set first: registerPanels() below runs the app's registrar, which is
+  // the usual place a consumer calls AddModule()/GetWorkspace().
+  m_workspace = workspace;
 
   // Initialize core subsystems
   Onyx::Api::InitParams params;
-  params.db = &m_db;
   params.config = config;
   params.viewers = &m_viewerRegistry;
   params.documents = &m_documentWindow;
@@ -111,7 +127,24 @@ void App::init(GLFWwindow *window, Onyx::Services::AppConfig *config) {
 
   // Signal startup complete
   EventStartupFinished::post();
+
+  // AddModule is refused from here on (pre-init only).
+  m_initDone = true;
 }
+
+void App::AddModule(std::unique_ptr<Modules::IGameModule> module) {
+  if (m_initDone) {
+    LOG_ERR("[App] AddModule called after init(); module dropped (pre-init only)");
+    return;
+  }
+  if (!m_workspace) {
+    LOG_ERR("[App] AddModule called before the Workspace exists; module dropped");
+    return;
+  }
+  m_workspace->AddModule(std::move(module));
+}
+
+Modules::Workspace &App::GetWorkspace() { return *m_workspace; }
 
 // ── Frame Phases ────────────────────────────────────────────────────────────
 
@@ -221,35 +254,48 @@ void App::frameEnd() {
 void App::handleOpenFileRequest() {
   if (!m_requestOpenFile) return;
   m_requestOpenFile = false;
-  if (m_db.IsLoading()) return;
+  if (!m_workspace) return;
 
-  std::vector<Onyx::Domain::OpenFilter> filters;
-  for (auto& p : Onyx::Services::ProfileManager::Get().GetProfiles()) {
-    auto f = p->GetOpenFilter();
-    if (f.valid()) filters.push_back(std::move(f));
-  }
+  std::vector<Onyx::Modules::OpenFilter> filters;
+  for (auto& module : m_workspace->Modules())
+    for (auto& f : module->Info().openFilters)
+      if (!f.extensions.empty()) filters.push_back(f);
 
   std::string path = SystemOpenFileDialog(filters);
   if (path.empty()) return;
 
-  // Detect the profile up front (cheap) so we can surface an "unsupported"
-  // message and label the recent entry, then load asynchronously — large ISOs
-  // must not block the UI thread.
-  auto profile = Onyx::Services::ProfileManager::Get().DetectProfileForFile(path);
-  if (!profile) {
-    LOG_WARN("[App] Unsupported or unreadable file: %s", path.c_str());
+  // Workspace-only (M3b Task 6): the legacy AssetDatabase fallback that used
+  // to run when no module claimed the file is gone. No winner means no
+  // module in this process can open it -- log and stop, nothing to crash.
+  auto rank = m_workspace->Probe(path);
+  if (!rank.winner) {
+    LOG_WARN("[App] no module accepts %s", path.c_str());
     return;
   }
-  m_recentFiles.Add(path, profile->GetName(), "");
-  m_db.LoadWadAsync(path);
+
+  m_recentFiles.Add(path, rank.winner->Info().id, "");
+  m_workspace->OpenAsync(path);
 }
 
 void App::openRecentFile(Onyx::Services::RecentEntry entry) {
   if (!fs::exists(entry.path))
     return;
+  if (!m_workspace)
+    return;
 
-  if (m_db.LoadWad(entry.path))
-    m_recentFiles.Add(entry.path, entry.gameHint, entry.fileType);
+  // Re-probe rather than trust the recorded gameHint verbatim: OpenAsync
+  // treats an explicit hint that fails to resolve as final (no probe
+  // fallback -- see Workspace::Open's doc comment), so a stale/renamed hint
+  // would silently open nothing instead of falling back the way this used
+  // to via ProfileManager::FindProfileByHint-then-DetectProfileForFile.
+  auto rank = m_workspace->Probe(entry.path);
+  if (!rank.winner) {
+    LOG_WARN("[App] no module accepts %s", entry.path.c_str());
+    return;
+  }
+
+  m_workspace->OpenAsync(entry.path);
+  m_recentFiles.Add(entry.path, entry.gameHint, entry.fileType);
 }
 
 std::string App::getRecentsPath() const {
@@ -337,8 +383,21 @@ void App::drawMenuItems() {
   if (NativeMenuBar::beginMenu("File")) {
     if (NativeMenuBar::menuItem("Open...", "Ctrl+O"))
       m_requestOpenFile = true;
-    if (NativeMenuBar::menuItem("Close All"))
-      m_db.CloseAll();
+    if (NativeMenuBar::menuItem("Close All")) {
+      // AssetDatabase::CloseAll() is gone (M3b Task 6) -- close every
+      // Workspace document (copy the ids first: Close() erases from the
+      // vector Documents() views) and every open viewer tab, matching what
+      // EventAllClosed used to trigger on DocumentWindow.
+      if (m_workspace) {
+        std::vector<Onyx::Modules::DocumentId> ids;
+        ids.reserve(m_workspace->Documents().size());
+        for (auto &doc : m_workspace->Documents())
+          ids.push_back(doc->id);
+        for (auto id : ids)
+          m_workspace->Close(id);
+      }
+      m_documentWindow.CloseAll();
+    }
 
     NativeMenuBar::separator();
 
@@ -388,14 +447,20 @@ void App::drawMenuItems() {
   }
 
   if (NativeMenuBar::beginMenu("Export")) {
-    bool has = Onyx::Api::GetSelected() != nullptr;
+    // These items used to gate on Onyx::Api::GetSelected(), the profile-era
+    // raw-pointer selection ToolkitApi exposed alongside EventAssetSelected
+    // (both removed in M3b Task 6). The Workspace's own selection model
+    // (Modules::SelectionChanged, consumed by InfoTab/InspectorPanel) has
+    // no equivalent global accessor at this layer yet, so all three items
+    // stay disabled until that wiring lands -- none had a working export
+    // body regardless (Export glTF/DDS were always empty stubs).
+    bool has = false;
     if (NativeMenuBar::menuItem("Export glTF...", "Ctrl+E", false, has)) {
     }
     if (NativeMenuBar::menuItem("Export DDS...", nullptr, false, has)) {
     }
-    if (NativeMenuBar::menuItem("Copy Hash", "Ctrl+C", false, has))
-      if (Onyx::Api::GetSelected())
-        ImGui::SetClipboardText(HashHex(Onyx::Api::GetSelected()->hash).c_str());
+    if (NativeMenuBar::menuItem("Copy Hash", "Ctrl+C", false, has)) {
+    }
     NativeMenuBar::endMenu();
   }
 

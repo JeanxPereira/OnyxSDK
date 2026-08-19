@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Added
+- **M3b Shell on the Workspace** — documents open through GameModules
+  end to end in the GUI: generic Documents browser (TypeSpec-driven tree,
+  Failed tint, positional selection paths), viewers routed by decoder
+  capability (Scene > Image > Text), Inspector panel on SelectionChanged,
+  status bar with live open progress; Workspace gains CancelOpen and a
+  settings path; the CLI gains `--game` and consistent exit codes.
+
+### Removed
+- **BREAKING:** the profile-era loading layer is retired — `IAssetProfile`,
+  `ProfileManager`, `AssetDatabase`, the Iso/Pak browsers and the
+  raw-pointer asset events are gone. Consumers pinned to v0.6.x are
+  unaffected until they port.
+
 - **M3a module contracts** (v1 spec §5, §6, §11) — the SDK's game-facing
   surface:
   - `Modules::IGameModule` — probe/types/decoders/parse in one contract;

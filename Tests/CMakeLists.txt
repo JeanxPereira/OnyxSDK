@@ -17,7 +17,6 @@ add_executable(onyx_tests
     types_registry_test.cpp
     recentfiles_test.cpp
     assetvisibility_test.cpp
-    profilemanager_test.cpp
     pathutils_test.cpp
     appearance_test.cpp
     framescheduler_test.cpp
@@ -28,10 +27,14 @@ add_executable(onyx_tests
     eventbus_test.cpp
     probe_test.cpp
     workspace_test.cpp
+    selection_test.cpp
     decoderregistry_test.cpp
+    viewerrouting_test.cpp
     onyxbox_test.cpp
     materialdesc_test.cpp
     cli_test.cpp
+    statusbarformat_test.cpp
+    infotabfilter_test.cpp
 )
 target_link_libraries(onyx_tests PRIVATE Onyx::Onyx Onyx_ExampleBox doctest::doctest imgui_lib)
 if(MSVC)
@@ -53,7 +56,6 @@ add_test(NAME OnyxProbe           COMMAND onyx_tests "--test-case=*picks the hig
 add_test(NAME OnyxTypeRegistry    COMMAND onyx_tests "--test-case=*TypeCatalog*,*TypeRegistry*,*TypeRegistrar*")
 add_test(NAME OnyxRecentFiles     COMMAND onyx_tests "--test-case=*RecentFiles*")
 add_test(NAME OnyxAssetVisibility COMMAND onyx_tests "--test-case=*AssetVisibility*")
-add_test(NAME OnyxProfileManager  COMMAND onyx_tests "--test-case=*ProfileManager*")
 add_test(NAME OnyxPathUtils       COMMAND onyx_tests "--test-case=*PathUtils*")
 add_test(NAME OnyxAppearance      COMMAND onyx_tests "--test-case=*Appearance*")
 add_test(NAME OnyxFrameScheduler COMMAND onyx_tests "--test-case=*FrameScheduler*")
@@ -61,11 +63,15 @@ add_test(NAME OnyxSessionLog     COMMAND onyx_tests "--test-case=*SessionLog*")
 add_test(NAME OnyxDiagSink       COMMAND onyx_tests "--test-case=*DiagSink*")
 add_test(NAME OnyxJobs           COMMAND onyx_tests "--test-case=*JobQueue*,*Cancellation*,*Progress snapshots*,*throwing Work*")
 add_test(NAME OnyxEventBus       COMMAND onyx_tests "--test-case=*EventBus*,*Subscription*,*Distinct event types do not cross*,*Cross-thread Post is safe*")
-add_test(NAME OnyxWorkspace       COMMAND onyx_tests "--test-case=*Workspace opens a document*,*No module accepts the file*,*OpenAsync delivers TreeReady*,*Close posts DocumentClosed*,*FindModule resolves by id then hint*,*A single registered module skips the probe floor*,*Close during an in-flight OpenAsync parse*,*A throwing ParseContainer is contained*,*AddModule rejects a duplicate module id*")
+add_test(NAME OnyxWorkspace       COMMAND onyx_tests "--test-case=*Workspace opens a document*,*No module accepts the file*,*OpenAsync delivers TreeReady*,*Close posts DocumentClosed*,*FindModule resolves by id then hint*,*A single registered module skips the probe floor*,*Close during an in-flight OpenAsync parse*,*A throwing ParseContainer is contained*,*AddModule rejects a duplicate module id*,*CancelOpen cancels a blocked async parse*,*SetWorkspaceSettingsPath swaps in Settings*")
+add_test(NAME OnyxSelection       COMMAND onyx_tests "--test-case=*Selection:*")
 add_test(NAME OnyxDecoders        COMMAND onyx_tests "--test-case=*DecoderRegistry*")
+add_test(NAME OnyxViewerRouting   COMMAND onyx_tests "--test-case=*RouteForType*,*ViewerOpening:*")
 add_test(NAME OnyxBox            COMMAND onyx_tests "--test-case=*onyxbox end to end*,*onyxbox types are minted*,*onyxbox clamps a lying TOC count*,*onyxbox rejects an image whose payloadSize*")
 add_test(NAME OnyxMaterialDesc    COMMAND onyx_tests "--test-case=*ResolveRoleIndices*")
-add_test(NAME OnyxCli             COMMAND onyx_tests "--test-case=*cli probe prints a table*,*cli list json contains type key*,*cli extract writes payloadSize*,*cli extract skips unsafe entry names*,*cli decode text entry prints hello box*,*cli decode strict returns kStrictErrors*,*cli decode unknown entry name*,*cli list returns kNoModule*,*cli Run dispatches probe list extract*,*cli Run returns kUsage to err*")
+add_test(NAME OnyxCli             COMMAND onyx_tests "--test-case=*cli probe prints a table*,*cli list json contains type key*,*cli extract writes payloadSize*,*cli extract skips unsafe entry names*,*cli decode text entry prints hello box*,*cli decode strict returns kStrictErrors*,*cli decode unknown entry name*,*cli list returns kNoModule*,*cli Run dispatches probe list extract*,*cli Run returns kUsage to err*,*cli probe returns kNoModule when the ranking*,*cli decode returns kOk when a capability exists*,*cli Run --game hint overrides ranking*")
+add_test(NAME OnyxStatusBarFormat COMMAND onyx_tests "--test-case=*StatusBarFormat:*")
+add_test(NAME OnyxInfoTabFilter   COMMAND onyx_tests "--test-case=*InfoTabFilter:*")
 
 add_test(NAME MinimalViewer_SelfTest
     COMMAND MinimalViewer --selftest $<TARGET_FILE:MinimalViewer>)

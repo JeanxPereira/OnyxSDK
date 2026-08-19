@@ -7,6 +7,8 @@
 #include <Onyx/Vfs/OsFile.h>
 #include <Onyx/Viewers/DocumentWindow.h>
 
+#include <OnyxBoxModule.h>
+
 #include <cstring>
 #include <memory>
 #include <vector>
@@ -27,10 +29,19 @@ static int RunGui(const char* optionalPath, bool uiTest) {
     // registrar runs inside App::init(), after the engine's generic panels.
     std::string path = optionalPath ? optionalPath : "";
     window.app().SetRegistrar([path, uiTest](Onyx::App::App& app) {
+        // OnyxBox (M3b): register the example module pre-init so the new
+        // Workspace path can claim files it recognizes (e.g. .obx).
+        app.AddModule(std::make_unique<OnyxBox::OnyxBoxModule>());
+
         // UI test mode: open the engine's widget/theme/icon gallery straight
         // away so the UI can be polished without loading any asset.
         if (uiTest) app.setPanelVisible("UI Gallery", true);
         if (path.empty()) return;
+
+        // Open-at-boot convenience (M3b): route argv[1] through the
+        // Workspace too, alongside the legacy hex tab below.
+        app.GetWorkspace().OpenAsync(path);
+
         Onyx::Vfs::OsFile file(path);
         if (!file.IsValid()) return;
         std::vector<uint8_t> bytes = file.ReadAll();
