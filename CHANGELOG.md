@@ -369,6 +369,18 @@ below and `.github/workflows/ci.yml`'s own header comment).
   `configure_file()` now writes directly into `Include/Onyx/Version.h`
   (checked in) instead; a cold-start compile of the umbrella needs no
   `-I build/generated` any more.
+- **Configure removes a stale `build/generated/Onyx/Version.h`** (M5, final
+  review) — `fbd54d3` moved the generated version header into the source
+  tree (G3, above) and nothing deleted the old output, so any build
+  directory created before that commit keeps a `Version.h` frozen at
+  whatever version it last configured (0.6.0 in this repo's own build
+  directory, found at the final review) and it never self-heals, because
+  configure no longer writes there. Both `Include` and
+  `${CMAKE_CURRENT_BINARY_DIR}/generated` sit on every Onyx target's PUBLIC
+  include path with `Include` first, so nothing in-tree ever read the stale
+  copy — but a consumer whose own target lists the generated directory
+  first, or who followed pre-`fbd54d3` guidance, silently got a 1.0.0 SDK
+  reporting 0.6.0. Configure now `file(REMOVE)`s exactly that one path.
 - **Consumption model documented, not built** (M5, audit gap G4) — README's
   "Consuming Onyx" section now states plainly, up front, that
   `FetchContent`/`add_subdirectory` against `Onyx::*` targets is the

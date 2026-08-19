@@ -336,6 +336,20 @@ configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/Version.h.in"
     "${CMAKE_CURRENT_SOURCE_DIR}/Include/Onyx/Version.h"
     @ONLY)
+# Delete the header's former destination if an older build directory still
+# holds it. Before fbd54d3 this file was generated into build/generated/, and
+# nothing has overwritten it since -- so a build directory that predates the
+# move keeps a Version.h frozen at whatever version it last configured (0.6.0
+# in this repo's own build dir, found at the v1.0.0 final review). Both
+# `Include` and `${CMAKE_CURRENT_BINARY_DIR}/generated` are on every Onyx
+# target's PUBLIC include path (onyx_apply_common below): Include comes
+# first, so nothing in-tree ever read the stale copy, but a consumer whose
+# own target lists the generated dir first -- or who followed pre-fbd54d3
+# guidance -- silently gets a 1.0.0 SDK reporting 0.6.0. Removing exactly
+# that one path at configure time makes the staleness self-healing; the
+# generated directory itself stays (shaders and the SF Symbols table live
+# there).
+file(REMOVE "${CMAKE_CURRENT_BINARY_DIR}/generated/Onyx/Version.h")
 
 
 # ── Generated SF Symbols icon table ───────────────────────────────────────
