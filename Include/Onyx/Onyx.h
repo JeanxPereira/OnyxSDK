@@ -52,6 +52,20 @@
 //       consumer could find a use for it -- the consumer never has to
 //       write that name.
 //
+//       Honest about the two clauses' different strengths, because an
+//       earlier version of this comment claimed more than it delivered and
+//       a reviewer caught it: (1) is a PREDICATE -- mechanically checkable,
+//       and checked (54 direct includes, every one shipping in Core/Render/
+//       Shell, zero violations across the 82-header closure). (2) is a
+//       JUDGEMENT that the list obeys in spirit but not as a decision
+//       procedure: Rendering/AxisGizmo.h, Services/Metrics.h,
+//       Vfs/TransformFile.h and Platform/SystemTheme.h are named here and
+//       would not survive a literal "cannot be built without naming it"
+//       test. They are harmless -- all four pass (1), so nothing here can
+//       hand a consumer a link error -- but a reader should know that (1)
+//       is what makes this list SAFE and (2) is only what makes it
+//       CURATED. If the two ever conflict, (1) wins.
+//
 // ── What that rule excludes, and where it lives instead ───────────────────
 //   - Shell-INTERNAL detail headers: App/Widgets.h, App/UIHelpers.h,
 //     App/Formatting.h, App/TypeVisuals.h, App/TexturePool.h,
