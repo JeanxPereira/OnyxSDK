@@ -15,7 +15,7 @@
 #   - a dependency (via the `<target>_spirv` custom target) that forces
 #     every shader to compile before <target> does.
 # <target> must NOT list the .vert/.frag sources in its own source list —
-# they never compile as C++ and ONYX_RENDERVK_SOURCES' completeness check
+# they never compile as C++ and ONYX_RENDER_SOURCES' completeness check
 # only globs Source/*.cpp, so this is automatic, not something the caller
 # has to remember.
 #
