@@ -131,21 +131,44 @@ ParseResult Workspace::RunParse(Document& doc, IGameModule& module,
     std::transform(ext.begin(), ext.end(), ext.begin(),
                     [](unsigned char c) { return char(std::tolower(c)); });
 
-    for (const MountSpec& spec : module.Mounts()) {
-        if (std::find(spec.extensions.begin(), spec.extensions.end(), ext) ==
-            spec.extensions.end()) {
-            continue;
+    // Mounts() and the chosen spec's factory are module-supplied callables,
+    // exactly like ParseContainer below -- spec §7.1 forbids letting either
+    // throw across the module boundary. Contained the same way: an Error
+    // diag, then fall through to a flat-file parse (never abort the open).
+    // Without this, a throw here would escape Open() uncontained and, on
+    // the OpenAsync path, strand doc.ready == false forever -- only
+    // JobQueue's own generic catch would ever see it.
+    try {
+        for (const MountSpec& spec : module.Mounts()) {
+            if (std::find(spec.extensions.begin(), spec.extensions.end(), ext) ==
+                spec.extensions.end()) {
+                continue;
+            }
+            if (auto vfs = spec.mount(doc.path)) {
+                doc.mountedVfs = std::move(vfs);
+            } else {
+                doc.diags.Report(Services::Diag{
+                    Services::Severity::Warning,
+                    module.Info().id + ".mount-refused",
+                    "mount refused, parsing as flat file",
+                    std::nullopt});
+            }
+            break;
         }
-        if (auto vfs = spec.mount(doc.path)) {
-            doc.mountedVfs = std::move(vfs);
-        } else {
-            doc.diags.Report(Services::Diag{
-                Services::Severity::Warning,
-                module.Info().id + ".mount-refused",
-                "mount refused, parsing as flat file",
-                std::nullopt});
-        }
-        break;
+    } catch (const std::exception& e) {
+        doc.mountedVfs.reset();
+        doc.diags.Report(Services::Diag{
+            Services::Severity::Error,
+            module.Info().id + ".mount-threw",
+            std::string("Mounts()/mount threw: ") + e.what(),
+            std::nullopt});
+    } catch (...) {
+        doc.mountedVfs.reset();
+        doc.diags.Report(Services::Diag{
+            Services::Severity::Error,
+            module.Info().id + ".mount-threw",
+            "Mounts()/mount threw",
+            std::nullopt});
     }
 
     ContainerContext ctx{*doc.file, m_settings, doc.diags, progress,

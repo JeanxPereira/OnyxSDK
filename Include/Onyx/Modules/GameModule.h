@@ -57,6 +57,9 @@ public:
     virtual ProbeResult Probe(const ProbeInput&) const = 0;
     virtual void        RegisterTypes(Types::TypeRegistrar&) = 0;
     virtual void        RegisterDecoders(DecoderRegistry&) = 0;
+    // When more than one returned MountSpec's extensions matches the
+    // opened path, the first-declared spec (lowest index in the returned
+    // vector) wins -- later matches are never tried.
     virtual std::vector<MountSpec> Mounts() const { return {}; }
     virtual ParseResult ParseContainer(ContainerContext&) = 0;
 };

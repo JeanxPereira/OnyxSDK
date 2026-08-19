@@ -7,6 +7,7 @@
 #include <Onyx/Vfs/IFile.h>
 #include <Onyx/Vfs/IVirtualFileSystem.h>
 
+#include <chrono>
 #include <cstdint>
 #include <cstdio>       // SEEK_SET, SEEK_CUR, SEEK_END
 #include <cstring>
@@ -15,7 +16,9 @@
 #include <iterator>
 #include <memory>
 #include <sstream>
+#include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace Onyx::Modules;
@@ -152,6 +155,66 @@ struct MountFake : Onyx::Modules::IGameModule {
     }
 };
 
+// Fix round 1: Mounts() throwing must be contained the same way a throwing
+// ParseContainer already is -- an Error diag, then a flat-file parse, never
+// an exception escaping Open()/OpenAsync().
+struct MountsThrowFake : Onyx::Modules::IGameModule {
+    Onyx::Modules::ModuleInfo Info() const override {
+        return Onyx::Modules::ModuleInfo{"mountsthrow", "MountsThrow", {}, {}};
+    }
+
+    Onyx::Modules::ProbeResult Probe(const Onyx::Modules::ProbeInput&) const override {
+        return Onyx::Modules::ProbeResult{90, "always"};
+    }
+
+    void RegisterTypes(Onyx::Types::TypeRegistrar&) override {}
+    void RegisterDecoders(Onyx::Modules::DecoderRegistry&) override {}
+
+    std::vector<Onyx::Modules::MountSpec> Mounts() const override {
+        throw std::runtime_error("Mounts() boom");
+    }
+
+    Onyx::Modules::ParseResult ParseContainer(Onyx::Modules::ContainerContext& ctx) override {
+        Onyx::Domain::AssetEntry e;
+        e.name = "flat";
+        ctx.roots.push_back(std::move(e));
+        return Onyx::Modules::ParseResult{true};
+    }
+};
+
+// Fix round 1: same containment, but the exception comes from the chosen
+// spec's factory instead of Mounts() itself.
+struct MountFactoryThrowFake : Onyx::Modules::IGameModule {
+    Onyx::Modules::ModuleInfo Info() const override {
+        return Onyx::Modules::ModuleInfo{"mountfactorythrow", "MountFactoryThrow", {}, {}};
+    }
+
+    Onyx::Modules::ProbeResult Probe(const Onyx::Modules::ProbeInput&) const override {
+        return Onyx::Modules::ProbeResult{90, "always"};
+    }
+
+    void RegisterTypes(Onyx::Types::TypeRegistrar&) override {}
+    void RegisterDecoders(Onyx::Modules::DecoderRegistry&) override {}
+
+    std::vector<Onyx::Modules::MountSpec> Mounts() const override {
+        Onyx::Modules::MountSpec spec;
+        spec.label = "ThrowingPak";
+        spec.extensions = {"pak"};
+        spec.mount = [](const std::filesystem::path&)
+                -> std::shared_ptr<Onyx::Vfs::IVirtualFileSystem> {
+            throw std::runtime_error("mount() boom");
+        };
+        return {spec};
+    }
+
+    Onyx::Modules::ParseResult ParseContainer(Onyx::Modules::ContainerContext& ctx) override {
+        Onyx::Domain::AssetEntry e;
+        e.name = "flat";
+        ctx.roots.push_back(std::move(e));
+        return Onyx::Modules::ParseResult{true};
+    }
+};
+
 } // namespace
 
 TEST_CASE("MountSpec: extension match mounts, mismatch leaves mountedVfs null") {
@@ -272,5 +335,153 @@ TEST_CASE("Extract: an out-of-range fileIndex is skipped with an error line, oth
     REQUIRE(std::filesystem::exists(outDir / "inner.bin"));
 
     std::filesystem::remove_all(outDir);
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("MountSpec: a throwing Mounts() is contained on Open (sync)") {
+    auto path = write_temp_file("onyx_mounts_test_mounts_throw_sync.pak", "root bytes");
+    {
+        Workspace ws(Onyx::Types::TypeCatalog::Get());
+        ws.AddModule(std::make_unique<MountsThrowFake>());
+
+        DocumentId id = 0;
+        CHECK_NOTHROW(id = ws.Open(path));   // Mounts() throwing must never escape Open()
+        REQUIRE(id != 0);
+
+        auto* doc = ws.Get(id);
+        REQUIRE(doc);
+        CHECK(doc->ready);
+        CHECK(doc->mountedVfs == nullptr);
+        REQUIRE(doc->roots.size() == 1);     // parse still proceeded, flat-file
+        CHECK(doc->roots[0].name == "flat");
+
+        auto diags = doc->diags.Drain();
+        bool sawMountThrew = false;
+        for (auto& d : diags) {
+            if (d.code == "mountsthrow.mount-threw") {
+                sawMountThrew = true;
+                CHECK(d.severity == Onyx::Services::Severity::Error);
+            }
+        }
+        CHECK(sawMountThrew);
+    }
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("MountSpec: a throwing Mounts() is contained on OpenAsync") {
+    auto path = write_temp_file("onyx_mounts_test_mounts_throw_async.pak", "root bytes");
+    {
+        Workspace ws(Onyx::Types::TypeCatalog::Get());
+        ws.AddModule(std::make_unique<MountsThrowFake>());
+
+        DocumentId readyId = 0;
+        bool readyOk = false;
+        auto sub = ws.Events().On<TreeReady>([&](auto& e) {
+            readyId = e.id;
+            readyOk = e.ok;
+        });
+
+        DocumentId id = 0;
+        CHECK_NOTHROW(id = ws.OpenAsync(path));   // must never escape OpenAsync() either
+        REQUIRE(id != 0);
+
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (readyId == 0 && std::chrono::steady_clock::now() < deadline) {
+            ws.Jobs().Pump();
+            ws.Events().Pump();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        REQUIRE(readyId == id);
+        CHECK(readyOk);   // flat-file parse still succeeded
+
+        auto* doc = ws.Get(id);
+        REQUIRE(doc);
+        CHECK(doc->ready);   // never stranded false: RunParse still reached the end
+        CHECK(doc->mountedVfs == nullptr);
+        REQUIRE(doc->roots.size() == 1);
+        CHECK(doc->roots[0].name == "flat");
+
+        auto diags = doc->diags.Drain();
+        bool sawMountThrew = false;
+        for (auto& d : diags) {
+            if (d.code == "mountsthrow.mount-threw") sawMountThrew = true;
+        }
+        CHECK(sawMountThrew);
+    }
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("MountSpec: a throwing mount factory is contained on Open (sync)") {
+    auto path = write_temp_file("onyx_mounts_test_factory_throw_sync.pak", "root bytes");
+    {
+        Workspace ws(Onyx::Types::TypeCatalog::Get());
+        ws.AddModule(std::make_unique<MountFactoryThrowFake>());
+
+        DocumentId id = 0;
+        CHECK_NOTHROW(id = ws.Open(path));
+        REQUIRE(id != 0);
+
+        auto* doc = ws.Get(id);
+        REQUIRE(doc);
+        CHECK(doc->ready);
+        CHECK(doc->mountedVfs == nullptr);
+        REQUIRE(doc->roots.size() == 1);
+        CHECK(doc->roots[0].name == "flat");
+
+        auto diags = doc->diags.Drain();
+        bool sawMountThrew = false;
+        for (auto& d : diags) {
+            if (d.code == "mountfactorythrow.mount-threw") {
+                sawMountThrew = true;
+                CHECK(d.severity == Onyx::Services::Severity::Error);
+            }
+        }
+        CHECK(sawMountThrew);
+    }
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("MountSpec: a throwing mount factory is contained on OpenAsync") {
+    auto path = write_temp_file("onyx_mounts_test_factory_throw_async.pak", "root bytes");
+    {
+        Workspace ws(Onyx::Types::TypeCatalog::Get());
+        ws.AddModule(std::make_unique<MountFactoryThrowFake>());
+
+        DocumentId readyId = 0;
+        bool readyOk = false;
+        auto sub = ws.Events().On<TreeReady>([&](auto& e) {
+            readyId = e.id;
+            readyOk = e.ok;
+        });
+
+        DocumentId id = 0;
+        CHECK_NOTHROW(id = ws.OpenAsync(path));
+        REQUIRE(id != 0);
+
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (readyId == 0 && std::chrono::steady_clock::now() < deadline) {
+            ws.Jobs().Pump();
+            ws.Events().Pump();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
+        REQUIRE(readyId == id);
+        CHECK(readyOk);
+
+        auto* doc = ws.Get(id);
+        REQUIRE(doc);
+        CHECK(doc->ready);   // never stranded false
+        CHECK(doc->mountedVfs == nullptr);
+        REQUIRE(doc->roots.size() == 1);
+        CHECK(doc->roots[0].name == "flat");
+
+        auto diags = doc->diags.Drain();
+        bool sawMountThrew = false;
+        for (auto& d : diags) {
+            if (d.code == "mountfactorythrow.mount-threw") sawMountThrew = true;
+        }
+        CHECK(sawMountThrew);
+    }
     std::filesystem::remove(path);
 }
