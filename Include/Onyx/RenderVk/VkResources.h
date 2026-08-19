@@ -85,25 +85,18 @@ public:
 
     /// Staged upload of a tightly-packed RGBA8 image sized
     /// dst.width * dst.height * 4 bytes, into mip level 0. Transitions dst
-    /// `srcLayout` -> TRANSFER_DST_OPTIMAL (copy) -> SHADER_READ_ONLY_OPTIMAL
+    /// UNDEFINED -> TRANSFER_DST_OPTIMAL (copy) -> SHADER_READ_ONLY_OPTIMAL
     /// via vkCmdPipelineBarrier2 (synchronization2); dst is left in
     /// SHADER_READ_ONLY_OPTIMAL on success. dst must have been created with
-    /// VK_IMAGE_USAGE_TRANSFER_DST_BIT (and typically SAMPLED_BIT).
-    ///
-    /// `srcLayout` (T10 addition; default VK_IMAGE_LAYOUT_UNDEFINED
-    /// preserves every pre-T10 call site's exact behavior byte-for-byte --
-    /// a fresh image from CreateImage2D is always VK_IMAGE_LAYOUT_UNDEFINED
-    /// already) names the layout `dst` is ACTUALLY in when this call
-    /// starts. Pass VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL to re-upload
-    /// new pixels into an image a PREVIOUS UploadImage() call already
-    /// finished (T10's TexturePool::Update(), for a viewer like VideoPlayer
-    /// that re-uploads the same image every frame) -- calling this with the
-    /// default UNDEFINED against an image that is actually already
-    /// SHADER_READ_ONLY_OPTIMAL is exactly the kind of oldLayout/actual-
-    /// layout mismatch Vulkan's synchronization validation flags, so a
-    /// caller re-uploading MUST pass the layout the previous call left it
-    /// in (this function always leaves it SHADER_READ_ONLY_OPTIMAL on
-    /// success, so a re-upload's `srcLayout` is always that constant).
+    /// VK_IMAGE_USAGE_TRANSFER_DST_BIT (and typically SAMPLED_BIT). Always
+    /// assumes `dst` starts UNDEFINED (true for every caller: a fresh image
+    /// straight from CreateImage2D) -- do NOT call this a second time on an
+    /// image a previous UploadImage() already finished uploading into; the
+    /// pre-copy barrier's srcStage/srcAccess (TOP_OF_PIPE/NONE) do not wait
+    /// on a prior reader the way a re-upload needs (see T10's
+    /// Onyx::App::TexturePool::Update(), which re-uploads into a live
+    /// pooled texture through its OWN transition instead of this function,
+    /// specifically because of that gap).
     ///
     /// If dst.mipLevels > 1 (CreateImage2D's generateMips=true -- T7's mip
     /// remedy), every level past 0 is filled by a standard box-downsample
@@ -118,8 +111,7 @@ public:
     /// format support table for VK_FORMAT_R8G8B8A8_UNORM (the only format
     /// this milestone's images ever use), so this is not checked at
     /// runtime.
-    static bool UploadImage(VkContext& ctx, Image2D& dst, const void* rgba, std::string& err,
-                             VkImageLayout srcLayout = VK_IMAGE_LAYOUT_UNDEFINED);
+    static bool UploadImage(VkContext& ctx, Image2D& dst, const void* rgba, std::string& err);
 
     /// Destroys the buffer/image (no-op on an already-default value) and
     /// resets it to its default state.

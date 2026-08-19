@@ -199,8 +199,7 @@ bool Resources::Upload(VkContext& ctx, Buffer& dst, const void* data, VkDeviceSi
     return ok;
 }
 
-bool Resources::UploadImage(VkContext& ctx, Image2D& dst, const void* rgba, std::string& err,
-                             VkImageLayout srcLayout) {
+bool Resources::UploadImage(VkContext& ctx, Image2D& dst, const void* rgba, std::string& err) {
     if (dst.img == VK_NULL_HANDLE) {
         err = "Resources::UploadImage: destination image is not created";
         return false;
@@ -252,14 +251,10 @@ bool Resources::UploadImage(VkContext& ctx, Image2D& dst, const void* rgba, std:
             vkCmdPipelineBarrier2(cmd, &dep);
         };
 
-        // Level 0: srcLayout -> TRANSFER_DST, then the buffer -> image copy.
-        // srcLayout is UNDEFINED for every pre-T10 call site (a freshly
-        // created image); T10's re-upload path (TexturePool::Update) passes
-        // the SHADER_READ_ONLY_OPTIMAL a previous UploadImage() call left
-        // this same image in -- see this function's header doc comment.
+        // Level 0: UNDEFINED -> TRANSFER_DST, then the buffer -> image copy.
         barrier(0, 1, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, VK_ACCESS_2_NONE,
                 VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                srcLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
         VkBufferImageCopy copy{};
         copy.bufferOffset = 0;

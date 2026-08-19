@@ -6,6 +6,19 @@
 
 namespace Onyx::RenderVk {
 
+/// The swapchain's own frames-in-flight count (T9's Window::VulkanState::
+/// kFramesInFlight, formerly a private literal duplicated there) and every
+/// TexturePool's default deferred-destroy latency (T10) are the SAME
+/// number for the SAME reason: a retired descriptor/image must outlive
+/// every frame slot the swapchain can still have in flight, and "in
+/// flight" is defined entirely by how many frames Window's own frame-sync
+/// objects allow to be outstanding at once. Two independently-hardcoded
+/// `2`s that happened to agree were a live footgun -- nothing would have
+/// caught a future move to triple-buffering updating one and not the
+/// other, silently under-retiring every pooled texture. One shared symbol
+/// makes that divergence impossible instead of merely checked.
+inline constexpr uint32_t kFramesInFlight = 2;
+
 /// Generic N-frames-in-flight deferred-destruction bookkeeping (T10).
 ///
 /// Extracted as its own pure class so it can be unit-tested (Tests/

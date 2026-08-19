@@ -9,14 +9,103 @@
 
 #include "imgui_impl_vulkan.h"
 
+#include <cstring>
+
 namespace Onyx::App {
 
+using Onyx::RenderVk::Buffer;
 using Onyx::RenderVk::Image2D;
 using Onyx::RenderVk::Resources;
 
 namespace {
 inline ImTextureID ToTexId(VkDescriptorSet set) {
     return static_cast<ImTextureID>(reinterpret_cast<uint64_t>(set));
+}
+
+// TexturePool::Update()'s own staged re-upload -- deliberately NOT
+// Resources::UploadImage (T10 fix-round-1, reviewer-traced HIGH write-
+// after-read hazard). UploadImage's pre-copy barrier always uses
+// srcStage=TOP_OF_PIPE/srcAccess=NONE, correct for a FRESH image (every
+// other caller) but not for one this same frame's swapchain submission
+// may still be sampling: `dst` is always SHADER_READ_ONLY_OPTIMAL when
+// Update() calls this (Create()'s own UploadImage() and every prior
+// Update() both always leave it there), and some OTHER queue submission
+// -- the swapchain frame's ImGui draw, with no semaphore tying it to this
+// one -- may still be reading it in its fragment shader. This function's
+// pre-copy barrier is a queue-scoped acquire against exactly that read
+// (srcStage=FRAGMENT_SHADER, srcAccess=SHADER_SAMPLED_READ) instead of
+// UploadImage's generic UNDEFINED-path masks.
+bool ReuploadFromShaderRead(Onyx::RenderVk::VkContext& ctx, Image2D& dst, const void* rgba,
+                             std::string& err) {
+    const VkDeviceSize size = static_cast<VkDeviceSize>(dst.width) * dst.height * 4;
+
+    Buffer staging = Resources::CreateBuffer(ctx, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                              VMA_MEMORY_USAGE_CPU_ONLY, err);
+    if (staging.buf == VK_NULL_HANDLE) {
+        err = "TexturePool::Update: staging buffer: " + err;
+        return false;
+    }
+
+    VmaAllocationInfo stagingInfo{};
+    vmaGetAllocationInfo(ctx.Allocator(), staging.alloc, &stagingInfo);
+    if (!stagingInfo.pMappedData) {
+        err = "TexturePool::Update: staging buffer is not host-mapped";
+        Resources::Destroy(ctx, staging);
+        return false;
+    }
+    std::memcpy(stagingInfo.pMappedData, rgba, static_cast<size_t>(size));
+
+    bool ok = Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
+        VkImageMemoryBarrier2 toDst{};
+        toDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        toDst.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        toDst.srcAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+        toDst.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        toDst.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        toDst.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        toDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        toDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toDst.image = dst.img;
+        toDst.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+        VkDependencyInfo dep1{};
+        dep1.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep1.imageMemoryBarrierCount = 1;
+        dep1.pImageMemoryBarriers = &toDst;
+        vkCmdPipelineBarrier2(cmd, &dep1);
+
+        VkBufferImageCopy copy{};
+        copy.bufferOffset = 0;
+        copy.bufferRowLength = 0;
+        copy.bufferImageHeight = 0;
+        copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy.imageOffset = {0, 0, 0};
+        copy.imageExtent = {dst.width, dst.height, 1};
+        vkCmdCopyBufferToImage(cmd, staging.buf, dst.img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+
+        VkImageMemoryBarrier2 toRead{};
+        toRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        toRead.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        toRead.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        toRead.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        toRead.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+        toRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        toRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        toRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toRead.image = dst.img;
+        toRead.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+        VkDependencyInfo dep2{};
+        dep2.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep2.imageMemoryBarrierCount = 1;
+        dep2.pImageMemoryBarriers = &toRead;
+        vkCmdPipelineBarrier2(cmd, &dep2);
+    }, err);
+
+    Resources::Destroy(ctx, staging);
+    return ok;
 }
 } // namespace
 
@@ -109,12 +198,13 @@ bool TexturePool::Update(ImTextureID id, const void* rgba, std::string& err) {
         err = "TexturePool::Update: id is not a live, pool-owned texture";
         return false;
     }
-    // srcLayout=SHADER_READ_ONLY_OPTIMAL: this image already went through
-    // Create()'s UploadImage() (or a previous Update()) and was left there
-    // -- see Resources::UploadImage's own doc comment for why the default
-    // UNDEFINED would be wrong (and would raise a validation error) here.
-    return Resources::UploadImage(m_ctx, it->second.image, rgba, err,
-                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    // ReuploadFromShaderRead, not Resources::UploadImage -- see that
+    // function's own doc comment (top of this file) for why: this image
+    // is always SHADER_READ_ONLY_OPTIMAL here (Create()'s UploadImage()
+    // and every prior Update() both leave it there), and a same-queue
+    // reader (the swapchain frame's ImGui draw) may still be sampling it
+    // with no semaphore tying that submission to this one.
+    return ReuploadFromShaderRead(m_ctx, it->second.image, rgba, err);
 }
 
 void TexturePool::Remove(ImTextureID id) {
@@ -146,6 +236,14 @@ ImTextureID TexturePool::RegisterView(VkImageView view, VkImageLayout layout, st
 ImTextureID TexturePool::RegisterExternalView(VkImageView view, VkImageLayout layout, ImTextureID oldId,
                                                std::string& err) {
     ImTextureID newId = RegisterView(view, layout, err);
+    if (newId == ImTextureID_Invalid) {
+        // T10 fix-round-1 (LOW): keep the old (still valid, still working)
+        // descriptor alive on failure instead of retiring it unconditionally
+        // -- Viewport3D (this pool's only caller) keeps displaying the
+        // previous frame's resolve view rather than losing its texture
+        // entirely over one failed resize.
+        return ImTextureID_Invalid;
+    }
     if (oldId != ImTextureID_Invalid)
         Remove(oldId);
     return newId;

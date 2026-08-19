@@ -263,7 +263,11 @@ void Viewport3D::ResizeTarget(int width, int height) {
     ImTextureID newId = m_texPool->RegisterExternalView(
         m_vk->target.ResolveView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, m_displayTexId, err);
     if (newId == ImTextureID_Invalid) {
+        // T10 fix-round-1 (LOW): RegisterExternalView already kept the OLD
+        // descriptor alive on failure (never retired it) -- keep displaying
+        // it too, rather than clobbering m_displayTexId with the failure.
         LOG_ERR("[Viewport3D] TexturePool::RegisterExternalView failed: %s", err.c_str());
+        return;
     }
     m_displayTexId = newId;
 }

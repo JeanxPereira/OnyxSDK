@@ -104,7 +104,9 @@ void OffscreenTarget::BeginFrame(VkCommandBuffer cmd, const float clear[4]) {
     // from what this object itself left the image in (UNDEFINED only on
     // the very first frame after Create(); COLOR/DEPTH_ATTACHMENT_OPTIMAL
     // on every frame after the first; TRANSFER_SRC_OPTIMAL for the resolve
-    // image on every frame after the first Readback()).
+    // image on every frame after the first Readback(); SHADER_READ_ONLY_
+    // OPTIMAL for the resolve image on every frame after the first
+    // PrepareForSampling() -- T10).
     VkImageMemoryBarrier2 barriers[3];
     FillBarrier(barriers[0], m_msaaColor.img, VK_IMAGE_ASPECT_COLOR_BIT, m_colorLayout,
                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
@@ -116,9 +118,33 @@ void OffscreenTarget::BeginFrame(VkCommandBuffer cmd, const float clear[4]) {
                 VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
                     VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
                 VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+
+    // T10 fix-round-1 (HIGH, reviewer-traced write-after-read): when the
+    // resolve image is coming FROM SHADER_READ_ONLY_OPTIMAL (a prior
+    // PrepareForSampling(), i.e. some OTHER queue submission -- the
+    // swapchain frame's own ImGui draw, sampling this exact image via
+    // imgui_impl_vulkan -- may still be reading it, with no semaphore
+    // tying that submission to this one), the barrier's src side must name
+    // that read explicitly: srcStage=FRAGMENT_SHADER + srcAccess=
+    // SHADER_SAMPLED_READ. This is a queue-scoped acquire barrier: naming
+    // every stage/access a prior submission on the SAME queue could still
+    // be doing synchronizes against it without needing a semaphore, which
+    // is the minimal correct fix (sync2's execution/memory dependency
+    // already covers same-queue ordering; a cross-queue wait is not
+    // needed here). TOP_OF_PIPE/NONE stays correct for the other two
+    // reachable prior layouts: UNDEFINED (first use after Create(),
+    // nothing to wait on) and TRANSFER_SRC_OPTIMAL (Readback()'s own
+    // path, whose caller already fences via Resources::OneShot before
+    // this could ever run again).
+    VkPipelineStageFlags2 resolveSrcStage = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+    VkAccessFlags2        resolveSrcAccess = VK_ACCESS_2_NONE;
+    if (m_resolveLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+        resolveSrcStage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        resolveSrcAccess = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    }
     FillBarrier(barriers[2], m_resolveColor.img, VK_IMAGE_ASPECT_COLOR_BIT, m_resolveLayout,
-                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
-                VK_ACCESS_2_NONE, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, resolveSrcStage, resolveSrcAccess,
+                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                 VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
 
     VkDependencyInfo dep{};

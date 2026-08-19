@@ -116,6 +116,11 @@ bool VkContext::Init(bool presentSupport, std::string& err) {
         // only requested alongside the layer that would actually emit
         // anything to it.
         instanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+        // VK_EXT_validation_features is what makes the VkValidationFeaturesEXT
+        // chained onto instInfo.pNext below (sync validation) actually take
+        // effect -- the layer honors the pNext chain either way on most
+        // drivers, but declaring the extension is what the spec requires.
+        instanceExtensions.push_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
     }
 
     VkInstanceCreateInfo instInfo{};
@@ -125,6 +130,26 @@ bool VkContext::Init(bool presentSupport, std::string& err) {
     instInfo.ppEnabledExtensionNames = instanceExtensions.data();
     instInfo.enabledLayerCount = static_cast<uint32_t>(instanceLayers.size());
     instInfo.ppEnabledLayerNames = instanceLayers.data();
+
+    // T10 fix-round-1: sync validation is the detection tool that would
+    // have caught the write-after-read hazard this round fixes (a same-
+    // queue write racing a prior frame's still-in-flight fragment-shader
+    // read, with no semaphore/barrier tying the two submissions) -- it was
+    // never enabled before, so the hazard shipped silently past
+    // VkContext's own "0 validation messages" proof. Chained only when the
+    // validation layer itself is present (same if-available convenience
+    // as the layer/debug-messenger above); enabling it never turns a
+    // working Init into a failing one, and it costs nothing when the layer
+    // is absent (Release, or a machine without LunarG's SDK installed).
+    VkValidationFeaturesEXT validationFeatures{};
+    const VkValidationFeatureEnableEXT syncValidationFeature =
+        VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT;
+    if (validationEnabled) {
+        validationFeatures.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
+        validationFeatures.enabledValidationFeatureCount = 1;
+        validationFeatures.pEnabledValidationFeatures = &syncValidationFeature;
+        instInfo.pNext = &validationFeatures;
+    }
 
     VkResult vr = vkCreateInstance(&instInfo, nullptr, &m_instance);
     if (vr != VK_SUCCESS) {

@@ -65,7 +65,13 @@ namespace Onyx::App {
 // descriptor when it runs.
 class TexturePool {
 public:
-    explicit TexturePool(Onyx::RenderVk::VkContext& ctx, uint32_t framesInFlight = 2);
+    // Default framesInFlight = Onyx::RenderVk::kFramesInFlight (T10 fix-
+    // round-1): the SAME symbol Window's own swapchain frame-sync uses,
+    // not an independently-hardcoded literal that could silently diverge
+    // from it -- see that constant's own doc comment (Include/Onyx/
+    // RenderVk/TexturePool.h) for why that divergence would matter.
+    explicit TexturePool(Onyx::RenderVk::VkContext& ctx,
+                         uint32_t framesInFlight = Onyx::RenderVk::kFramesInFlight);
     ~TexturePool();
 
     TexturePool(const TexturePool&) = delete;

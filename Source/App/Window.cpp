@@ -25,6 +25,7 @@
 #include "implot.h"
 
 #include <Onyx/RenderVk/RenderContext.h>
+#include <Onyx/RenderVk/TexturePool.h>
 #include <Onyx/RenderVk/VkContext.h>
 
 #include <Onyx/Services/PathUtils.h>
@@ -44,7 +45,15 @@ namespace Onyx::App {
 static Window* s_windowInstance = nullptr;
 
 namespace {
-constexpr uint32_t kFramesInFlight = 2;
+// T10 fix-round-1 (MEDIUM): was an independently-hardcoded `2` that
+// happened to agree with every TexturePool's own deferred-destroy
+// latency default -- nothing tied the two together, so a future move to
+// triple-buffering could update this literal and silently under-retire
+// every pooled texture (destroying a descriptor/image a still-in-flight
+// third frame slot could be reading). Now the SAME symbol
+// Onyx::RenderVk::kFramesInFlight (Include/Onyx/RenderVk/TexturePool.h)
+// backs both -- see that constant's own doc comment.
+constexpr uint32_t kFramesInFlight = Onyx::RenderVk::kFramesInFlight;
 
 void ImGuiVulkanCheckResult(VkResult err) {
     if (err == VK_SUCCESS) return;
