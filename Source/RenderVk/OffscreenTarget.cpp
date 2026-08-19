@@ -3,7 +3,7 @@
 
 #include <cstring>
 
-namespace Onyx::RenderVk {
+namespace Onyx::Rendering {
 
 namespace {
 
@@ -325,4 +325,4 @@ bool OffscreenTarget::Readback(VkContext& ctx, std::vector<uint8_t>& rgbaTopDown
     return true;
 }
 
-} // namespace Onyx::RenderVk
+} // namespace Onyx::Rendering

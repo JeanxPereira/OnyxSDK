@@ -6,13 +6,13 @@
 // 11) so the Vulkan renderer (Source/RenderVk/SceneRendererVk.cpp) could
 // share the EXACT same rest-pose skinning math instead of carrying its own
 // copy — T5 originally ported these three functions verbatim into
-// SceneRendererVk.cpp because Onyx_RenderVk could not link Onyx_Render
+// SceneRendererVk.cpp because Onyx_Render could not link Onyx_Render
 // (GL); this header became the shared home both renderers built against
 // instead, compiled once into each of the (then two) static libraries via
 // the same physical source file listed in both CMake source lists. Task 11
 // deleted Onyx_Render along with the rest of the GL renderer, so this file
-// now compiles exactly once, into Onyx_RenderVk only (CMakeLists.txt's
-// ONYX_RENDERVK_SOURCES) — no more twin-compile to keep in sync.
+// now compiles exactly once, into Onyx_Render only (CMakeLists.txt's
+// ONYX_RENDER_SOURCES) — no more twin-compile to keep in sync.
 //
 // No GL includes, no Vulkan includes — only glm and Parsers::ObjectData
 // (a plain data header). Every function here is pure: no globals, no

@@ -6,12 +6,12 @@
 // ── Why this is NOT in Commands.h/Commands.cpp ─────────────────────────────
 // Commands.cpp compiles into Onyx_Core (root CMakeLists.txt's
 // ONYX_CORE_SOURCES list), documented at that target's own declaration as
-// "no UI, no GPU". The renderer library depends on Onyx_Core (Onyx_RenderVk
-// links it PUBLIC -- see CMakeLists.txt's `target_link_libraries(Onyx_RenderVk
+// "no UI, no GPU". The renderer library depends on Onyx_Core (Onyx_Render
+// links it PUBLIC -- see CMakeLists.txt's `target_link_libraries(Onyx_Render
 // PUBLIC Onyx_Core ...)`; the GL Onyx_Render used to as well, before Task 11
 // deleted it). Giving Commands.cpp a Vulkan dependency (VkContext,
 // Pipelines, SceneRendererVk, OffscreenTarget) to implement `render` would
-// mean Onyx_Core links Onyx_RenderVk -- and Onyx_RenderVk already links
+// mean Onyx_Core links Onyx_Render -- and Onyx_Render already links
 // Onyx_Core, so that direction of dependency is a real CMake link cycle,
 // not just an architectural smell that LayerGuard would eventually catch.
 //
@@ -25,7 +25,7 @@
 // the instant it lives under Source/. Examples/ sits outside that glob.
 // Render.cpp is compiled directly into the onyxbox-cli executable
 // (Examples/OnyxCli/CMakeLists.txt) rather than into any static library --
-// the executable is the one place Onyx_Core and Onyx::RenderVk may safely
+// the executable is the one place Onyx_Core and Onyx::Rendering may safely
 // meet, since an executable has no further consumers to leak the cycle
 // into. Run()'s probe/list/extract/decode dispatch (Source/Cli/
 // Commands.cpp) stays entirely Vulkan-free; Examples/OnyxCli/Main.cpp
@@ -58,7 +58,7 @@ namespace Onyx::Cli {
 // the opened document's tree -- see Source/Cli/Commands.cpp's
 // FindEntryByName, and this command's own Examples/OnyxCli/Render.cpp copy
 // of it), decodes it through the Scene capability, renders it headlessly
-// through Onyx::RenderVk::SceneRendererVk into a `width` x `height`
+// through Onyx::Rendering::SceneRendererVk into a `width` x `height`
 // OffscreenTarget (a fixed camera framing the decoded scene's object-space
 // bounding box with margin -- see Render.cpp's top comment), and writes
 // the result as `outPng` (RGBA8 PNG via stb_image_write) plus a sibling
@@ -74,7 +74,7 @@ namespace Onyx::Cli {
 // case, so it shares kUsage -- diags/stderr explain which); kOk on a
 // successful render. May also exit 77 (checked separately from the
 // kOk/kUsage/kNoModule/kStrictErrors family -- see this header's top
-// comment) when Onyx::RenderVk::VkContext::Init finds no Vulkan-capable
+// comment) when Onyx::Rendering::VkContext::Init finds no Vulkan-capable
 // device/driver.
 int CmdRender(Modules::Workspace& ws, const std::filesystem::path& path,
               std::string_view entryName, const std::filesystem::path& outPng,

@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cstring>
 
-namespace Onyx::RenderVk {
+namespace Onyx::Rendering {
 
 namespace {
 
@@ -437,4 +437,4 @@ bool Resources::OneShot(VkContext& ctx, const std::function<void(VkCommandBuffer
     return true;
 }
 
-} // namespace Onyx::RenderVk
+} // namespace Onyx::Rendering

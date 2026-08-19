@@ -2,7 +2,7 @@
 #
 # Mirrors Tools/OnyxOracle/ReproTest.cmake's shape exactly: drive the real
 # CLI binary through execute_process(), propagate its own exit 77 (no
-# Vulkan-capable device/driver -- Onyx::RenderVk::VkContext::Init) as this
+# Vulkan-capable device/driver -- Onyx::Rendering::VkContext::Init) as this
 # script's exit 77 via cmake_language(EXIT), so ctest's SKIP_RETURN_CODE 77
 # on OnyxCliRender (set in CMakeLists.txt) turns the whole gate into a SKIP,
 # not a FAIL, on a machine with no GPU. Any other nonzero exit is a real

@@ -3,7 +3,7 @@
 #include <Onyx/Domain/MeshVertex.h>
 
 // Generated at build time (cmake/ShaderCompile.cmake's onyx_add_spirv,
-// wired for the Onyx_RenderVk target in the root CMakeLists.txt) into
+// wired for the Onyx_Render target in the root CMakeLists.txt) into
 // ${CMAKE_BINARY_DIR}/generated/shaders, which is on this target's
 // PUBLIC include path. Never committed.
 #include "scene_vert_spv.h"
@@ -18,7 +18,7 @@
 #include <array>
 #include <cstddef>
 
-namespace Onyx::RenderVk {
+namespace Onyx::Rendering {
 
 namespace {
 
@@ -189,7 +189,7 @@ bool Pipelines::CreateScene(VkContext& ctx, ScenePipelines& out, std::string& er
     }
 
     // ── shader modules ───────────────────────────────────────────────
-    using namespace Onyx::RenderVk::Shaders;
+    using namespace Onyx::Rendering::Shaders;
     VkShaderModule vertModule =
         CreateShaderModule(ctx, kSceneVertSpv, kSceneVertSpvSize, err);
     if (vertModule == VK_NULL_HANDLE) {
@@ -370,7 +370,7 @@ bool Pipelines::CreateGrid(VkContext& ctx, GridPipeline& out, std::string& err) 
         return false;
     }
 
-    using namespace Onyx::RenderVk::Shaders;
+    using namespace Onyx::Rendering::Shaders;
     VkShaderModule vertModule = CreateShaderModule(ctx, kGridVertSpv, kGridVertSpvSize, err);
     if (vertModule == VK_NULL_HANDLE) {
         Destroy(ctx, out);
@@ -514,7 +514,7 @@ bool Pipelines::CreateBackground(VkContext& ctx, BackgroundPipeline& out, std::s
         return false;
     }
 
-    using namespace Onyx::RenderVk::Shaders;
+    using namespace Onyx::Rendering::Shaders;
     VkShaderModule vertModule =
         CreateShaderModule(ctx, kBackgroundVertSpv, kBackgroundVertSpvSize, err);
     if (vertModule == VK_NULL_HANDLE) {
@@ -658,7 +658,7 @@ bool Pipelines::CreateOverlay(VkContext& ctx, OverlayPipeline& out, std::string&
         return false;
     }
 
-    using namespace Onyx::RenderVk::Shaders;
+    using namespace Onyx::Rendering::Shaders;
     VkShaderModule vertModule = CreateShaderModule(ctx, kOverlayVertSpv, kOverlayVertSpvSize, err);
     if (vertModule == VK_NULL_HANDLE) {
         Destroy(ctx, out);
@@ -785,4 +785,4 @@ void Pipelines::Destroy(VkContext& ctx, OverlayPipeline& p) {
     p = OverlayPipeline{};
 }
 
-} // namespace Onyx::RenderVk
+} // namespace Onyx::Rendering

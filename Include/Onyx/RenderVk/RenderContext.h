@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-namespace Onyx::RenderVk {
+namespace Onyx::Rendering {
 
 /// The raw Vulkan handles one frame hands to every registered pass -- spec
 /// §8's "raw floor": no translation layer, no Onyx-owned wrapper, just what
@@ -102,4 +102,4 @@ private:
     int                m_nextId = 1;
 };
 
-} // namespace Onyx::RenderVk
+} // namespace Onyx::Rendering

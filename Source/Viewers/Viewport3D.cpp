@@ -25,7 +25,7 @@
 // BeginFrame/EndFrame through a RenderContext::AddPass callback (that seam
 // is for drawing directly onto the swapchain image, not into a second,
 // independent render target). Instead, RenderFrame() below uses its own,
-// separate command buffer via Onyx::RenderVk::Resources::OneShot (the same
+// separate command buffer via Onyx::Rendering::Resources::OneShot (the same
 // primitive T4/T5/T7's own smoke/oracle paths already use to drive
 // OffscreenTarget) -- allocate, record BeginFrame/draws/EndFrame/
 // PrepareForSampling, submit, and BLOCK until the GPU finishes, all inside
@@ -92,18 +92,18 @@
 
 namespace Onyx::Viewers {
 
-using Onyx::RenderVk::Resources;
-using Onyx::RenderVk::VulkanProjection;
+using Onyx::Rendering::Resources;
+using Onyx::Rendering::VulkanProjection;
 
 // ── VulkanState -- see Viewport3D.h's top comment for why this is a
 // forward-declared, .cpp-only struct ─────────────────────────────────────
 struct Viewport3D::VulkanState {
-    Onyx::RenderVk::ScenePipelines     scenePipelines;
-    Onyx::RenderVk::GridPipeline       gridPipeline;
-    Onyx::RenderVk::BackgroundPipeline backgroundPipeline;
-    Onyx::RenderVk::OverlayPipeline    overlayPipeline;
-    Onyx::RenderVk::SceneRendererVk    sceneRendererVk;
-    Onyx::RenderVk::OffscreenTarget    target;
+    Onyx::Rendering::ScenePipelines     scenePipelines;
+    Onyx::Rendering::GridPipeline       gridPipeline;
+    Onyx::Rendering::BackgroundPipeline backgroundPipeline;
+    Onyx::Rendering::OverlayPipeline    overlayPipeline;
+    Onyx::Rendering::SceneRendererVk    sceneRendererVk;
+    Onyx::Rendering::OffscreenTarget    target;
     bool targetCreated = false;
 };
 
@@ -143,14 +143,14 @@ Viewport3D::~Viewport3D() {
     // device; the process is exiting either way.
     m_texPool.reset(); // safe either way -- TexturePool::~TexturePool() carries the same guard itself
 
-    Onyx::RenderVk::VkContext* live = Onyx::RenderVk::GetGlobalContext();
+    Onyx::Rendering::VkContext* live = Onyx::Rendering::GetGlobalContext();
     if (live && m_vkReady) {
         m_vk->sceneRendererVk.Clear(*live);
         if (m_vk->targetCreated) m_vk->target.Destroy(*live);
-        Onyx::RenderVk::Pipelines::Destroy(*live, m_vk->overlayPipeline);
-        Onyx::RenderVk::Pipelines::Destroy(*live, m_vk->backgroundPipeline);
-        Onyx::RenderVk::Pipelines::Destroy(*live, m_vk->gridPipeline);
-        Onyx::RenderVk::Pipelines::Destroy(*live, m_vk->scenePipelines);
+        Onyx::Rendering::Pipelines::Destroy(*live, m_vk->overlayPipeline);
+        Onyx::Rendering::Pipelines::Destroy(*live, m_vk->backgroundPipeline);
+        Onyx::Rendering::Pipelines::Destroy(*live, m_vk->gridPipeline);
+        Onyx::Rendering::Pipelines::Destroy(*live, m_vk->scenePipelines);
     }
 }
 
@@ -164,7 +164,7 @@ void Viewport3D::ClearScene() {
     m_sceneData.reset();
     m_bounds = Onyx::Domain::BoundingBox{};
     if (m_vkReady) {
-        Onyx::RenderVk::VkContext* live = Onyx::RenderVk::GetGlobalContext();
+        Onyx::Rendering::VkContext* live = Onyx::Rendering::GetGlobalContext();
         if (live) m_vk->sceneRendererVk.Clear(*live);
     }
     m_needsRedraw = true;
@@ -235,20 +235,20 @@ void Viewport3D::ComputeBounds() {
 void Viewport3D::EnsureVulkanReady() {
     if (m_vkReady) return;
 
-    m_ctx = Onyx::RenderVk::GetGlobalContext();
+    m_ctx = Onyx::Rendering::GetGlobalContext();
     if (!m_ctx) return; // Vulkan not up yet (or Window is already tearing down) -- retry next Draw()
 
     std::string err;
-    bool ok = Onyx::RenderVk::Pipelines::CreateScene(*m_ctx, m_vk->scenePipelines, err) &&
-              Onyx::RenderVk::Pipelines::CreateGrid(*m_ctx, m_vk->gridPipeline, err) &&
-              Onyx::RenderVk::Pipelines::CreateBackground(*m_ctx, m_vk->backgroundPipeline, err) &&
-              Onyx::RenderVk::Pipelines::CreateOverlay(*m_ctx, m_vk->overlayPipeline, err);
+    bool ok = Onyx::Rendering::Pipelines::CreateScene(*m_ctx, m_vk->scenePipelines, err) &&
+              Onyx::Rendering::Pipelines::CreateGrid(*m_ctx, m_vk->gridPipeline, err) &&
+              Onyx::Rendering::Pipelines::CreateBackground(*m_ctx, m_vk->backgroundPipeline, err) &&
+              Onyx::Rendering::Pipelines::CreateOverlay(*m_ctx, m_vk->overlayPipeline, err);
     if (!ok) {
         LOG_ERR("[Viewport3D] Vulkan pipeline creation failed: %s", err.c_str());
-        Onyx::RenderVk::Pipelines::Destroy(*m_ctx, m_vk->overlayPipeline);
-        Onyx::RenderVk::Pipelines::Destroy(*m_ctx, m_vk->backgroundPipeline);
-        Onyx::RenderVk::Pipelines::Destroy(*m_ctx, m_vk->gridPipeline);
-        Onyx::RenderVk::Pipelines::Destroy(*m_ctx, m_vk->scenePipelines);
+        Onyx::Rendering::Pipelines::Destroy(*m_ctx, m_vk->overlayPipeline);
+        Onyx::Rendering::Pipelines::Destroy(*m_ctx, m_vk->backgroundPipeline);
+        Onyx::Rendering::Pipelines::Destroy(*m_ctx, m_vk->gridPipeline);
+        Onyx::Rendering::Pipelines::Destroy(*m_ctx, m_vk->scenePipelines);
         m_ctx = nullptr;
         return;
     }

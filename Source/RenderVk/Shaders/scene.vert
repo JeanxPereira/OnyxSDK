@@ -22,7 +22,7 @@ layout(std140, set = 0, binding = 0) uniform FrameUBO {
 };
 
 // set 1 = per-batch material (Include/Onyx/RenderVk/Pipelines.h:
-// SceneMaterialUBO). Flags bit layout mirrors Onyx::RenderVk::SceneFlags.
+// SceneMaterialUBO). Flags bit layout mirrors Onyx::Rendering::SceneFlags.
 layout(std140, set = 1, binding = 0) uniform MaterialUBO {
     vec4  uBaseColor;
     vec4  uLayerColor;

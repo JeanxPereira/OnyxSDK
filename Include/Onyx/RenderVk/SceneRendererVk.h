@@ -14,7 +14,7 @@
 // load-bearing here): Tools/OnyxOracle/RenderReport.{h,cpp} ALREADY takes
 // std::vector<Rendering::RenderBatch> directly, and RenderBatch.h only
 // forward-declares `GLuint` as `using GLuint = unsigned int;` -- it does
-// NOT include glad, so pulling it in here does not violate Onyx_RenderVk's
+// NOT include glad, so pulling it in here does not violate Onyx_Render's
 // "no GL calls/headers" rule (verified: no GL header, no GL function call,
 // just a plain integer typedef reused as a bookkeeping field).
 // RenderBatch's only non-trivial member is `std::shared_ptr<GpuMesh>`,
@@ -56,7 +56,7 @@
 #include <string>
 #include <vector>
 
-namespace Onyx::RenderVk {
+namespace Onyx::Rendering {
 
 /// Vulkan port of Onyx::Rendering::SceneRenderer (GL) -- builds GPU
 /// resources from a Parsers::SceneData and draws them through T3's
@@ -315,4 +315,4 @@ private:
     size_t           m_overlayVboCapacity = 0; // in OverlayVertex entries, not bytes
 };
 
-} // namespace Onyx::RenderVk
+} // namespace Onyx::Rendering

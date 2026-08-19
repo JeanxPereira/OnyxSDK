@@ -9,12 +9,12 @@
 // (Source/Rendering/SceneRenderer.cpp:725-793): a local `LineVert { vec3
 // pos; vec4 color; }` buffer of already-world-space points (RenderSkeleton
 // bakes m_instanceTransform into every point itself before pushing it),
-// drawn GL_LINES. Onyx::RenderVk::OverlayVertex (Pipelines.h) mirrors the
+// drawn GL_LINES. Onyx::Rendering::OverlayVertex (Pipelines.h) mirrors the
 // same two-field layout for the Vulkan vertex input state.
 layout(location = 0) in vec3 aPos;
 layout(location = 1) in vec4 aColor;
 
-// set 0, binding 0 — mirrors Onyx::RenderVk::OverlayUBO (Pipelines.h,
+// set 0, binding 0 — mirrors Onyx::Rendering::OverlayUBO (Pipelines.h,
 // std140). Only a combined view*proj is needed: aPos is already
 // world-space, so unlike the scene pipelines there is no per-instance
 // model matrix / push constant here.

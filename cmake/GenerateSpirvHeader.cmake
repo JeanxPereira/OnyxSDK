@@ -67,14 +67,14 @@ set(_content "// Generated at build time by cmake/GenerateSpirvHeader.cmake from
 #pragma once
 #include <cstdint>
 
-namespace Onyx::RenderVk::Shaders {
+namespace Onyx::Rendering::Shaders {
 
 constexpr uint32_t k${_pascal}Spv[] = {
     ${_body}
 };
 constexpr uint32_t k${_pascal}SpvSize = sizeof(k${_pascal}Spv);
 
-} // namespace Onyx::RenderVk::Shaders
+} // namespace Onyx::Rendering::Shaders
 ")
 
 file(WRITE "${OUTPUT_HEADER}" "${_content}")

@@ -10,7 +10,7 @@
 #include <string>
 #include <vector>
 
-namespace Onyx::RenderVk {
+namespace Onyx::Rendering {
 
 /// Offscreen render target: RGBA8 color + D32 depth, both 4x MSAA
 /// (kSampleCount, Pipelines.h) with a single-sample RGBA8 resolve image
@@ -148,4 +148,4 @@ private:
     VkImageLayout m_resolveLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 };
 
-} // namespace Onyx::RenderVk
+} // namespace Onyx::Rendering

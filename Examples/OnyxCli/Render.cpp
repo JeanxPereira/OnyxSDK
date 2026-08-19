@@ -12,7 +12,7 @@
 
 #include <Onyx/Rendering/RenderBatch.h> // Rendering::ShadingMode
 #include <Onyx/RenderVk/OffscreenTarget.h>
-#include <Onyx/RenderVk/Pipelines.h>      // Onyx::RenderVk::VulkanProjection, ScenePipelines
+#include <Onyx/RenderVk/Pipelines.h>      // Onyx::Rendering::VulkanProjection, ScenePipelines
 #include <Onyx/RenderVk/SceneRendererVk.h>
 #include <Onyx/RenderVk/VkContext.h>
 #include <Onyx/RenderVk/VkResources.h>    // Resources::OneShot
@@ -235,37 +235,37 @@ int CmdRender(Workspace& ws, const std::filesystem::path& path, std::string_view
     // this before handing it to SceneRendererVk::Render() -- see Include/
     // Onyx/RenderVk/Pipelines.h's "Camera convention" note; Render() itself
     // asserts (Debug builds) that this was not forgotten.
-    proj = Onyx::RenderVk::VulkanProjection(proj);
+    proj = Onyx::Rendering::VulkanProjection(proj);
 
     // ── headless Vulkan boot ──────────────────────────────────────────────
-    Onyx::RenderVk::VkContext vkCtx;
+    Onyx::Rendering::VkContext vkCtx;
     std::string vkErr;
     if (!vkCtx.Init(/*presentSupport=*/false, vkErr)) {
         out << "no Vulkan device: " << vkErr << "\n";
         return 77; // tool convention (Tools/OnyxOracle's Vk* entry points): SKIP, not FAIL
     }
 
-    Onyx::RenderVk::ScenePipelines scenePipes;
-    if (!Onyx::RenderVk::Pipelines::CreateScene(vkCtx, scenePipes, vkErr)) {
+    Onyx::Rendering::ScenePipelines scenePipes;
+    if (!Onyx::Rendering::Pipelines::CreateScene(vkCtx, scenePipes, vkErr)) {
         out << "render: " << vkErr << "\n";
         vkCtx.Shutdown();
         return kUsage;
     }
 
-    Onyx::RenderVk::OffscreenTarget target;
+    Onyx::Rendering::OffscreenTarget target;
     if (!target.Create(vkCtx, width, height, vkErr)) {
         out << "render: " << vkErr << "\n";
-        Onyx::RenderVk::Pipelines::Destroy(vkCtx, scenePipes);
+        Onyx::Rendering::Pipelines::Destroy(vkCtx, scenePipes);
         vkCtx.Shutdown();
         return kUsage;
     }
 
-    Onyx::RenderVk::SceneRendererVk renderer;
+    Onyx::Rendering::SceneRendererVk renderer;
     if (!renderer.Build(vkCtx, scenePipes, *scene, vkErr)) {
         out << "render: " << vkErr << "\n";
         renderer.Clear(vkCtx);
         target.Destroy(vkCtx);
-        Onyx::RenderVk::Pipelines::Destroy(vkCtx, scenePipes);
+        Onyx::Rendering::Pipelines::Destroy(vkCtx, scenePipes);
         vkCtx.Shutdown();
         return kUsage;
     }
@@ -275,7 +275,7 @@ int CmdRender(Workspace& ws, const std::filesystem::path& path, std::string_view
     // no AppConfig instance).
     const float clearColor[4] = {0.10f, 0.11f, 0.13f, 1.0f};
     std::vector<uint8_t> rgba;
-    bool ok = Onyx::RenderVk::Resources::OneShot(vkCtx, [&](VkCommandBuffer cmd) {
+    bool ok = Onyx::Rendering::Resources::OneShot(vkCtx, [&](VkCommandBuffer cmd) {
         target.BeginFrame(cmd, clearColor);
         renderer.Render(cmd, view, proj, Onyx::Rendering::ShadingMode::Solid, width, height);
         target.EndFrame(cmd);
@@ -284,7 +284,7 @@ int CmdRender(Workspace& ws, const std::filesystem::path& path, std::string_view
 
     renderer.Clear(vkCtx);
     target.Destroy(vkCtx);
-    Onyx::RenderVk::Pipelines::Destroy(vkCtx, scenePipes);
+    Onyx::Rendering::Pipelines::Destroy(vkCtx, scenePipes);
 
     if (!ok) {
         out << "render: " << vkErr << "\n";

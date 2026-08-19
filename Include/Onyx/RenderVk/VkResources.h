@@ -10,7 +10,7 @@
 #include <functional>
 #include <string>
 
-namespace Onyx::RenderVk {
+namespace Onyx::Rendering {
 
 /// A VMA-backed VkBuffer. Default-constructed (buf == VK_NULL_HANDLE) is
 /// both the "no resource" state Destroy() leaves behind and what
@@ -127,4 +127,4 @@ public:
                          std::string& err);
 };
 
-} // namespace Onyx::RenderVk
+} // namespace Onyx::Rendering

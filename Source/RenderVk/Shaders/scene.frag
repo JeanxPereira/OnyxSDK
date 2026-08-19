@@ -69,7 +69,7 @@
 //     never binds to a texture unit or samples here at all) — it is
 //     exactly the 6 textures GL's SCENE_FRAG actually samples today,
 //     repacked onto a dense 0-5 array. See
-//     `Onyx::RenderVk::SceneRole`'s comment in Pipelines.h for the same
+//     `Onyx::Rendering::SceneRole`'s comment in Pipelines.h for the same
 //     correction on the C++ side. No role's sampling math changed.
 //  7. GL's top-level `uUseJoints` uniform becomes a bit (FLAG_USE_JOINTS)
 //     in the per-batch MaterialUBO's `flags` field instead — mechanical
@@ -124,7 +124,7 @@ const uint FLAG_HAS_GLOSS   = 1u << 3;
 const uint FLAG_HAS_SCATTER = 1u << 4;
 const uint FLAG_HAS_ENVMAP  = 1u << 6;   // divergence 3 — mirrors GL's uUseEnvmap
 
-// Fixed 6-slot role array (divergence 6). Onyx::RenderVk::SceneRole in
+// Fixed 6-slot role array (divergence 6). Onyx::Rendering::SceneRole in
 // Pipelines.h mirrors these indices for the C++ side.
 layout(set = 1, binding = 1) uniform sampler2D uRoleTex[6];
 const int ROLE_DIFFUSE = 0;

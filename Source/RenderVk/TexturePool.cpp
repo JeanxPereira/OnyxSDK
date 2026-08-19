@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-namespace Onyx::RenderVk {
+namespace Onyx::Rendering {
 
 void DeferredDestroyQueue::Retire(uint64_t retiredFrame, std::function<void()> destroy) {
     m_entries.push_back(Entry{retiredFrame, std::move(destroy)});
@@ -36,4 +36,4 @@ void DeferredDestroyQueue::CollectAll() {
     m_entries.clear();
 }
 
-} // namespace Onyx::RenderVk
+} // namespace Onyx::Rendering

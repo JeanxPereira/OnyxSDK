@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <string>
 
-namespace Onyx::RenderVk {
+namespace Onyx::Rendering {
 
 // ═══════════════════════════════════════════════════════════════════════
 // Camera convention (binding for every task that builds a view/projection
@@ -21,20 +21,20 @@ namespace Onyx::RenderVk {
 // handled in the projection, NOT negative viewport") is documented, per
 // the plan's Global Constraints section.
 //
-// `GLM_FORCE_DEPTH_ZERO_TO_ONE` is defined PRIVATE on the Onyx_RenderVk
-// CMake target (root CMakeLists.txt) -- every Onyx_RenderVk source that
+// `GLM_FORCE_DEPTH_ZERO_TO_ONE` is defined PRIVATE on the Onyx_Render
+// CMake target (root CMakeLists.txt) -- every Onyx_Render source that
 // includes a <glm/gtc/...> projection header gets Vulkan's [0,1] clip
 // depth instead of GL's [-1,1] automatically. PRIVATE, not PUBLIC: before
 // Task 11 deleted the GL renderer, this milestone's composition roots
 // (onyx-oracle, onyx_tests) linked BOTH Onyx::Render (GL) and
-// Onyx::RenderVk in the same executable, and a PUBLIC definition here was
+// Onyx::Rendering in the same executable, and a PUBLIC definition here was
 // caught leaking into Tools/OnyxOracle/CorpusScenes.cpp's GL-path
 // glm::perspective() calls, corrupting the frozen GL golden corpus (the
 // GL-render ctest that caught it, OracleMatchesGolden, died at Task 11
 // along with the GL renderer it existed to gate) -- see the CMakeLists.txt
-// comment at Onyx_RenderVk's target_compile_definitions for the full
+// comment at Onyx_Render's target_compile_definitions for the full
 // story. PRIVATE is kept on its own merits post-Task-11 too (see that same
-// CMakeLists.txt comment). Any future Vulkan camera code MUST live inside Onyx_RenderVk's
+// CMakeLists.txt comment). Any future Vulkan camera code MUST live inside Onyx_Render's
 // own sources (e.g. Source/RenderVk/SceneRendererVk.cpp, T5) to inherit
 // this define; code outside that target will not see it and must not
 // try to. This is also why Source/RenderVk/Shaders/grid.frag had to
@@ -348,4 +348,4 @@ public:
     static void Destroy(VkContext& ctx, OverlayPipeline& p);
 };
 
-} // namespace Onyx::RenderVk
+} // namespace Onyx::Rendering

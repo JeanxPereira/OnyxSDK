@@ -21,10 +21,10 @@
 // ~Window() is defined out-of-line in Window.cpp, where both types are
 // complete, which is what makes unique_ptr<incomplete-type> members legal
 // here.
-namespace Onyx::RenderVk {
+namespace Onyx::Rendering {
 class VkContext;
 class RenderContext;
-} // namespace Onyx::RenderVk
+} // namespace Onyx::Rendering
 
 namespace Onyx::App {
 
@@ -67,8 +67,8 @@ public:
     // after Window's constructor returns until ~Window() begins tearing
     // down (i.e. for the same lifetime run()'s caller already assumes for
     // getGLFWwindow()).
-    Onyx::RenderVk::VkContext&     vkContext()     { return *m_vkContext; }
-    Onyx::RenderVk::RenderContext& renderContext() { return *m_renderContext; }
+    Onyx::Rendering::VkContext&     vkContext()     { return *m_vkContext; }
+    Onyx::Rendering::RenderContext& renderContext() { return *m_renderContext; }
 
 private:
     // ── Platform-specific (implemented per OS in window/platform/) ──
@@ -123,8 +123,8 @@ private:
     // so, unlike m_workspace/m_app below, their declaration position here
     // carries no ordering contract of its own: by the time the implicit
     // destructors reach them they are already null.
-    std::unique_ptr<Onyx::RenderVk::VkContext>     m_vkContext;
-    std::unique_ptr<Onyx::RenderVk::RenderContext> m_renderContext;
+    std::unique_ptr<Onyx::Rendering::VkContext>     m_vkContext;
+    std::unique_ptr<Onyx::Rendering::RenderContext> m_renderContext;
     struct VulkanState;
     std::unique_ptr<VulkanState> m_vk;
 

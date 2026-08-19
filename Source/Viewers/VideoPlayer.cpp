@@ -609,7 +609,7 @@ void VideoPlayer::AudioCallback(ma_device *pDevice, void *pOutput,
 
 void VideoPlayer::UploadFrame(const FrameData &fd) {
   if (!m_texPool) {
-    Onyx::RenderVk::VkContext* ctx = Onyx::RenderVk::GetGlobalContext();
+    Onyx::Rendering::VkContext* ctx = Onyx::Rendering::GetGlobalContext();
     if (!ctx) {
       LOG_ERR("[VideoPlayer] '%s': no live VkContext -- cannot upload frame", m_name.c_str());
       return;

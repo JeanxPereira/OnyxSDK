@@ -44,16 +44,16 @@ add_executable(onyx_tests
     ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle/RenderReport.cpp
     ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle/ImageCompare.cpp
 )
-target_link_libraries(onyx_tests PRIVATE Onyx::Onyx Onyx::RenderVk Onyx_ExampleBox doctest::doctest imgui_lib)
+target_link_libraries(onyx_tests PRIVATE Onyx::Onyx Onyx::Render Onyx_ExampleBox doctest::doctest imgui_lib)
 target_include_directories(onyx_tests PRIVATE ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle)
 # rendervk_test.cpp is pure (no VkContext/device touched) but needs the
-# generated *_spv.h headers on its include path -- linking Onyx::RenderVk
+# generated *_spv.h headers on its include path -- linking Onyx::Render
 # brings that PUBLIC include dir transitively (onyx_add_spirv,
 # cmake/ShaderCompile.cmake); this add_dependencies is the explicit
 # build-order guarantee that the header-generation custom target actually
 # runs before onyx_tests' own sources compile (target_link_libraries alone
 # only orders the link step, not every dependent's compile step).
-add_dependencies(onyx_tests Onyx_RenderVk_spirv)
+add_dependencies(onyx_tests Onyx_Render_spirv)
 if(MSVC)
     target_compile_options(onyx_tests PRIVATE /utf-8)
 endif()

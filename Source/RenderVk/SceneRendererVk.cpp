@@ -10,7 +10,7 @@
 #include <cmath>
 #include <cstring>
 
-namespace Onyx::RenderVk {
+namespace Onyx::Rendering {
 
 using Onyx::Domain::GpuVertex;
 using Onyx::Parsers::BlendMode;
@@ -495,7 +495,7 @@ void SceneRendererVk::Render(VkCommandBuffer cmd, const glm::mat4& view, const g
     // T7 rider (adjudicated fix round): every scene rendered upside-down
     // for an entire milestone because no call site applied the documented
     // Vulkan NDC Y-flip (Pipelines.h's "Camera convention" note,
-    // Onyx::RenderVk::VulkanProjection) before calling this function --
+    // Onyx::Rendering::VulkanProjection) before calling this function --
     // see task-7-report.md's "bug #1". A flip-corrected projection always
     // has proj[1][1] < 0 (glm::perspective's own [1][1] is always
     // positive; VulkanProjection negates it). Debug-only: fails loudly at
@@ -504,7 +504,7 @@ void SceneRendererVk::Render(VkCommandBuffer cmd, const glm::mat4& view, const g
     // caller-contract check, not a runtime safety net.
     assert(proj[1][1] < 0.0f &&
            "SceneRendererVk::Render: proj[1][1] >= 0 -- did you forget "
-           "Onyx::RenderVk::VulkanProjection()? See Pipelines.h's Camera "
+           "Onyx::Rendering::VulkanProjection()? See Pipelines.h's Camera "
            "convention note.");
 
     VkViewport vp{};
@@ -965,4 +965,4 @@ void SceneRendererVk::Clear(VkContext& ctx) {
     m_instanceTransform = glm::mat4(1.0f);
 }
 
-} // namespace Onyx::RenderVk
+} // namespace Onyx::Rendering

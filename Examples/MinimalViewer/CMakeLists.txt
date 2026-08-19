@@ -8,10 +8,10 @@ file(GLOB MINIMALVIEWER_SOURCES CONFIGURE_DEPENDS
 
 add_executable(MinimalViewer ${MINIMALVIEWER_SOURCES})
 target_include_directories(MinimalViewer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Source)
-# Onyx::RenderVk rides in transitively via Onyx::Shell (T9: Window.cpp owns
+# Onyx::Render rides in transitively via Onyx::Shell (T9: Window.cpp owns
 # the VkContext/swapchain everything presents through) -- named explicitly
 # here too since Main.cpp's boot path is exactly what T9's proof run drives.
-target_link_libraries(MinimalViewer PRIVATE Onyx::Onyx Onyx::RenderVk Onyx_ExampleBox)
+target_link_libraries(MinimalViewer PRIVATE Onyx::Onyx Onyx::Render Onyx_ExampleBox)
 
 if(WIN32)
     set_target_properties(MinimalViewer PROPERTIES WIN32_EXECUTABLE $<CONFIG:Release>)

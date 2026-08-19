@@ -4,7 +4,7 @@
 #include <functional>
 #include <vector>
 
-namespace Onyx::RenderVk {
+namespace Onyx::Rendering {
 
 /// The swapchain's own frames-in-flight count (T9's Window::VulkanState::
 /// kFramesInFlight, formerly a private literal duplicated there) and every
@@ -34,12 +34,12 @@ inline constexpr uint32_t kFramesInFlight = 2;
 /// least as many frames have elapsed as the swapchain keeps in flight.
 ///
 /// Layer-placement note (T10 rider): the plan's file list names this class
-/// `Onyx::RenderVk::TexturePool` outright, but everything past this pure
+/// `Onyx::Rendering::TexturePool` outright, but everything past this pure
 /// bookkeeping -- image upload via VkContext, ImGui_ImplVulkan_AddTexture/
 /// RemoveTexture, the ImTextureID handed back to a viewer -- is an
-/// imgui_impl_vulkan backend concern, and Onyx_RenderVk is deliberately
+/// imgui_impl_vulkan backend concern, and Onyx_Render is deliberately
 /// imgui-free (no backends/*.h include, no link dependency on imgui_lib --
-/// see CMakeLists.txt's Onyx_RenderVk target comment). So the class here
+/// see CMakeLists.txt's Onyx_Render target comment). So the class here
 /// stays exactly this: no VkContext, no VkImage, no ImGui. The real,
 /// ImGui-touching `TexturePool` (which wraps one of these) lives one layer
 /// up, at Include/Onyx/App/TexturePool.h -- see that file's own top
@@ -85,4 +85,4 @@ private:
     std::vector<Entry> m_entries;
 };
 
-} // namespace Onyx::RenderVk
+} // namespace Onyx::Rendering

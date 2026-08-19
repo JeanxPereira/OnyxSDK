@@ -49,7 +49,7 @@ void ImageViewer::UploadToGPU() {
     return;
   }
 
-  Onyx::RenderVk::VkContext* ctx = Onyx::RenderVk::GetGlobalContext();
+  Onyx::Rendering::VkContext* ctx = Onyx::Rendering::GetGlobalContext();
   if (!ctx) {
     LOG_ERR("[ImageViewer] '%s': no live VkContext -- cannot upload texture", m_name.c_str());
     return;

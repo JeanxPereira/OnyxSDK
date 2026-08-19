@@ -44,7 +44,7 @@ void PrintHelp() {
         "      ONE world-space triangle covering only the upper half of a\n"
         "      second 64x64 target through SceneRendererVk::Render() with a\n"
         "      convention projection (glm::perspective then\n"
-        "      Onyx::RenderVk::VulkanProjection), asserting row 0 is covered and\n"
+        "      Onyx::Rendering::VulkanProjection), asserting row 0 is covered and\n"
         "      the last row is not (T7 fix-round rider 3(b) -- the assertion\n"
         "      that would have caught the missing NDC Y-flip at T5); tears\n"
         "      everything down. Exits 0 on success. Exit 1 if any validation\n"
@@ -188,7 +188,7 @@ bool ReadWholeFile(const fs::path& path, std::vector<char>& out) {
 // Vulkan's NDC Y points down where GL's points up (Pipelines.h's own
 // "Camera convention" note, binding for every Vulkan draw call in this
 // milestone). CorpusScene::proj is built once via a plain glm::perspective()
-// call in CorpusScenes.cpp -- a file compiled OUTSIDE Onyx_RenderVk (it is
+// call in CorpusScenes.cpp -- a file compiled OUTSIDE Onyx_Render (it is
 // part of the onyx-oracle executable, shared verbatim by the GL
 // render-corpus path, which needs no correction and must never get one --
 // see CMakeLists.txt's own account of the PUBLIC-define leak that once
@@ -211,7 +211,7 @@ bool ReadWholeFile(const fs::path& path, std::vector<char>& out) {
 // corpus and this task's mandate is parity against the frozen goldens, not
 // a speculative camera-matrix rewrite.
 // T7 fix round (adjudicated): the correction itself now has a name --
-// Onyx::RenderVk::VulkanProjection (Include/Onyx/RenderVk/Pipelines.h,
+// Onyx::Rendering::VulkanProjection (Include/Onyx/RenderVk/Pipelines.h,
 // right next to the Camera convention note this comment used to
 // duplicate) -- so every future Vulkan camera call site in this codebase
 // applies the SAME helper instead of each reinventing "negate [1][1]" on
@@ -219,7 +219,7 @@ bool ReadWholeFile(const fs::path& path, std::vector<char>& out) {
 // first time). VkProj is now a thin alias kept only so this file's two
 // call sites read the same as before.
 glm::mat4 VkProj(const glm::mat4& proj) {
-    return Onyx::RenderVk::VulkanProjection(proj);
+    return Onyx::Rendering::VulkanProjection(proj);
 }
 
 // ── vk-scene-smoke (T5) ─────────────────────────────────────────────────
@@ -230,22 +230,22 @@ glm::mat4 VkProj(const glm::mat4& proj) {
 // the stronger reproducibility claim task 5's brief asks for: not just "the
 // same draw commands replay identically" but "building the scene from
 // scratch a second time produces byte-identical GPU state and output."
-bool RenderSceneTwice(Onyx::RenderVk::VkContext& ctx, const Onyx::RenderVk::ScenePipelines& scenePipes,
+bool RenderSceneTwice(Onyx::Rendering::VkContext& ctx, const Onyx::Rendering::ScenePipelines& scenePipes,
                        const Onyx::Parsers::SceneData& scene, const glm::mat4& view, const glm::mat4& proj,
                        Onyx::Rendering::ShadingMode mode, int w, int h, const float clearColor[4],
                        std::vector<uint8_t>& rgbaA, std::vector<uint8_t>& rgbaB, std::string& err) {
     auto renderOnce = [&](std::vector<uint8_t>& out) -> bool {
-        Onyx::RenderVk::OffscreenTarget target;
+        Onyx::Rendering::OffscreenTarget target;
         if (!target.Create(ctx, w, h, err)) return false;
 
-        Onyx::RenderVk::SceneRendererVk renderer;
+        Onyx::Rendering::SceneRendererVk renderer;
         if (!renderer.Build(ctx, scenePipes, scene, err)) {
             renderer.Clear(ctx);
             target.Destroy(ctx);
             return false;
         }
 
-        bool ok = Onyx::RenderVk::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
+        bool ok = Onyx::Rendering::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
             target.BeginFrame(cmd, clearColor);
             renderer.Render(cmd, view, VkProj(proj), mode, w, h);
             target.EndFrame(cmd);
@@ -348,13 +348,13 @@ void ClearRectPass(VkCommandBuffer cmd, int x, int y, int w, int h, const float 
 // scene draw and EndFrame -- exactly the point in the frame T9's Shell will
 // call RenderContext::Execute() from (see RenderContext.h's class doc
 // comment). `passCtx` is null for a plain "no pass" baseline render.
-bool RenderBlendStackWithPasses(Onyx::RenderVk::VkContext& ctx, const Onyx::RenderVk::ScenePipelines& scenePipes,
-                                 const CorpusScene& cs, Onyx::RenderVk::RenderContext* passCtx,
+bool RenderBlendStackWithPasses(Onyx::Rendering::VkContext& ctx, const Onyx::Rendering::ScenePipelines& scenePipes,
+                                 const CorpusScene& cs, Onyx::Rendering::RenderContext* passCtx,
                                  std::vector<uint8_t>& out, std::string& err) {
-    Onyx::RenderVk::OffscreenTarget target;
+    Onyx::Rendering::OffscreenTarget target;
     if (!target.Create(ctx, cs.width, cs.height, err)) return false;
 
-    Onyx::RenderVk::SceneRendererVk renderer;
+    Onyx::Rendering::SceneRendererVk renderer;
     if (!renderer.Build(ctx, scenePipes, cs.scene, err)) {
         renderer.Clear(ctx);
         target.Destroy(ctx);
@@ -362,11 +362,11 @@ bool RenderBlendStackWithPasses(Onyx::RenderVk::VkContext& ctx, const Onyx::Rend
     }
 
     const float clearColor[4] = {0.10f, 0.11f, 0.13f, 1.0f};
-    bool ok = Onyx::RenderVk::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
+    bool ok = Onyx::Rendering::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
         target.BeginFrame(cmd, clearColor);
         renderer.Render(cmd, cs.view, VkProj(cs.proj), cs.mode, cs.width, cs.height);
         if (passCtx) {
-            Onyx::RenderVk::FrameHandles handles{ctx.Device(), ctx.GraphicsQueue(), cmd,
+            Onyx::Rendering::FrameHandles handles{ctx.Device(), ctx.GraphicsQueue(), cmd,
                                                   ctx.GraphicsFamily(), ctx.Allocator()};
             passCtx->Execute(handles);
         }
@@ -422,23 +422,23 @@ bool CornerTintOnlyInRect(const std::vector<uint8_t>& base, const std::vector<ui
 }
 
 int RunVkSceneSmoke() {
-    Onyx::RenderVk::VkContext ctx;
+    Onyx::Rendering::VkContext ctx;
     std::string err;
     if (!ctx.Init(/*presentSupport=*/false, err)) {
         std::fprintf(stderr, "skip: %s\n", err.c_str());
         return 77;
     }
 
-    Onyx::RenderVk::ScenePipelines scenePipes;
-    if (!Onyx::RenderVk::Pipelines::CreateScene(ctx, scenePipes, err)) {
+    Onyx::Rendering::ScenePipelines scenePipes;
+    if (!Onyx::Rendering::Pipelines::CreateScene(ctx, scenePipes, err)) {
         std::fprintf(stderr, "vk-scene-smoke: %s\n", err.c_str());
         ctx.Shutdown();
         return 1;
     }
-    Onyx::RenderVk::BackgroundPipeline bgPipe;
-    if (!Onyx::RenderVk::Pipelines::CreateBackground(ctx, bgPipe, err)) {
+    Onyx::Rendering::BackgroundPipeline bgPipe;
+    if (!Onyx::Rendering::Pipelines::CreateBackground(ctx, bgPipe, err)) {
         std::fprintf(stderr, "vk-scene-smoke: %s\n", err.c_str());
-        Onyx::RenderVk::Pipelines::Destroy(ctx, scenePipes);
+        Onyx::Rendering::Pipelines::Destroy(ctx, scenePipes);
         ctx.Shutdown();
         return 1;
     }
@@ -605,12 +605,12 @@ int RunVkSceneSmoke() {
         const float bgClear[4] = {0.0f, 0.0f, 0.0f, 1.0f};
 
         auto renderBg = [&](std::vector<uint8_t>& out) -> bool {
-            Onyx::RenderVk::OffscreenTarget target;
+            Onyx::Rendering::OffscreenTarget target;
             if (!target.Create(ctx, kW, kH, err)) return false;
 
-            Onyx::RenderVk::SceneRendererVk renderer;
+            Onyx::Rendering::SceneRendererVk renderer;
             bool bgOk = true;
-            bool ok = Onyx::RenderVk::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
+            bool ok = Onyx::Rendering::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
                 target.BeginFrame(cmd, bgClear);
                 bgOk = renderer.RenderBackground(ctx, bgPipe, cmd, glm::vec3(1.0f, 0.0f, 0.0f),
                                                  glm::vec3(0.0f, 0.0f, 1.0f), err);
@@ -681,9 +681,9 @@ int RunVkSceneSmoke() {
             rc = 1;
         } else {
             // ── (a) a single pass tints a 16x16 top-left corner ─────────
-            Onyx::RenderVk::RenderContext passCtx;
+            Onyx::Rendering::RenderContext passCtx;
             const float magenta[4] = {1.0f, 0.0f, 1.0f, 1.0f};
-            passCtx.AddPass("corner-tint", [&](const Onyx::RenderVk::FrameHandles& h) {
+            passCtx.AddPass("corner-tint", [&](const Onyx::Rendering::FrameHandles& h) {
                 ClearRectPass(h.cmd, 0, 0, 16, 16, magenta);
             });
 
@@ -720,13 +720,13 @@ int RunVkSceneSmoke() {
                         err.c_str());
             rc = 1;
         } else {
-            Onyx::RenderVk::RenderContext passCtx;
+            Onyx::Rendering::RenderContext passCtx;
             bool secondRan = false;
-            passCtx.AddPass("throws", [&](const Onyx::RenderVk::FrameHandles&) {
+            passCtx.AddPass("throws", [&](const Onyx::Rendering::FrameHandles&) {
                 throw std::runtime_error("T8 contained-throw smoke: deliberate pass failure");
             });
             const float cyan[4] = {0.0f, 1.0f, 1.0f, 1.0f};
-            passCtx.AddPass("second-visible", [&](const Onyx::RenderVk::FrameHandles& h) {
+            passCtx.AddPass("second-visible", [&](const Onyx::Rendering::FrameHandles& h) {
                 secondRan = true;
                 ClearRectPass(h.cmd, blend.width - 16, blend.height - 16, 16, 16, cyan);
             });
@@ -763,8 +763,8 @@ int RunVkSceneSmoke() {
         }
     }
 
-    Onyx::RenderVk::Pipelines::Destroy(ctx, bgPipe);
-    Onyx::RenderVk::Pipelines::Destroy(ctx, scenePipes);
+    Onyx::Rendering::Pipelines::Destroy(ctx, bgPipe);
+    Onyx::Rendering::Pipelines::Destroy(ctx, scenePipes);
     ctx.Shutdown();
 
     if (rc == 0 && ctx.ValidationMessageCount() != 0) {
@@ -787,23 +787,23 @@ int RunVkSceneSmoke() {
 // goldens, and what `verify`/OracleReproducible renders twice to confirm
 // byte-identical output.
 int RunRenderCorpusVk(const fs::path& outDir) {
-    Onyx::RenderVk::VkContext ctx;
+    Onyx::Rendering::VkContext ctx;
     std::string err;
     if (!ctx.Init(/*presentSupport=*/false, err)) {
         std::fprintf(stderr, "render-corpus: %s\n", err.c_str());
         return 77;
     }
 
-    Onyx::RenderVk::ScenePipelines scenePipes;
-    if (!Onyx::RenderVk::Pipelines::CreateScene(ctx, scenePipes, err)) {
+    Onyx::Rendering::ScenePipelines scenePipes;
+    if (!Onyx::Rendering::Pipelines::CreateScene(ctx, scenePipes, err)) {
         std::fprintf(stderr, "render-corpus: %s\n", err.c_str());
         ctx.Shutdown();
         return 1;
     }
-    Onyx::RenderVk::BackgroundPipeline bgPipe;
-    if (!Onyx::RenderVk::Pipelines::CreateBackground(ctx, bgPipe, err)) {
+    Onyx::Rendering::BackgroundPipeline bgPipe;
+    if (!Onyx::Rendering::Pipelines::CreateBackground(ctx, bgPipe, err)) {
         std::fprintf(stderr, "render-corpus: %s\n", err.c_str());
-        Onyx::RenderVk::Pipelines::Destroy(ctx, scenePipes);
+        Onyx::Rendering::Pipelines::Destroy(ctx, scenePipes);
         ctx.Shutdown();
         return 1;
     }
@@ -826,14 +826,14 @@ int RunRenderCorpusVk(const fs::path& outDir) {
     int rc = 0;
     std::vector<CorpusScene> corpus = Onyx::OracleTool::BuildCorpus();
     for (const CorpusScene& cs : corpus) {
-        Onyx::RenderVk::OffscreenTarget target;
+        Onyx::Rendering::OffscreenTarget target;
         if (!target.Create(ctx, cs.width, cs.height, err)) {
             std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
             rc = 1;
             break;
         }
 
-        Onyx::RenderVk::SceneRendererVk renderer;
+        Onyx::Rendering::SceneRendererVk renderer;
         if (!renderer.Build(ctx, scenePipes, cs.scene, err)) {
             std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
             renderer.Clear(ctx);
@@ -843,7 +843,7 @@ int RunRenderCorpusVk(const fs::path& outDir) {
         }
 
         bool bgOk = true;
-        bool ok = Onyx::RenderVk::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
+        bool ok = Onyx::Rendering::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
             target.BeginFrame(cmd, clearColor);
             bgOk = renderer.RenderBackground(ctx, bgPipe, cmd, topColor, bottomColor, err);
             renderer.Render(cmd, cs.view, VkProj(cs.proj), cs.mode, cs.width, cs.height);
@@ -913,8 +913,8 @@ int RunRenderCorpusVk(const fs::path& outDir) {
         target.Destroy(ctx);
     }
 
-    Onyx::RenderVk::Pipelines::Destroy(ctx, bgPipe);
-    Onyx::RenderVk::Pipelines::Destroy(ctx, scenePipes);
+    Onyx::Rendering::Pipelines::Destroy(ctx, bgPipe);
+    Onyx::Rendering::Pipelines::Destroy(ctx, scenePipes);
     ctx.Shutdown();
 
     if (rc == 0 && ctx.ValidationMessageCount() != 0) {
@@ -1071,7 +1071,7 @@ int RunCompare(const fs::path& dirA, const fs::path& dirB, int maxChannelDelta,
 
 int main(int argc, char** argv) {
     if (argc >= 2 && std::strcmp(argv[1], "--vk-smoke") == 0) {
-        Onyx::RenderVk::VkContext ctx;
+        Onyx::Rendering::VkContext ctx;
         std::string err;
         if (!ctx.Init(/*presentSupport=*/false, err)) {
             std::fprintf(stderr, "skip: %s\n", err.c_str());
@@ -1097,7 +1097,7 @@ int main(int argc, char** argv) {
             }
         }
 
-        Onyx::RenderVk::Image2D img = Onyx::RenderVk::Resources::CreateImage2D(
+        Onyx::Rendering::Image2D img = Onyx::Rendering::Resources::CreateImage2D(
             ctx, kImgW, kImgH, VK_FORMAT_R8G8B8A8_UNORM,
             VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT,
             err);
@@ -1107,14 +1107,14 @@ int main(int argc, char** argv) {
             return 1;
         }
 
-        if (!Onyx::RenderVk::Resources::UploadImage(ctx, img, checker.data(), err)) {
+        if (!Onyx::Rendering::Resources::UploadImage(ctx, img, checker.data(), err)) {
             std::fprintf(stderr, "%s\n", err.c_str());
-            Onyx::RenderVk::Resources::Destroy(ctx, img);
+            Onyx::Rendering::Resources::Destroy(ctx, img);
             ctx.Shutdown();
             return 1;
         }
 
-        Onyx::RenderVk::Resources::Destroy(ctx, img);
+        Onyx::Rendering::Resources::Destroy(ctx, img);
 
         // T4 smoke: OffscreenTarget's byte-exact readback, plus the
         // orientation assertion the task-4 brief demands be VERIFIED, not
@@ -1132,7 +1132,7 @@ int main(int argc, char** argv) {
         //      target to be usable top-down by T7's byte comparisons
         //      against the GL goldens.
         {
-            Onyx::RenderVk::OffscreenTarget target;
+            Onyx::Rendering::OffscreenTarget target;
             constexpr int kW = 64, kH = 64;
             if (!target.Create(ctx, kW, kH, err)) {
                 std::fprintf(stderr, "%s\n", err.c_str());
@@ -1142,7 +1142,7 @@ int main(int argc, char** argv) {
 
             // -- 1) full-clear byte-exactness --
             const float clearColor[4] = {0.20f, 0.40f, 0.60f, 1.0f};
-            bool ok = Onyx::RenderVk::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
+            bool ok = Onyx::Rendering::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
                 target.BeginFrame(cmd, clearColor);
                 target.EndFrame(cmd);
             }, err);
@@ -1201,7 +1201,7 @@ int main(int argc, char** argv) {
             const uint8_t kBottomColor[4] = {0, 0, 255, 255};
             const float bottomClear[4] = {0.0f, 0.0f, 1.0f, 1.0f};
 
-            ok = Onyx::RenderVk::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
+            ok = Onyx::Rendering::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
                 target.BeginFrame(cmd, bottomClear);
 
                 VkClearAttachment clearAttach{};
@@ -1280,7 +1280,7 @@ int main(int argc, char** argv) {
         // T7 fix round, adjudicator-mandated rider 3(b): draw ONE world-
         // space triangle covering only the upper half of a 64x64 target
         // through a "convention projection" (glm::perspective, THEN
-        // Onyx::RenderVk::VulkanProjection -- the exact two-step sequence
+        // Onyx::Rendering::VulkanProjection -- the exact two-step sequence
         // every real Vulkan camera call site must follow), and assert row
         // 0 is covered by the triangle while the last row is not. This is
         // the assertion that would have caught T5's missing NDC Y-flip --
@@ -1292,8 +1292,8 @@ int main(int argc, char** argv) {
         // itself (not a hand-rolled pipeline) so this test exercises the
         // SAME code path that had the bug.
         {
-            Onyx::RenderVk::ScenePipelines triPipes;
-            if (!Onyx::RenderVk::Pipelines::CreateScene(ctx, triPipes, err)) {
+            Onyx::Rendering::ScenePipelines triPipes;
+            if (!Onyx::Rendering::Pipelines::CreateScene(ctx, triPipes, err)) {
                 std::fprintf(stderr, "vk-smoke: orientation-triangle: %s\n", err.c_str());
                 ctx.Shutdown();
                 return 1;
@@ -1338,16 +1338,16 @@ int main(int argc, char** argv) {
             constexpr int kTriW = 64, kTriH = 64;
             const float triClear[4] = {0.0f, 0.0f, 0.0f, 1.0f};
             const glm::mat4 triView(1.0f); // identity: camera at world origin, looking down -Z
-            const glm::mat4 triProj = Onyx::RenderVk::VulkanProjection(
+            const glm::mat4 triProj = Onyx::Rendering::VulkanProjection(
                 glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 100.0f));
 
-            Onyx::RenderVk::OffscreenTarget triTarget;
+            Onyx::Rendering::OffscreenTarget triTarget;
             bool triOk = triTarget.Create(ctx, kTriW, kTriH, err);
-            Onyx::RenderVk::SceneRendererVk triRenderer;
+            Onyx::Rendering::SceneRendererVk triRenderer;
             if (triOk) triOk = triRenderer.Build(ctx, triPipes, triScene, err);
             std::vector<uint8_t> triRgba;
             if (triOk) {
-                triOk = Onyx::RenderVk::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
+                triOk = Onyx::Rendering::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
                     triTarget.BeginFrame(cmd, triClear);
                     triRenderer.Render(cmd, triView, triProj, Onyx::Rendering::ShadingMode::Solid,
                                        kTriW, kTriH);
@@ -1360,7 +1360,7 @@ int main(int argc, char** argv) {
                 std::fprintf(stderr, "vk-smoke: orientation-triangle: %s\n", err.c_str());
                 triRenderer.Clear(ctx);
                 triTarget.Destroy(ctx);
-                Onyx::RenderVk::Pipelines::Destroy(ctx, triPipes);
+                Onyx::Rendering::Pipelines::Destroy(ctx, triPipes);
                 ctx.Shutdown();
                 return 1;
             }
@@ -1384,7 +1384,7 @@ int main(int argc, char** argv) {
                              lastRowErr.c_str());
                 triRenderer.Clear(ctx);
                 triTarget.Destroy(ctx);
-                Onyx::RenderVk::Pipelines::Destroy(ctx, triPipes);
+                Onyx::Rendering::Pipelines::Destroy(ctx, triPipes);
                 ctx.Shutdown();
                 return 1;
             }
@@ -1396,7 +1396,7 @@ int main(int argc, char** argv) {
 
             triRenderer.Clear(ctx);
             triTarget.Destroy(ctx);
-            Onyx::RenderVk::Pipelines::Destroy(ctx, triPipes);
+            Onyx::Rendering::Pipelines::Destroy(ctx, triPipes);
         }
 
         ctx.Shutdown();
@@ -1419,7 +1419,7 @@ int main(int argc, char** argv) {
         // in its own CLI mode (never folded into --vk-smoke above) so the
         // ordinary smoke's "zero validation messages" assertion is never
         // touched by this deliberately-broken path.
-        Onyx::RenderVk::VkContext ctx;
+        Onyx::Rendering::VkContext ctx;
         std::string err;
         if (!ctx.Init(/*presentSupport=*/false, err)) {
             std::fprintf(stderr, "skip: %s\n", err.c_str());
@@ -1433,7 +1433,7 @@ int main(int argc, char** argv) {
             return 77;
         }
 
-        Onyx::RenderVk::Buffer original = Onyx::RenderVk::Resources::CreateBuffer(
+        Onyx::Rendering::Buffer original = Onyx::Rendering::Resources::CreateBuffer(
             ctx, 64, VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY, err);
         if (original.buf == VK_NULL_HANDLE) {
             std::fprintf(stderr, "%s\n", err.c_str());
@@ -1461,8 +1461,8 @@ int main(int argc, char** argv) {
         // already-destroyed handle, records the error via DebugCallback,
         // and does not forward the call to the driver -- no VMA state is
         // touched a second time, so nothing crashes.
-        Onyx::RenderVk::Buffer staleCopy = original;
-        Onyx::RenderVk::Resources::Destroy(ctx, original);
+        Onyx::Rendering::Buffer staleCopy = original;
+        Onyx::Rendering::Resources::Destroy(ctx, original);
         vkDestroyBuffer(ctx.Device(), staleCopy.buf, nullptr);
 
         ctx.Shutdown();

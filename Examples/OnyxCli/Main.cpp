@@ -10,7 +10,7 @@
 //       Decodes `entry` through the Scene capability and rasterizes it
 //       headlessly via Onyx::Cli::CmdRender (Source/Cli/Render.cpp, linked
 //       into this executable's own target, which is the one place
-//       Onyx_Core and Onyx::RenderVk may meet without a link cycle).
+//       Onyx_Core and Onyx::Rendering may meet without a link cycle).
 //   write-render-fixture <path>
 //       Writes a canonical OBX1 file holding one kind=3 (mesh) entry named
 //       "cube" -- the fixture Examples/OnyxCli/RenderTest.cmake's

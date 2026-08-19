@@ -13,9 +13,9 @@
 
 namespace Onyx::App {
 
-using Onyx::RenderVk::Buffer;
-using Onyx::RenderVk::Image2D;
-using Onyx::RenderVk::Resources;
+using Onyx::Rendering::Buffer;
+using Onyx::Rendering::Image2D;
+using Onyx::Rendering::Resources;
 
 namespace {
 inline ImTextureID ToTexId(VkDescriptorSet set) {
@@ -35,7 +35,7 @@ inline ImTextureID ToTexId(VkDescriptorSet set) {
 // pre-copy barrier is a queue-scoped acquire against exactly that read
 // (srcStage=FRAGMENT_SHADER, srcAccess=SHADER_SAMPLED_READ) instead of
 // UploadImage's generic UNDEFINED-path masks.
-bool ReuploadFromShaderRead(Onyx::RenderVk::VkContext& ctx, Image2D& dst, const void* rgba,
+bool ReuploadFromShaderRead(Onyx::Rendering::VkContext& ctx, Image2D& dst, const void* rgba,
                              std::string& err) {
     const VkDeviceSize size = static_cast<VkDeviceSize>(dst.width) * dst.height * 4;
 
@@ -109,13 +109,13 @@ bool ReuploadFromShaderRead(Onyx::RenderVk::VkContext& ctx, Image2D& dst, const 
 }
 } // namespace
 
-TexturePool::TexturePool(Onyx::RenderVk::VkContext& ctx, uint32_t framesInFlight)
+TexturePool::TexturePool(Onyx::Rendering::VkContext& ctx, uint32_t framesInFlight)
     : m_ctx(ctx), m_framesInFlight(framesInFlight) {}
 
 TexturePool::~TexturePool() {
     // Shutdown-order guard (T10 disclosed gap -- see task-10-report.md's
     // Concerns): Window::exitVulkan() clears the process-wide accessor
-    // (Onyx::RenderVk::SetGlobalContext(nullptr)) as the FIRST thing it
+    // (Onyx::Rendering::SetGlobalContext(nullptr)) as the FIRST thing it
     // does, before destroying a single Vulkan handle -- but Window's own
     // VkContext member is destroyed only once ~Window()'s later, implicit
     // member destructors run, which is AFTER m_app (and therefore every
@@ -129,7 +129,7 @@ TexturePool::~TexturePool() {
     // null means it is not safe to touch m_ctx at all, so every entry
     // below is deliberately leaked instead of risking UB -- the process is
     // exiting either way.
-    if (Onyx::RenderVk::GetGlobalContext() == nullptr) {
+    if (Onyx::Rendering::GetGlobalContext() == nullptr) {
         m_live.clear();
         return;
     }
@@ -251,7 +251,7 @@ ImTextureID TexturePool::RegisterExternalView(VkImageView view, VkImageLayout la
 
 void TexturePool::RetireEntry(Entry entry) {
     const uint64_t retiredFrame = static_cast<uint64_t>(ImGui::GetFrameCount());
-    Onyx::RenderVk::VkContext* ctx = &m_ctx;
+    Onyx::Rendering::VkContext* ctx = &m_ctx;
     m_queue.Retire(retiredFrame, [ctx, entry]() mutable {
         if (entry.descriptor != VK_NULL_HANDLE)
             ImGui_ImplVulkan_RemoveTexture(entry.descriptor);

@@ -12,7 +12,7 @@
 // owners -- Include/Onyx/Rendering/ShaderManager.h and
 // Include/Onyx/Rendering/SceneRenderer.h -- were deleted along with the
 // rest of the GL renderer. Both symbols were ALREADY reused by
-// Onyx::RenderVk::SceneRendererVk (see that class's own former "RenderBatch
+// Onyx::Rendering::SceneRendererVk (see that class's own former "RenderBatch
 // reuse" comment) and by Tools/OnyxOracle/RenderReport.h/CorpusScenes.h --
 // deleting their old owners outright would have broken those live
 // consumers, so the shared pieces move here first rather than die with the
@@ -45,7 +45,7 @@ enum class ShadingMode {
 /// A single renderable batch: one mesh part + its resolved material.
 /// Was declared in the now-deleted SceneRenderer.h; renderer-agnostic by
 /// construction (see the field comments below) so both the retired GL
-/// SceneRenderer and Onyx::RenderVk::SceneRendererVk fill the exact same
+/// SceneRenderer and Onyx::Rendering::SceneRendererVk fill the exact same
 /// shape -- GetBatches() order and field values are what Tools/OnyxOracle's
 /// byte-stable report pins across both renderers.
 struct RenderBatch {
@@ -87,7 +87,7 @@ struct RenderBatch {
 /// static Onyx::Rendering::SceneRenderer method; the definition now lives
 /// in Source/Rendering/RenderBatch.cpp, a link-complete part of the
 /// surviving Render layer (closes the Task-11 "link-completeness" defect:
-/// Onyx::RenderVk::SceneRendererVk::Build calls this, and previously the
+/// Onyx::Rendering::SceneRendererVk::Build calls this, and previously the
 /// only definition lived in the now-deleted GL-only SceneRenderer.cpp).
 std::array<int, 9> ResolveRoleIndices(const Parsers::MaterialDesc& mat);
 

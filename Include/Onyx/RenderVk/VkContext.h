@@ -1,15 +1,15 @@
 #pragma once
 
-// ── Include-order rule for all of Onyx::RenderVk ────────────────────────────
+// ── Include-order rule for all of Onyx::Rendering ────────────────────────────
 // volk owns Vulkan symbol resolution in this codebase: every function is
 // called through a volk-loaded pointer, never through a loader import lib.
 // That only works if VK_NO_PROTOTYPES is defined before <vulkan/vulkan.h> is
 // first preprocessed anywhere in the translation unit -- volk.h does this
-// itself (and the Onyx_RenderVk target also defines it explicitly, so the
+// itself (and the Onyx_Render target also defines it explicitly, so the
 // rule holds even for a TU that pulls in a Vulkan header before this one).
 //
 // Consequence: NEVER `#include <vulkan/vulkan.h>` directly, in this
-// directory or anywhere that links Onyx::RenderVk. Always `#include <volk.h>`
+// directory or anywhere that links Onyx::Rendering. Always `#include <volk.h>`
 // first (or exclusively) -- every later Vulkan header (vk_mem_alloc.h
 // included) picks up volk's already-configured vulkan.h through its own
 // `#include <vulkan/vulkan.h>` and the include guard makes that a no-op.
@@ -21,7 +21,7 @@
 #include <cstdint>
 #include <string>
 
-namespace Onyx::RenderVk {
+namespace Onyx::Rendering {
 
 /// Snapshot of what VkContext::Init actually picked, for diagnostics and the
 /// --vk-smoke report. Filled in only on a successful Init.
@@ -126,7 +126,7 @@ private:
 // touch call sites well outside this task's file list for zero benefit
 // over the pattern this codebase already uses for the exact same problem
 // (Onyx::Api's global facade over AppConfig/ViewerRegistry/DocumentWindow)
-// -- this is that same idiom, just placed low enough (Onyx_RenderVk, the
+// -- this is that same idiom, just placed low enough (Onyx_Render, the
 // one layer both Onyx_Shell and Onyx_Media already link) to be reachable
 // from both without recreating Onyx::Api's link-cycle problem.
 //
@@ -138,4 +138,4 @@ private:
 void       SetGlobalContext(VkContext* ctx);
 VkContext* GetGlobalContext();
 
-} // namespace Onyx::RenderVk
+} // namespace Onyx::Rendering

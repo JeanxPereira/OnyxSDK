@@ -4,8 +4,8 @@
 // vk_mem_alloc.h, before any other Vulkan-touching header. VkResources.h
 // (pulled in below, via VkContext.h) already honors that, so this file
 // does not need to repeat the pair itself.
-#include <Onyx/RenderVk/TexturePool.h> // Onyx::RenderVk::DeferredDestroyQueue
-#include <Onyx/RenderVk/VkResources.h> // Onyx::RenderVk::Image2D
+#include <Onyx/RenderVk/TexturePool.h> // Onyx::Rendering::DeferredDestroyQueue
+#include <Onyx/RenderVk/VkResources.h> // Onyx::Rendering::Image2D
 
 #include <imgui.h>
 
@@ -13,32 +13,32 @@
 #include <string>
 #include <unordered_map>
 
-namespace Onyx::RenderVk { class VkContext; }
+namespace Onyx::Rendering { class VkContext; }
 
 namespace Onyx::App {
 
 // ═══════════════════════════════════════════════════════════════════════
 // Layer-placement note (T10 rider): the M4 plan's file list names this
-// class `Onyx::RenderVk::TexturePool` (Include/Onyx/RenderVk/TexturePool.
+// class `Onyx::Rendering::TexturePool` (Include/Onyx/RenderVk/TexturePool.
 // {h,cpp}) outright. It does not live there. Everything this class
 // actually does past the raw image upload -- ImGui_ImplVulkan_AddTexture/
 // RemoveTexture, handing back a plain ImTextureID a viewer passes straight
 // to ImGui::Image() -- is an imgui_impl_vulkan backend concern, and
-// Onyx_RenderVk is deliberately imgui-free: no backends/*.h include, no
-// link dependency on imgui_lib (see CMakeLists.txt's Onyx_RenderVk target
+// Onyx_Render is deliberately imgui-free: no backends/*.h include, no
+// link dependency on imgui_lib (see CMakeLists.txt's Onyx_Render target
 // comment, which predates this task and already states that constraint
 // for T9's own Window.cpp). Putting an ImGui-touching class inside
-// Onyx_RenderVk would either violate that (if the .cpp really includes
-// imgui_impl_vulkan.h) or silently not compile (Onyx_RenderVk has no
+// Onyx_Render would either violate that (if the .cpp really includes
+// imgui_impl_vulkan.h) or silently not compile (Onyx_Render has no
 // imgui include path at all).
 //
 // So the class is split in two, one layer apart:
-//   - Onyx::RenderVk::DeferredDestroyQueue (Include/Onyx/RenderVk/
+//   - Onyx::Rendering::DeferredDestroyQueue (Include/Onyx/RenderVk/
 //     TexturePool.h) is the pure, Vulkan-and-ImGui-free N-frames-in-flight
 //     bookkeeping -- pure-tested in Tests/rendervk_test.cpp with no
 //     device, per the plan's own testing note.
 //   - This class wraps one of those, adds the actual VkImage upload
-//     (Onyx::RenderVk::Resources) and the actual ImGui_ImplVulkan_*
+//     (Onyx::Rendering::Resources) and the actual ImGui_ImplVulkan_*
 //     registration, and lives in the Shell layer instead -- specifically
 //     Onyx_Shell AND Onyx_Media both (see this file's .cpp for why it is
 //     compiled twice rather than once).
@@ -65,13 +65,13 @@ namespace Onyx::App {
 // descriptor when it runs.
 class TexturePool {
 public:
-    // Default framesInFlight = Onyx::RenderVk::kFramesInFlight (T10 fix-
+    // Default framesInFlight = Onyx::Rendering::kFramesInFlight (T10 fix-
     // round-1): the SAME symbol Window's own swapchain frame-sync uses,
     // not an independently-hardcoded literal that could silently diverge
     // from it -- see that constant's own doc comment (Include/Onyx/
     // RenderVk/TexturePool.h) for why that divergence would matter.
-    explicit TexturePool(Onyx::RenderVk::VkContext& ctx,
-                         uint32_t framesInFlight = Onyx::RenderVk::kFramesInFlight);
+    explicit TexturePool(Onyx::Rendering::VkContext& ctx,
+                         uint32_t framesInFlight = Onyx::Rendering::kFramesInFlight);
     ~TexturePool();
 
     TexturePool(const TexturePool&) = delete;
@@ -135,7 +135,7 @@ public:
 
 private:
     struct Entry {
-        Onyx::RenderVk::Image2D image;      // default (img==VK_NULL_HANDLE) for an external-view entry
+        Onyx::Rendering::Image2D image;      // default (img==VK_NULL_HANDLE) for an external-view entry
         VkDescriptorSet         descriptor = VK_NULL_HANDLE;
         uint32_t                width = 0, height = 0;
         bool                    external = false; // true: image/view not owned by this pool
@@ -144,10 +144,10 @@ private:
     ImTextureID RegisterView(VkImageView view, VkImageLayout layout, std::string& err);
     void        RetireEntry(Entry entry);
 
-    Onyx::RenderVk::VkContext&           m_ctx;
+    Onyx::Rendering::VkContext&           m_ctx;
     uint32_t                             m_framesInFlight;
     std::unordered_map<uint64_t, Entry>  m_live; // key: descriptor set reinterpreted as the ImTextureID handed out
-    Onyx::RenderVk::DeferredDestroyQueue m_queue;
+    Onyx::Rendering::DeferredDestroyQueue m_queue;
 };
 
 } // namespace Onyx::App

@@ -51,9 +51,9 @@ namespace {
 // triple-buffering could update this literal and silently under-retire
 // every pooled texture (destroying a descriptor/image a still-in-flight
 // third frame slot could be reading). Now the SAME symbol
-// Onyx::RenderVk::kFramesInFlight (Include/Onyx/RenderVk/TexturePool.h)
+// Onyx::Rendering::kFramesInFlight (Include/Onyx/RenderVk/TexturePool.h)
 // backs both -- see that constant's own doc comment.
-constexpr uint32_t kFramesInFlight = Onyx::RenderVk::kFramesInFlight;
+constexpr uint32_t kFramesInFlight = Onyx::Rendering::kFramesInFlight;
 
 void ImGuiVulkanCheckResult(VkResult err) {
     if (err == VK_SUCCESS) return;
@@ -235,7 +235,7 @@ Window::~Window() {
     // member-destruction order until AFTER this whole ~Window() body
     // finishes (m_app is declared below m_vkContext/m_vk in this class),
     // which is AFTER exitVulkan() would otherwise have already cleared
-    // Onyx::RenderVk::GetGlobalContext() and torn down the device --
+    // Onyx::Rendering::GetGlobalContext() and torn down the device --
     // caught live: without this call, a still-open ImageViewer/Viewport3D
     // tab's TexturePool-owned VkImage was never destroyed before
     // vmaDestroyAllocator() ran, tripping VMA's own
@@ -332,8 +332,8 @@ void Window::initGLFW() {
 
 void Window::initVulkan() {
     m_vk = std::make_unique<VulkanState>();
-    m_vkContext = std::make_unique<Onyx::RenderVk::VkContext>();
-    m_renderContext = std::make_unique<Onyx::RenderVk::RenderContext>();
+    m_vkContext = std::make_unique<Onyx::Rendering::VkContext>();
+    m_renderContext = std::make_unique<Onyx::Rendering::RenderContext>();
 
     std::string err;
     if (!m_vkContext->Init(/*presentSupport=*/true, err)) {
@@ -391,13 +391,13 @@ void Window::initVulkan() {
              static_cast<int>(m_vk->swapchainFormat), kFramesInFlight);
 
     // T10: publish this Window's VkContext through the process-wide
-    // accessor (Onyx::RenderVk::GetGlobalContext()) so viewers constructed
+    // accessor (Onyx::Rendering::GetGlobalContext()) so viewers constructed
     // with no reference back to this Window (Viewport3D/ImageViewer/
     // VideoPlayer -- see that function's own doc comment) can still reach
     // it. Set only after Init() has fully succeeded (every early-exit
     // above calls std::exit(-1) rather than returning, so this line is
     // only ever reached with a live context).
-    Onyx::RenderVk::SetGlobalContext(m_vkContext.get());
+    Onyx::Rendering::SetGlobalContext(m_vkContext.get());
 }
 
 // -- createSwapchain / destroySwapchain / recreateSwapchain --------------------
@@ -412,7 +412,7 @@ void Window::createSwapchain(uint32_t width, uint32_t height) {
         return;
     }
 
-    Onyx::RenderVk::VkContext& ctx = *m_vkContext;
+    Onyx::Rendering::VkContext& ctx = *m_vkContext;
 
     VkSurfaceCapabilitiesKHR caps{};
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(ctx.Physical(), m_vk->surface, &caps);
@@ -717,7 +717,7 @@ void Window::initImGui() {
 
     ImGui_ImplGlfw_InitForVulkan(m_window, true);
 
-    Onyx::RenderVk::VkContext& ctx = *m_vkContext;
+    Onyx::Rendering::VkContext& ctx = *m_vkContext;
 
     ImGui_ImplVulkan_InitInfo initInfo{};
     initInfo.ApiVersion       = ctx.Info().apiVersion;
@@ -774,10 +774,10 @@ void Window::exitVulkan() {
     if (!m_vkContext) return;
 
     // Clear the global accessor before touching a single Vulkan handle:
-    // any viewer's TexturePool that fetches Onyx::RenderVk::GetGlobalContext()
+    // any viewer's TexturePool that fetches Onyx::Rendering::GetGlobalContext()
     // from here on gets nullptr (its own lazy-init check treats that as
     // "no Vulkan available yet/anymore"), never a context mid-teardown.
-    Onyx::RenderVk::SetGlobalContext(nullptr);
+    Onyx::Rendering::SetGlobalContext(nullptr);
 
     VkDevice device = m_vkContext->Device();
     if (device != VK_NULL_HANDLE)
@@ -1078,7 +1078,7 @@ void Window::presentFrame() {
     // directly onto the swapchain image gets exactly one hook, right here,
     // before ImGui's own overlay. Nothing registers a pass yet in T9; this
     // wires the mechanism T10+ (and any raw-floor consumer) draws through.
-    Onyx::RenderVk::FrameHandles handles{device, m_vkContext->GraphicsQueue(), cmd,
+    Onyx::Rendering::FrameHandles handles{device, m_vkContext->GraphicsQueue(), cmd,
                                           m_vkContext->GraphicsFamily(), m_vkContext->Allocator()};
     m_renderContext->Execute(handles);
 

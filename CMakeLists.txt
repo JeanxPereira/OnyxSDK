@@ -235,7 +235,7 @@ set(VOLK_PULL_IN_VULKAN OFF CACHE BOOL "" FORCE)
 set(VOLK_INSTALL        OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(volk)
 target_link_libraries(volk PUBLIC Vulkan::Headers)
-# PUBLIC (not just on Onyx_RenderVk): volk.c itself must be compiled with
+# PUBLIC (not just on Onyx_Render): volk.c itself must be compiled with
 # VK_USE_PLATFORM_WIN32_KHR for the Win32 platform entry points (e.g.
 # vkGetPhysicalDeviceWin32PresentationSupportKHR) to exist as link symbols
 # at all -- a downstream-only define would leave volk.c compiled without
@@ -378,10 +378,10 @@ set(ONYX_MEDIA_SOURCES
 # comment). JointPalette.cpp no longer needs the dual-target compile trick
 # a prior version of this comment explained: that existed only so the GL
 # and Vulkan renderers could share one physical source file without
-# Onyx_RenderVk linking Onyx_Render (GL's link libs); now that Onyx_Render
+# Onyx_Render linking Onyx_Render (GL's link libs); now that Onyx_Render
 # is gone, there is only one renderer target, so JointPalette.cpp has one
 # normal home like everything else here.
-set(ONYX_RENDERVK_SOURCES
+set(ONYX_RENDER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/AnimationPlayer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/Camera.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/JointPalette.cpp
@@ -458,7 +458,7 @@ endif()
 file(GLOB_RECURSE _onyx_all_cpp CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp")
 set(_onyx_listed ${ONYX_CORE_SOURCES}
-                 ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES} ${ONYX_RENDERVK_SOURCES})
+                 ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES} ${ONYX_RENDER_SOURCES})
 foreach(_f ${_onyx_all_cpp})
     if(NOT _f IN_LIST _onyx_listed)
         message(FATAL_ERROR "Source file not assigned to a layer: ${_f}")
@@ -490,28 +490,28 @@ add_library(Onyx::Core ALIAS Onyx_Core)
 onyx_apply_common(Onyx_Core)
 target_link_libraries(Onyx_Core PUBLIC glm::glm lz4_lib)
 
-# ── Onyx::RenderVk — Vulkan 1.3 renderer; Core + volk + VMA only ─────────
+# ── Onyx::Render — Vulkan 1.3 renderer; Core + volk + VMA only ───────────
 # T9 links this PUBLIC into Onyx::Shell below (Window.cpp owns the
 # VkContext/swapchain/RenderContext the whole app presents through). Task
 # 11 deleted Onyx::Render (GL), which used to be linked alongside this one
 # in every composition root (Shell, onyx-oracle, onyx_tests) -- this is now
 # the only renderer target in the tree. See
 # docs/design/2026-08-18-onyx-v1-architecture.md §8.
-add_library(Onyx_RenderVk STATIC ${ONYX_RENDERVK_SOURCES})
-add_library(Onyx::RenderVk ALIAS Onyx_RenderVk)
-onyx_apply_common(Onyx_RenderVk)
-target_compile_definitions(Onyx_RenderVk PUBLIC
+add_library(Onyx_Render STATIC ${ONYX_RENDER_SOURCES})
+add_library(Onyx::Render ALIAS Onyx_Render)
+onyx_apply_common(Onyx_Render)
+target_compile_definitions(Onyx_Render PUBLIC
     VK_NO_PROTOTYPES
     VMA_STATIC_VULKAN_FUNCTIONS=0)
 # T3's fixed camera convention (Include/Onyx/RenderVk/Pipelines.h's "Camera
-# convention" note): every Onyx_RenderVk source that builds a projection
+# convention" note): every Onyx_Render source that builds a projection
 # matrix via <glm/gtc/matrix_transform.hpp> gets Vulkan's [0,1] clip-space Z
 # instead of GL's [-1,1]. PRIVATE, deliberately not PUBLIC: it must stay
-# confined to Onyx_RenderVk's own sources (SceneRendererVk.cpp/Camera.cpp/
+# confined to Onyx_Render's own sources (SceneRendererVk.cpp/Camera.cpp/
 # RenderBatch.cpp/...) -- every consumer outside this target (Tools/
 # OnyxOracle/CorpusScenes.cpp, Examples/OnyxCli/Render.cpp) instead builds
 # with plain glm::perspective() (GL's [-1,1] convention) and converts
-# explicitly via Onyx::RenderVk::VulkanProjection() before handing the
+# explicitly via Onyx::Rendering::VulkanProjection() before handing the
 # matrix to SceneRendererVk::Render(), which Debug-asserts that conversion
 # was not forgotten (Pipelines.h's own note). A PUBLIC definition here was
 # tried during the original M4 Vulkan bring-up and caught live: back when
@@ -523,8 +523,8 @@ target_compile_definitions(Onyx_RenderVk PUBLIC
 # assert-checked conversion point; a transitive macro would be a second,
 # implicit one), so it stays PRIVATE rather than widening it just because
 # the original incident's other party is gone.
-target_compile_definitions(Onyx_RenderVk PRIVATE GLM_FORCE_DEPTH_ZERO_TO_ONE)
-target_link_libraries(Onyx_RenderVk PUBLIC
+target_compile_definitions(Onyx_Render PRIVATE GLM_FORCE_DEPTH_ZERO_TO_ONE)
+target_link_libraries(Onyx_Render PUBLIC
     Onyx_Core
     volk::volk
     Vulkan::Headers
@@ -532,8 +532,8 @@ target_link_libraries(Onyx_RenderVk PUBLIC
 # T3: compile Source/RenderVk/Shaders/*.vert|*.frag to embedded SPIR-V
 # headers (cmake/ShaderCompile.cmake) -- must run after the target and its
 # link libraries exist (onyx_add_spirv adds an include dir + a build-order
-# dependency onto Onyx_RenderVk itself).
-onyx_add_spirv(Onyx_RenderVk
+# dependency onto Onyx_Render itself).
+onyx_add_spirv(Onyx_Render
     Source/RenderVk/Shaders/scene.vert
     Source/RenderVk/Shaders/scene.frag
     Source/RenderVk/Shaders/grid.vert
@@ -554,7 +554,7 @@ target_compile_definitions(Onyx_Shell PUBLIC
     $<$<PLATFORM_ID:Darwin>:GLFW_EXPOSE_NATIVE_COCOA>)
 target_link_libraries(Onyx_Shell PUBLIC
     Onyx_Core
-    Onyx_RenderVk
+    Onyx_Render
     imgui_lib
     implot_lib
     imgui_color_text_edit
@@ -569,13 +569,13 @@ if(ONYX_COMPONENT_MEDIA)
     add_library(Onyx_Media STATIC ${ONYX_MEDIA_SOURCES})
     add_library(Onyx::Media ALIAS Onyx_Media)
     onyx_apply_common(Onyx_Media)
-    # Onyx_RenderVk (T10): VideoPlayer's own compiled copy of
+    # Onyx_Render (T10): VideoPlayer's own compiled copy of
     # Source/App/TexturePool.cpp (see ONYX_MEDIA_SOURCES' comment above)
-    # needs Onyx::RenderVk::Resources/VkContext to upload frames as Vulkan
+    # needs Onyx::Rendering::Resources/VkContext to upload frames as Vulkan
     # textures -- Onyx_Media cannot link Onyx_Shell to reach the same
     # symbols (that would be the real link cycle the dual-compile avoids),
     # but linking the lower RenderVk layer directly is cycle-free.
-    target_link_libraries(Onyx_Media PUBLIC Onyx_Core Onyx_RenderVk imgui_lib miniaudio ffmpeg_lib)
+    target_link_libraries(Onyx_Media PUBLIC Onyx_Core Onyx_Render imgui_lib miniaudio ffmpeg_lib)
     target_link_libraries(Onyx_Shell PUBLIC Onyx_Media)
 endif()
 
@@ -584,7 +584,7 @@ endif()
 # them until they opt into a thinner slice (e.g. Core+Render for a CLI).
 add_library(Onyx INTERFACE)
 add_library(Onyx::Onyx ALIAS Onyx)
-target_link_libraries(Onyx INTERFACE Onyx_Core Onyx_RenderVk Onyx_Shell)
+target_link_libraries(Onyx INTERFACE Onyx_Core Onyx_Render Onyx_Shell)
 
 # ── Platform libraries, homed on the layer that needs each ───────────────
 # opengl32/-framework OpenGL/GL (the GL renderer's own system link libs)
@@ -658,13 +658,13 @@ if(ONYX_BUILD_TESTS)
         endif()
     endforeach()
     # Task 11: this list source switched from the deleted ONYX_RENDER_SOURCES
-    # (GL) to ONYX_RENDERVK_SOURCES -- the Render layer LayerGuard now guards
+    # (GL) to ONYX_RENDER_SOURCES -- the Render layer LayerGuard now guards
     # is the surviving (Vulkan) one, which is also why the forbidden pattern
     # below widened to include glad/GL/: the deleted GL renderer was the only
     # code that ever legitimately included them, so their reappearance in
     # this layer would now always be a regression, not just a style choice.
     set(_lg_render "")
-    foreach(_f ${ONYX_RENDERVK_SOURCES})
+    foreach(_f ${ONYX_RENDER_SOURCES})
         list(APPEND _lg_render "${_f}")
         string(REGEX REPLACE ".*/Source/(.*)\\.cpp$" "\\1" _rel "${_f}")
         if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Include/Onyx/${_rel}.h")

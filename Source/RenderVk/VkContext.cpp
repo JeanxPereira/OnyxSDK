@@ -3,7 +3,7 @@
 #include <cstring>
 #include <vector>
 
-namespace Onyx::RenderVk {
+namespace Onyx::Rendering {
 
 namespace {
 
@@ -37,7 +37,7 @@ bool DeviceExtensionAvailable(VkPhysicalDevice pd, const char* name) {
 // T9 rider: the portable equivalent of that pre-surface query is GLFW's own
 // glfwGetPhysicalDevicePresentationSupport(instance, pd, family) -- but
 // VkContext must never include GLFW (this directory's binding rule: no
-// GLFW in Onyx_RenderVk sources, see the plan's Global Constraints and the
+// GLFW in Onyx_Render sources, see the plan's Global Constraints and the
 // task-9 brief). So on non-Windows platforms this function stays
 // permissive at the device-selection stage; presentSupport there only
 // gates the VK_KHR_swapchain extension request below. The REAL check for
@@ -370,4 +370,4 @@ VkContext* g_globalContext = nullptr;
 void SetGlobalContext(VkContext* ctx) { g_globalContext = ctx; }
 VkContext* GetGlobalContext() { return g_globalContext; }
 
-} // namespace Onyx::RenderVk
+} // namespace Onyx::Rendering

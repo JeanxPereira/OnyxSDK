@@ -12,7 +12,7 @@
 #include <memory>
 #include <imgui.h>
 
-// Forward-declared only, never included here -- Onyx::RenderVk::VkContext
+// Forward-declared only, never included here -- Onyx::Rendering::VkContext
 // (and every other Vulkan-touching type this class needs: ScenePipelines,
 // OffscreenTarget, SceneRendererVk, ...) pulls in volk.h, which on Windows
 // pulls in <windows.h> for VK_USE_PLATFORM_WIN32_KHR. Viewport3D.h is a
@@ -25,12 +25,12 @@
 // `VulkanState` struct below -- the same forward-declare + unique_ptr<
 // incomplete-type> pattern Include/Onyx/App/Window.h already established
 // for exactly this reason (see that header's own top comment).
-namespace Onyx::RenderVk { class VkContext; }
+namespace Onyx::Rendering { class VkContext; }
 namespace Onyx::App { class TexturePool; }
 
 namespace Onyx::Viewers {
 
-// T10: renders through Onyx::RenderVk::SceneRendererVk into a VkContext-
+// T10: renders through Onyx::Rendering::SceneRendererVk into a VkContext-
 // owned OffscreenTarget, replacing the GL FBO pair + Onyx::Rendering::
 // SceneRenderer this class used before T9 removed the GL context Window
 // keeps current. See Source/Viewers/Viewport3D.cpp's top comment for the
@@ -110,7 +110,7 @@ private:
     // forward-declared, .cpp-only struct rather than plain members ───────
     struct VulkanState;
     std::unique_ptr<VulkanState> m_vk;
-    Onyx::RenderVk::VkContext* m_ctx = nullptr; // non-owning, Onyx::RenderVk::GetGlobalContext()
+    Onyx::Rendering::VkContext* m_ctx = nullptr; // non-owning, Onyx::Rendering::GetGlobalContext()
     bool m_vkReady = false; // VulkanState's pipelines created successfully
     std::unique_ptr<Onyx::App::TexturePool> m_texPool;
     ImTextureID m_displayTexId = 0;

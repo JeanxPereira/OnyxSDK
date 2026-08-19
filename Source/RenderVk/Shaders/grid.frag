@@ -21,7 +21,7 @@
 // draw what RenderSkeleton's OWN vertex/state setup calls for (a
 // world-space pos+color line buffer, GL_LINES, depth test OFF, blended).
 // Source/RenderVk/Shaders/overlay.vert/overlay.frag plus
-// Onyx::RenderVk::OverlayPipeline (Pipelines.h) now exist for that; T6
+// Onyx::Rendering::OverlayPipeline (Pipelines.h) now exist for that; T6
 // uses those, not this file.
 //
 //  1. gl_VertexID -> gl_VertexIndex (grid.vert): GLSL 450/Vulkan naming,

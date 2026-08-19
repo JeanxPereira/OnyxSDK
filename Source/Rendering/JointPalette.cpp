@@ -10,10 +10,12 @@
 // glm::perspective/ortho/frustum/project/unProject -- pure rest-pose/
 // local-TRS math has no business touching a clip-space/NDC-Z convention.
 // (Before Task 11 deleted the GL renderer, this file compiled twice --
-// once into Onyx_Render, once into Onyx_RenderVk PRIVATE-defining
-// GLM_FORCE_DEPTH_ZERO_TO_ONE -- and a clip-space call here would have
-// compiled to two silently different NDC-Z results; that specific danger
-// is gone with the twin-compile, the rule itself stays.)
+// once into the GL Onyx_Render, once into the Vulkan renderer (this
+// target, renamed Onyx_RenderVk -> Onyx_Render in Task 11's own rename
+// commit) PRIVATE-defining GLM_FORCE_DEPTH_ZERO_TO_ONE -- and a
+// clip-space call here would have compiled to two silently different
+// NDC-Z results; that specific danger is gone with the twin-compile, the
+// rule itself stays.)
 
 namespace Onyx::Rendering {
 

@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <exception>
 
-namespace Onyx::RenderVk {
+namespace Onyx::Rendering {
 
 int RenderContext::AddPass(std::string name, std::function<void(const FrameHandles&)> fn) {
     const int id = m_nextId++;
@@ -57,4 +57,4 @@ void RenderContext::Execute(const FrameHandles& handles) {
     }
 }
 
-} // namespace Onyx::RenderVk
+} // namespace Onyx::Rendering

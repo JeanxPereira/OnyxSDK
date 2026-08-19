@@ -1,12 +1,14 @@
 # -- OnyxOracle -- headless Vulkan reference renderer (oracle corpus) -------
-# Renders scenes off-screen through Onyx::RenderVk and writes PNGs checked
-# against the frozen GL goldens (Tests/Golden/corpus, produced before
-# Task 11 deleted the GL renderer that made them -- kept as the permanent
-# parity anchor VkOracleParity below still compares against). No UI: links
-# only Onyx::RenderVk -- Task 11 proved this standalone (no glfw, no
-# AppConfigStub.cpp, no Onyx::Render): see that task's report for the
-# link-completeness fixes (ResolveRoleIndices + Camera's AppConfig read)
-# that made it possible.
+# Renders scenes off-screen through Onyx::Render (the Vulkan renderer,
+# renamed from Onyx::RenderVk in Task 11's mechanical rename commit) and
+# writes PNGs checked against the frozen GL goldens (Tests/Golden/corpus,
+# produced before that same task deleted the GL renderer that made them --
+# kept as the permanent parity anchor VkOracleParity below still compares
+# against). No UI: links only Onyx::Render -- Task 11 proved this
+# standalone (no glfw, no AppConfigStub.cpp, no linking the old GL
+# renderer alongside it, since that renderer is gone entirely): see that
+# task's report for the link-completeness fixes (ResolveRoleIndices +
+# Camera's AppConfig read) that made it possible.
 add_executable(onyx-oracle
     Main.cpp
     PngWrite.cpp
@@ -17,7 +19,7 @@ add_executable(onyx-oracle
     RenderReport.cpp
 )
 target_include_directories(onyx-oracle PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb)
-target_link_libraries(onyx-oracle PRIVATE Onyx::RenderVk)
+target_link_libraries(onyx-oracle PRIVATE Onyx::Render)
 onyx_apply_common(onyx-oracle)
 
 # VkBootSmoke -- Init(false)
