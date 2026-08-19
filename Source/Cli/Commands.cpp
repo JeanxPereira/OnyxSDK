@@ -159,10 +159,12 @@ bool IsSafeEntryName(std::string_view name) {
     return true;
 }
 
-// Writes every non-Failed leaf entry's payload bytes to outDir/<entry-name>.
-// A "leaf" is an entry with no children -- container/branch nodes carry no
-// payload of their own to copy. Failed entries are skipped: their declared
-// range is known-bad (that is exactly why the parser flagged them).
+// Writes every non-Failed leaf entry's payload bytes to outDir/<entry-name>
+// -- or, for an entry whose bytes come from a mounted inner file
+// (fileIndex != 0), to outDir/<fileIndex>/<entry-name>. A "leaf" is an
+// entry with no children -- container/branch nodes carry no payload of
+// their own to copy. Failed entries are skipped: their declared range is
+// known-bad (that is exactly why the parser flagged them).
 //
 // `fileTable` is the owning Document's file table (Task 7): slot 0 is
 // always the root container file; slot 1+ are inner files a mount-aware
@@ -170,6 +172,14 @@ bool IsSafeEntryName(std::string_view name) {
 // fileTable[e.source.fileIndex] -- an out-of-range index is a salvage
 // failure for that one entry (an error line, then keep going), never a
 // reason to abort the whole extract.
+//
+// The per-fileIndex subdirectory (Task 8) exists because a mount can hand
+// back several inner files whose entries reuse the same name (e.g. two
+// inner containers inside an obxpak, each with a "shared.txt"): writing
+// both flat into outDir would let the second overwrite the first. A plain
+// single-file container (fileIndex 0 on every entry, e.g. flat .obx) is
+// unaffected -- its entries still land directly in outDir, exactly as
+// before this scoping was added.
 void ExtractEntries(std::ostream& out, const std::vector<Domain::AssetEntry>& entries,
                      const std::filesystem::path& outDir,
                      const std::vector<std::shared_ptr<Vfs::IFile>>& fileTable) {
@@ -199,7 +209,14 @@ void ExtractEntries(std::ostream& out, const std::vector<Domain::AssetEntry>& en
             got = file.Read(buf.data(), e.source.size);
         }
 
-        const std::filesystem::path outPath = outDir / e.name;
+        const std::filesystem::path targetDir = e.source.fileIndex == 0
+                ? outDir
+                : outDir / std::to_string(e.source.fileIndex);
+        if (targetDir != outDir) {
+            std::error_code mkec;
+            std::filesystem::create_directories(targetDir, mkec);
+        }
+        const std::filesystem::path outPath = targetDir / e.name;
         {
             std::ofstream ofs(outPath, std::ios::binary);
             if (!buf.empty()) {

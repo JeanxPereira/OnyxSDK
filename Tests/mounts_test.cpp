@@ -7,6 +7,8 @@
 #include <Onyx/Vfs/IFile.h>
 #include <Onyx/Vfs/IVirtualFileSystem.h>
 
+#include <OnyxBoxModule.h>
+
 #include <chrono>
 #include <cstdint>
 #include <cstdio>       // SEEK_SET, SEEK_CUR, SEEK_END
@@ -19,6 +21,8 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 using namespace Onyx::Modules;
@@ -31,6 +35,92 @@ std::filesystem::path write_temp_file(const std::string& name, const std::string
     f << contents;
     f.close();
     return path;
+}
+
+// ── OBXPAK end-to-end fixture builders (Task 8) ─────────────────────────────
+// Local to this file, in the same spirit as cli_test.cpp's WriteSampleBox
+// helpers: each test file keeps its own fixture builders so the TEST_CASE
+// sets stay independent.
+
+void PutU16LE(std::vector<uint8_t>& buf, uint16_t v) {
+    buf.push_back(uint8_t(v & 0xFF));
+    buf.push_back(uint8_t((v >> 8) & 0xFF));
+}
+
+void PutU32LE(std::vector<uint8_t>& buf, uint32_t v) {
+    buf.push_back(uint8_t(v & 0xFF));
+    buf.push_back(uint8_t((v >> 8) & 0xFF));
+    buf.push_back(uint8_t((v >> 16) & 0xFF));
+    buf.push_back(uint8_t((v >> 24) & 0xFF));
+}
+
+// Builds one OBX1 container's raw bytes from a list of (name, kind,
+// payload) TOC entries, laid out back-to-back exactly as OnyxBoxModule
+// expects. When `corruptLast` is true, the LAST entry's declared
+// payloadOffset is pushed far past EOF and its payload bytes are never
+// actually appended (mirrors cli_test.cpp's WriteSampleBox "bad" entry) --
+// every earlier entry's offset is unaffected since nothing before it moved.
+std::vector<uint8_t> BuildObx(
+        const std::vector<std::tuple<std::string, uint8_t, std::string>>& entries,
+        bool corruptLast = false) {
+    uint32_t headerSize = 4 + 4;
+    for (const auto& [name, kind, payload] : entries) {
+        (void)kind; (void)payload;
+        headerSize += uint32_t(2 + name.size() + 1 + 4 + 4);
+    }
+
+    std::vector<uint8_t> buf;
+    buf.insert(buf.end(), {uint8_t('O'), uint8_t('B'), uint8_t('X'), uint8_t('1')});
+    PutU32LE(buf, uint32_t(entries.size()));
+
+    uint32_t cursor = headerSize;
+    for (size_t i = 0; i < entries.size(); ++i) {
+        const auto& [name, kind, payload] = entries[i];
+        const bool corrupt = corruptLast && i + 1 == entries.size();
+        const uint32_t off = corrupt ? headerSize + 1000000u : cursor;
+        PutU16LE(buf, uint16_t(name.size()));
+        buf.insert(buf.end(), name.begin(), name.end());
+        buf.push_back(kind);
+        PutU32LE(buf, off);
+        PutU32LE(buf, uint32_t(payload.size()));
+        if (!corrupt) cursor += uint32_t(payload.size());
+    }
+    for (size_t i = 0; i < entries.size(); ++i) {
+        const bool corrupt = corruptLast && i + 1 == entries.size();
+        if (corrupt) continue;   // its declared offset points past EOF -- no bytes to write
+        const auto& payload = std::get<2>(entries[i]);
+        buf.insert(buf.end(), payload.begin(), payload.end());
+    }
+    return buf;
+}
+
+// Builds an OBXPAK's raw bytes: magic "OBP1", u32 count, then per file
+// u32 nameLen | name | u32 size | raw bytes of a complete OBX1 container.
+std::vector<uint8_t> BuildObxPak(
+        const std::vector<std::pair<std::string, std::vector<uint8_t>>>& files) {
+    std::vector<uint8_t> buf;
+    buf.insert(buf.end(), {uint8_t('O'), uint8_t('B'), uint8_t('P'), uint8_t('1')});
+    PutU32LE(buf, uint32_t(files.size()));
+    for (const auto& [name, bytes] : files) {
+        PutU32LE(buf, uint32_t(name.size()));
+        buf.insert(buf.end(), name.begin(), name.end());
+        PutU32LE(buf, uint32_t(bytes.size()));
+        buf.insert(buf.end(), bytes.begin(), bytes.end());
+    }
+    return buf;
+}
+
+std::filesystem::path write_temp_bytes(const std::string& name, const std::vector<uint8_t>& bytes) {
+    auto path = std::filesystem::temp_directory_path() / name;
+    std::ofstream f(path, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
+    f.close();
+    return path;
+}
+
+std::string read_file_string(const std::filesystem::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
 }
 
 // In-memory IFile over a fixed byte buffer -- stands in for an inner file a
@@ -299,13 +389,17 @@ TEST_CASE("Extract: fileIndex 1 reads bytes from fileTable[1], not the root cont
     int rc = Onyx::Cli::CmdExtract(ws, path, outDir, out);
     CHECK(rc == Onyx::Cli::kOk);
 
-    REQUIRE(std::filesystem::exists(outDir / "inner.bin"));
+    // Task 8: entries whose bytes come from a mounted inner file
+    // (fileIndex != 0) land under outDir/<fileIndex>/ rather than flat in
+    // outDir -- this entry's fileIndex is 1 (MountFake pushes it as the
+    // first thing appended after the pre-seeded root slot).
+    REQUIRE(std::filesystem::exists(outDir / "1" / "inner.bin"));
     std::string content;
     {
         // Scoped so the handle closes before remove_all below -- Windows
         // refuses to delete a directory containing a file still open for
         // read.
-        std::ifstream f(outDir / "inner.bin", std::ios::binary);
+        std::ifstream f(outDir / "1" / "inner.bin", std::ios::binary);
         content.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
     }
     CHECK(content == "INNER-BYTES");   // from fileTable[1] (the mount), not "ROOT-FILE-CONTENT"
@@ -328,11 +422,14 @@ TEST_CASE("Extract: an out-of-range fileIndex is skipped with an error line, oth
 
     const std::string text = out.str();
     CHECK(text.find("error 'ghost.bin': file index 99 out of range") != std::string::npos);
+    // An out-of-range fileIndex never even resolves a target directory --
+    // ghost.bin exists in neither outDir nor a per-fileIndex subdirectory.
     CHECK_FALSE(std::filesystem::exists(outDir / "ghost.bin"));
+    CHECK_FALSE(std::filesystem::exists(outDir / "99" / "ghost.bin"));
 
     // The other, valid entry (fileIndex 1) was still extracted despite the
     // bogus one -- a salvage failure on one entry never aborts the extract.
-    REQUIRE(std::filesystem::exists(outDir / "inner.bin"));
+    REQUIRE(std::filesystem::exists(outDir / "1" / "inner.bin"));
 
     std::filesystem::remove_all(outDir);
     std::filesystem::remove(path);
@@ -483,5 +580,97 @@ TEST_CASE("MountSpec: a throwing mount factory is contained on OpenAsync") {
         }
         CHECK(sawMountThrew);
     }
+    std::filesystem::remove(path);
+}
+
+// Task 8: the mounted example, end to end. OnyxBox's real .obxpak mount --
+// not a test fake -- proven through Cli::Commands exactly as a real
+// consumer would use it: probe picks it up, list --json shows both inner
+// containers as subtrees, extract lands each container's bytes correctly,
+// a corrupt entry inside one container is salvaged (skipped, not aborted),
+// and --strict surfaces the resulting Error diag.
+//
+// The KEY assertion is anti-root-file-misread: both inner OBX containers
+// declare an entry named "shared.txt" but with DIFFERENT bytes. If extract
+// ever read through the wrong file (the pak's own bytes, or the other
+// inner container's), the byte-for-byte checks below would catch it.
+TEST_CASE("OnyxBox obxpak: mounted pak proven end to end through Cli::Commands") {
+    auto boxA = BuildObx({{"shared.txt", 2, "FROM-BOX-A"}});
+    auto boxB = BuildObx({{"shared.txt", 2, "FROM-BOX-B"},
+                           {"corrupt.bin", 0, "xxxx"}},
+                          /*corruptLast=*/true);
+
+    auto pakBytes = BuildObxPak({{"boxA.obx", boxA}, {"boxB.obx", boxB}});
+    auto path = write_temp_bytes("onyx_mounts_test_obxpak.obxpak", pakBytes);
+
+    auto outDir = std::filesystem::temp_directory_path() / "onyx_mounts_obxpak_out";
+    std::filesystem::remove_all(outDir);
+
+    Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(std::make_unique<OnyxBox::OnyxBoxModule>());
+
+    // probe: OBP1 magic scores at the same confidence tier as OBX1 (95),
+    // and obx is the winner.
+    {
+        std::ostringstream out;
+        int rc = Onyx::Cli::CmdProbe(ws, path, out);
+        CHECK(rc == Onyx::Cli::kOk);
+        const std::string text = out.str();
+        CHECK(text.find("winner: obx") != std::string::npos);
+        CHECK(text.find("95") != std::string::npos);
+    }
+
+    // list --json: two subtrees (one per inner OBX), each carrying a
+    // "shared.txt" child; the corrupt entry inside boxB shows failed:true.
+    {
+        std::ostringstream out;
+        int rc = Onyx::Cli::CmdList(ws, path, /*json=*/true, out);
+        CHECK(rc == Onyx::Cli::kOk);
+        const std::string text = out.str();
+        CHECK(text.find("\"name\":\"boxA.obx\"") != std::string::npos);
+        CHECK(text.find("\"name\":\"boxB.obx\"") != std::string::npos);
+
+        size_t sharedCount = 0;
+        for (size_t pos = text.find("\"name\":\"shared.txt\"");
+             pos != std::string::npos;
+             pos = text.find("\"name\":\"shared.txt\"", pos + 1)) {
+            ++sharedCount;
+        }
+        CHECK(sharedCount == 2);
+
+        CHECK(text.find("\"name\":\"corrupt.bin\"") != std::string::npos);
+        CHECK(text.find("\"failed\":true") != std::string::npos);
+    }
+
+    // extract: each container's "shared.txt" lands byte-identical to ITS
+    // OWN fixture bytes -- never the pak's own bytes, never the sibling
+    // container's bytes for the same name. The corrupt entry is skipped
+    // (no file written) with its error line in the output.
+    {
+        std::ostringstream out;
+        int rc = Onyx::Cli::CmdExtract(ws, path, outDir, out);
+        CHECK(rc == Onyx::Cli::kOk);
+
+        // fileTable[0] = the pak file itself; [1] = boxA.obx (mounted
+        // first, in TOC order); [2] = boxB.obx.
+        REQUIRE(std::filesystem::exists(outDir / "1" / "shared.txt"));
+        REQUIRE(std::filesystem::exists(outDir / "2" / "shared.txt"));
+        CHECK(read_file_string(outDir / "1" / "shared.txt") == "FROM-BOX-A");
+        CHECK(read_file_string(outDir / "2" / "shared.txt") == "FROM-BOX-B");
+
+        CHECK_FALSE(std::filesystem::exists(outDir / "2" / "corrupt.bin"));
+        CHECK(out.str().find("obx.entry.range") != std::string::npos);
+    }
+
+    // --strict: this document's parse produced an Error diag (boxB's
+    // corrupt entry), so even an unrelated successful decode still exits
+    // kStrictErrors.
+    {
+        std::ostringstream out;
+        int rc = Onyx::Cli::CmdDecode(ws, path, "shared.txt", /*strict=*/true, out);
+        CHECK(rc == Onyx::Cli::kStrictErrors);
+    }
+
+    std::filesystem::remove_all(outDir);
     std::filesystem::remove(path);
 }
