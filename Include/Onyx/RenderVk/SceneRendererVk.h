@@ -12,11 +12,11 @@
 // struct moved homes at Task 11 -- see Include/Onyx/Rendering/RenderBatch.h's
 // own top comment for the full story, this note keeps the parts still
 // load-bearing here): Tools/OnyxOracle/RenderReport.{h,cpp} ALREADY takes
-// std::vector<Rendering::RenderBatch> directly, and RenderBatch.h only
-// forward-declares `GLuint` as `using GLuint = unsigned int;` -- it does
-// NOT include glad, so pulling it in here does not violate Onyx_Render's
-// "no GL calls/headers" rule (verified: no GL header, no GL function call,
-// just a plain integer typedef reused as a bookkeeping field).
+// std::vector<Rendering::RenderBatch> directly, and RenderBatch.h's texture
+// slot fields are plain `uint32_t` handles -- it does NOT include glad, so
+// pulling it in here does not violate Onyx_Render's "no GL calls/headers"
+// rule (verified: no GL header, no GL function call, just a plain integer
+// reused as a bookkeeping field).
 // RenderBatch's only non-trivial member is `std::shared_ptr<GpuMesh>`,
 // which SceneRendererVk never constructs (it stays null-initialized;
 // Vulkan geometry lives in this file's own GpuBatch, not in a GpuMesh) --
@@ -35,7 +35,7 @@
 // exactly the parity property task 5 existed to establish and Task 7's
 // VkOracleParity still leans on today.
 //
-// The `GLuint texture0/texture1/texNormal/texAO/texGloss/texScatter`
+// The `uint32_t texture0/texture1/texNormal/texAO/texGloss/texScatter`
 // fields are populated here as plain nonzero/zero SENTINELS (never a real
 // GPU handle of any kind) -- their only consumers are RenderReport's
 // CountBoundRoleTextures (nonzero => bound) and this struct's own
@@ -215,8 +215,8 @@ public:
 private:
     /// The real Vulkan-side GPU resources for one batch -- index-aligned
     /// with m_batches (m_gpuBatches[i] belongs to m_batches[i]). Kept
-    /// separate from Rendering::RenderBatch (whose GLuint fields are
-    /// sentinels only, per the top-of-file note) rather than folded into
+    /// separate from Rendering::RenderBatch (whose uint32_t texture-slot
+    /// fields are sentinels only, per the top-of-file note) rather than folded into
     /// it, so the reused bookkeeping struct never has to grow a
     /// Vulkan-shaped field GL callers of the same struct don't expect.
     struct GpuBatch {

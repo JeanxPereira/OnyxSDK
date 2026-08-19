@@ -14,10 +14,10 @@
 // "\n" (never emitted via anything that could turn into "\r\n"), and no
 // timestamps, paths, or pointers anywhere in the output.
 //
-// This header pulls in Rendering::RenderBatch.h for RenderBatch, which only
-// forward-declares GLuint (= unsigned int) -- it does NOT include glad, so
-// RenderReport.{h,cpp} stay GL-free (there is no GL left to depend on) and
-// can be exercised from doctest without any GPU context, same as
+// This header pulls in Rendering::RenderBatch.h for RenderBatch, whose
+// texture-slot fields are plain uint32_t handles -- it does NOT include
+// glad, so RenderReport.{h,cpp} stay GL-free (there is no GL left to depend
+// on) and can be exercised from doctest without any GPU context, same as
 // CorpusTextures and CorpusScenes.
 
 #include <Onyx/Rendering/RenderBatch.h>
