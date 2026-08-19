@@ -13,7 +13,7 @@ layout(location = 5) in vec4  aBoneWeights;
 layout(location = 6) in uvec4 aBoneIndices;
 layout(location = 7) in vec4  aTangent;
 
-// set 0 = per-frame (Include/Onyx/RenderVk/Pipelines.h: SceneFrameUBO).
+// set 0 = per-frame (Include/Onyx/Rendering/Pipelines.h: SceneFrameUBO).
 layout(std140, set = 0, binding = 0) uniform FrameUBO {
     mat4 uView;
     mat4 uProjection;
@@ -21,7 +21,7 @@ layout(std140, set = 0, binding = 0) uniform FrameUBO {
     int  uShadingMode;   // 0 = Solid, 2 = Textured — see scene.frag divergence 3
 };
 
-// set 1 = per-batch material (Include/Onyx/RenderVk/Pipelines.h:
+// set 1 = per-batch material (Include/Onyx/Rendering/Pipelines.h:
 // SceneMaterialUBO). Flags bit layout mirrors Onyx::Rendering::SceneFlags.
 layout(std140, set = 1, binding = 0) uniform MaterialUBO {
     vec4  uBaseColor;
@@ -116,7 +116,7 @@ void main() {
 
     // Clip-space Y/Z conventions differ from GL (GLM_FORCE_DEPTH_ZERO_TO_ONE
     // + a Y-flip baked into the projection matrix itself — see the "Camera
-    // convention" note in Include/Onyx/RenderVk/Pipelines.h); this line is
+    // convention" note in Include/Onyx/Rendering/Pipelines.h); this line is
     // otherwise byte-identical to the GL source and performs no flip itself.
     gl_Position = uProjection * uView * worldPos;
 }

@@ -9,7 +9,7 @@
 // Y-FLIP FIX (fix round, was missing): this pass writes gl_Position
 // directly from a procedural fullscreen-triangle UV (background.vert)
 // and never touches a projection matrix, so the milestone's projection-
-// level Y-flip (Include/Onyx/RenderVk/Pipelines.h's "Camera convention"
+// level Y-flip (Include/Onyx/Rendering/Pipelines.h's "Camera convention"
 // note) does not cover it. Concretely: GL's NDC has y=+1 at the top of
 // the screen, so background.vert's raw vUV.y=1 vertex lands at the
 // screen top, and this shader's original `t = vUV.y` correctly put the

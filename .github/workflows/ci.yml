@@ -54,7 +54,7 @@ jobs:
         # Tools/OnyxOracle/CMakeLists.txt; OnyxCliRender --
         # Examples/OnyxCli/CMakeLists.txt) calls VkContext::Init, which
         # returns exit 77 uniformly whether volkInitialize() finds no
-        # Vulkan loader at all (Source/RenderVk/VkContext.cpp) or the
+        # Vulkan loader at all (Source/Rendering/VkContext.cpp) or the
         # loader finds no physical device -- either way, on this runner,
         # the process exits 77. Each of those six tests carries
         # SKIP_RETURN_CODE 77, which is CTest's own "treat this exit code

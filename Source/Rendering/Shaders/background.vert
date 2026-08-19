@@ -6,7 +6,7 @@
 // clip convention (== depth 0.9995 once mapped to the [0,1] depth
 // buffer); depth test AND depth write are disabled for this pass in both
 // APIs (SceneRenderer::RenderBackground / the BackgroundPipeline in
-// Include/Onyx/RenderVk/Pipelines.h), so the exact value is inert either
+// Include/Onyx/Rendering/Pipelines.h), so the exact value is inert either
 // way — written as the equivalent [0,1] depth below for hygiene, not
 // because it is load-bearing.
 //

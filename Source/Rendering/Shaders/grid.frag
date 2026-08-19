@@ -20,7 +20,7 @@
 // this pipeline (no vertex input, TRIANGLE_LIST, depth test ON) cannot
 // draw what RenderSkeleton's OWN vertex/state setup calls for (a
 // world-space pos+color line buffer, GL_LINES, depth test OFF, blended).
-// Source/RenderVk/Shaders/overlay.vert/overlay.frag plus
+// Source/Rendering/Shaders/overlay.vert/overlay.frag plus
 // Onyx::Rendering::OverlayPipeline (Pipelines.h) now exist for that; T6
 // uses those, not this file.
 //
@@ -30,7 +30,7 @@
 //     uGridColor, uCameraPos, uGridScale) — mechanical, values unchanged.
 //  3. Depth convention. GL's clip space is [-1,1] on Z; this milestone's
 //     fixed camera rule (GLM_FORCE_DEPTH_ZERO_TO_ONE — see the "Camera
-//     convention" note in Include/Onyx/RenderVk/Pipelines.h) makes
+//     convention" note in Include/Onyx/Rendering/Pipelines.h) makes
 //     Vulkan's [0,1] instead. This shader actively uses NDC Z for
 //     occlusion (it writes gl_FragDepth so the grid tests correctly
 //     against real geometry, per GridRenderer.cpp's comment), so three

@@ -80,7 +80,7 @@
 //     projection matrix itself (GLM_FORCE_DEPTH_ZERO_TO_ONE + a Y-flip
 //     baked into the matrix, NOT a negative viewport or a shader-side
 //     negation), per the plan's fixed camera convention documented in
-//     Include/Onyx/RenderVk/Pipelines.h. Scoped claim, corrected from the
+//     Include/Onyx/Rendering/Pipelines.h. Scoped claim, corrected from the
 //     first pass: no SCENE or GRID shader performs a Y-flip itself (both
 //     go through a projection matrix, so the fix above covers them).
 //     background.vert/frag do NOT go through a projection matrix at all
