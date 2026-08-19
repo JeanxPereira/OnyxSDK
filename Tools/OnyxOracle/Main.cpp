@@ -1,6 +1,4 @@
 #include "PngWrite.h"
-#include "PngRead.h"
-#include "ImageCompare.h"
 #include "CorpusScenes.h"
 #include "RenderReport.h"
 
@@ -10,6 +8,7 @@
 #include <Onyx/RenderVk/SceneRendererVk.h>
 #include <Onyx/RenderVk/VkContext.h>
 #include <Onyx/RenderVk/VkResources.h>
+#include <Onyx/TestKit/RenderCompare.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -121,7 +120,7 @@ void PrintHelp() {
         "      per-pixel, per-channel; a PNG whose two files decode to different\n"
         "      dimensions always fails, regardless of the four flags below. Four\n"
         "      independent tiers must all pass (T7 fix-round's amended gate --\n"
-        "      see Tools/OnyxOracle/ImageCompare.h for the full reasoning):\n"
+        "      see Include/Onyx/TestKit/RenderCompare.h for the full reasoning):\n"
         "        --max-channel-delta N     largest |a-b| on any channel, any\n"
         "                                  pixel (a hard-cap tripwire only --\n"
         "                                  coverage-only edge deltas are bounded\n"
@@ -997,13 +996,15 @@ int RunVerify(const fs::path& dirA, const fs::path& dirB) {
 // Tolerant sibling of RunVerify above: same corpus-file shape (scene list
 // from CorpusSceneNames(), item 5 -- never a hardcoded array), but PNGs
 // are decoded and compared per-pixel/per-channel against four independent
-// tolerance tiers (Onyx::OracleTool::WithinTolerance -- see ImageCompare.h
-// for the full reasoning behind each) instead of demanded byte-identical,
-// and JSONs are compared with their "pixelHash" line masked (Onyx::
-// OracleTool::JsonEqualMaskingPixelHash) instead of raw byte-for-byte --
-// see RenderReport.h's doc comment on that function for why pixelHash
-// specifically is the one field two different renderers are never
-// expected to agree on.
+// tolerance tiers (Onyx::TestKit::WithinTolerance -- see
+// Include/Onyx/TestKit/RenderCompare.h for the full reasoning behind each;
+// task 1 (M5) extracted this comparator into the SDK's TestKit module
+// verbatim, so this is the same math/tuning as before, just repointed)
+// instead of demanded byte-identical, and JSONs are compared with their
+// "pixelHash" line masked (Onyx::OracleTool::JsonEqualMaskingPixelHash)
+// instead of raw byte-for-byte -- see RenderReport.h's doc comment on that
+// function for why pixelHash specifically is the one field two different
+// renderers are never expected to agree on.
 int RunCompare(const fs::path& dirA, const fs::path& dirB, int maxChannelDelta,
                 double maxDifferingPct, double maxHighDeltaPct, double maxMae, bool emitMetrics) {
     // T11-review minor (same shape as RunVerify's own fix, extended here
@@ -1033,8 +1034,8 @@ int RunCompare(const fs::path& dirA, const fs::path& dirB, int maxChannelDelta,
             int wA = 0, hA = 0, wB = 0, hB = 0;
             std::vector<uint8_t> rgbaA, rgbaB;
             std::string errA, errB;
-            bool haveA = Onyx::OracleTool::ReadPng(pathA, wA, hA, rgbaA, errA);
-            bool haveB = Onyx::OracleTool::ReadPng(pathB, wB, hB, rgbaB, errB);
+            bool haveA = Onyx::TestKit::ReadPng(pathA, wA, hA, rgbaA, errA);
+            bool haveB = Onyx::TestKit::ReadPng(pathB, wB, hB, rgbaB, errB);
             if (!haveA || !haveB) {
                 anyMissing = true;
                 std::printf("MISSING %s (A:%s B:%s)\n", fname.c_str(),
@@ -1048,10 +1049,10 @@ int RunCompare(const fs::path& dirA, const fs::path& dirB, int maxChannelDelta,
                 continue;
             }
 
-            Onyx::OracleTool::ImageCompareResult result =
-                Onyx::OracleTool::CompareRGBA(wA, hA, rgbaA, rgbaB);
-            bool ok = Onyx::OracleTool::WithinTolerance(result, maxChannelDelta, maxDifferingPct,
-                                                        maxHighDeltaPct, maxMae);
+            Onyx::TestKit::ImageCompareResult result =
+                Onyx::TestKit::CompareRGBA(wA, hA, rgbaA, rgbaB);
+            bool ok = Onyx::TestKit::WithinTolerance(result, maxChannelDelta, maxDifferingPct,
+                                                      maxHighDeltaPct, maxMae);
             std::printf("%s %s: maxChannelDelta=%d differingPct=%.4f%% highDeltaPct=%.4f%% mae=%.4f "
                         "(tolerance: maxChannelDelta<=%d differingPct<=%.4f%% "
                         "highDeltaPct<=%.4f%% mae<=%.4f)\n",

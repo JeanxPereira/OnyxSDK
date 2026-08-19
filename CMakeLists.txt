@@ -368,6 +368,12 @@ set(ONYX_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Vfs/TransformFile.cpp
 )
 
+set(ONYX_TESTKIT_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/TestKit/DecodeSmoke.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/TestKit/Goldens.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/TestKit/RenderCompare.cpp
+)
+
 set(ONYX_MEDIA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/TexturePool.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/VideoPlayer.cpp
@@ -475,7 +481,8 @@ endif()
 file(GLOB_RECURSE _onyx_all_cpp CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp")
 set(_onyx_listed ${ONYX_CORE_SOURCES}
-                 ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES} ${ONYX_RENDER_SOURCES})
+                 ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES} ${ONYX_RENDER_SOURCES}
+                 ${ONYX_TESTKIT_SOURCES})
 foreach(_f ${_onyx_all_cpp})
     if(NOT _f IN_LIST _onyx_listed)
         message(FATAL_ERROR "Source file not assigned to a layer: ${_f}")
@@ -506,6 +513,23 @@ add_library(Onyx_Core STATIC ${ONYX_CORE_SOURCES})
 add_library(Onyx::Core ALIAS Onyx_Core)
 onyx_apply_common(Onyx_Core)
 target_link_libraries(Onyx_Core PUBLIC glm::glm lz4_lib)
+
+# ── Onyx::TestKit — golden snapshots, decode smoke, render compare ───────
+# Task 1 (M5): ships with the SDK so every toolkit built on Onyx is "born
+# testable" (spec §10) -- extracted from what this repo already grew during
+# M4 (Tools/OnyxOracle/ImageCompare.{h,cpp}, the four-knob comparator) plus
+# new tree-snapshot/decode-smoke helpers following Tests/cli_test.cpp's
+# fixture and tree-walking patterns. See Include/Onyx/TestKit/RenderCompare.h
+# for the "why Core-only, no Render" design call: none of Goldens/
+# DecodeSmoke/RenderCompare ever touch a GPU or renderer type -- RenderCompare
+# reads PNG files (stb_image) and does pixel-buffer math, nothing more -- so
+# there is exactly one TestKit target, not a split headless/render pair: a
+# headless-only toolkit never pulls in Onyx::Render by linking this at all.
+add_library(Onyx_TestKit STATIC ${ONYX_TESTKIT_SOURCES})
+add_library(Onyx::TestKit ALIAS Onyx_TestKit)
+onyx_apply_common(Onyx_TestKit)
+target_link_libraries(Onyx_TestKit PUBLIC Onyx_Core)
+target_include_directories(Onyx_TestKit PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
 
 # ── Onyx::Render — Vulkan 1.3 renderer; Core + volk + VMA only ───────────
 # T9 links this PUBLIC into Onyx::Shell below (Window.cpp owns the

@@ -40,12 +40,12 @@ add_executable(onyx_tests
     infotabfilter_test.cpp
     oracle_corpus_test.cpp
     rendervk_test.cpp
+    testkit_test.cpp
     ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle/CorpusTextures.cpp
     ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle/CorpusScenes.cpp
     ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle/RenderReport.cpp
-    ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle/ImageCompare.cpp
 )
-target_link_libraries(onyx_tests PRIVATE Onyx::Onyx Onyx::Render Onyx_ExampleBox doctest::doctest imgui_lib)
+target_link_libraries(onyx_tests PRIVATE Onyx::Onyx Onyx::Render Onyx::TestKit Onyx_ExampleBox doctest::doctest imgui_lib)
 target_include_directories(onyx_tests PRIVATE ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle)
 # rendervk_test.cpp is pure (no VkContext/device touched) but needs the
 # generated *_spv.h headers on its include path -- linking Onyx::Render
@@ -94,6 +94,7 @@ add_test(NAME OnyxCli             COMMAND onyx_tests "--test-case=*cli probe pri
 add_test(NAME OnyxStatusBarFormat COMMAND onyx_tests "--test-case=*StatusBarFormat:*")
 add_test(NAME OnyxInfoTabFilter   COMMAND onyx_tests "--test-case=*InfoTabFilter:*")
 add_test(NAME OnyxOracleCorpus    COMMAND onyx_tests "--test-case=*OracleCorpus:*")
+add_test(NAME OnyxTestKit         COMMAND onyx_tests "--test-case=*TestKit:*")
 add_test(NAME OnyxRenderVkSpirv   COMMAND onyx_tests "--test-case=*RenderVkSpirv:*")
 add_test(NAME OnyxRenderContext   COMMAND onyx_tests "--test-case=*RenderContext:*")
 add_test(NAME OnyxDeferredDestroyQueue COMMAND onyx_tests "--test-case=*DeferredDestroyQueue:*")

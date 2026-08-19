@@ -9,17 +9,19 @@
 # renderer alongside it, since that renderer is gone entirely): see that
 # task's report for the link-completeness fixes (ResolveRoleIndices +
 # Camera's AppConfig read) that made it possible.
+# PngRead.cpp/ImageCompare.cpp moved out at Task 1 (M5) -- onyx-oracle now
+# gets PNG decode and the four-knob comparator from Onyx::TestKit (see
+# Include/Onyx/TestKit/RenderCompare.h). PngWrite.cpp stays here: writing
+# rendered PNGs is an oracle concern TestKit's public interface never needs.
 add_executable(onyx-oracle
     Main.cpp
     PngWrite.cpp
-    PngRead.cpp
-    ImageCompare.cpp
     CorpusTextures.cpp
     CorpusScenes.cpp
     RenderReport.cpp
 )
 target_include_directories(onyx-oracle PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb)
-target_link_libraries(onyx-oracle PRIVATE Onyx::Render)
+target_link_libraries(onyx-oracle PRIVATE Onyx::Render Onyx::TestKit)
 onyx_apply_common(onyx-oracle)
 
 # VkBootSmoke -- Init(false)
@@ -98,7 +100,8 @@ set_tests_properties(OracleReproducible PROPERTIES SKIP_RETURN_CODE 77 LABELS "r
 # (maxChannelDelta, differingPct) pair cannot separate that expected,
 # harmless signature from a real whole-image regression (gamma/lighting/
 # mip-filter drift), so the gate is redefined onto four independent tiers
-# (Tools/OnyxOracle/ImageCompare.h has the full reasoning per tier):
+# (Include/Onyx/TestKit/RenderCompare.h has the full reasoning per tier --
+# moved there, verbatim, at Task 1/M5):
 #   maxChannelDelta   hard-cap tripwire only, deliberately weak (coverage-
 #                     only deltas are bounded by local contrast, not
 #                     semantics -- a k=2/4-covered sample on a 255-
