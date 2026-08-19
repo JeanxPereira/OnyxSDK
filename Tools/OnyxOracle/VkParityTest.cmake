@@ -3,7 +3,7 @@
 #
 # Renders the 5-scene corpus once through the Vulkan path
 # (`render-corpus --renderer vk`) into WORK, then `compare`s it against the
-# frozen GL goldens (Tests/Golden/corpus) within the four-knob tolerance
+# frozen GL goldens (Tests/Golden/corpus) within the tolerance
 # CMakeLists.txt passes in (T7 fix round, adjudicated) -- see that file's
 # VkOracleParity comment for the tuned values and the diagnosis that
 # justified them, and task-7-report.md for the full tuning log and final
@@ -16,11 +16,14 @@
 # GPU. Any other nonzero exit (including `compare` reporting a tolerance
 # failure) is a real failure and becomes a FATAL_ERROR (ctest FAILED).
 #
-# ORACLE/WORK/GOLDEN/MAX_CHANNEL_DELTA/MAX_DIFFERING_PCT/MAX_HIGH_DELTA_PCT/
-# MAX_MAE are passed in via -D from the add_test COMMAND in CMakeLists.txt,
-# same pattern ReproTest.cmake already uses ($<TARGET_FILE:onyx-oracle>
-# only resolves inside an add_test COMMAND generator-expression context,
-# not here).
+# ORACLE/WORK/GOLDEN/PARITY_ARGS are passed in via -D from the add_test
+# COMMAND in CMakeLists.txt, same pattern ReproTest.cmake already uses
+# ($<TARGET_FILE:onyx-oracle> only resolves inside an add_test COMMAND
+# generator-expression context, not here). PARITY_ARGS (T12) replaces the
+# four separate MAX_CHANNEL_DELTA/MAX_DIFFERING_PCT/MAX_HIGH_DELTA_PCT/
+# MAX_MAE variables this script used to require -- it is CMakeLists.txt's
+# ONYX_PARITY_ARGS cache STRING verbatim, a single string of literal
+# `onyx-oracle compare` flags, split back into argv below.
 
 if(NOT DEFINED ORACLE)
     message(FATAL_ERROR "VkParityTest.cmake: ORACLE not set (pass -DORACLE=<path>)")
@@ -31,18 +34,10 @@ endif()
 if(NOT DEFINED GOLDEN)
     message(FATAL_ERROR "VkParityTest.cmake: GOLDEN not set (pass -DGOLDEN=<dir>)")
 endif()
-if(NOT DEFINED MAX_CHANNEL_DELTA)
-    message(FATAL_ERROR "VkParityTest.cmake: MAX_CHANNEL_DELTA not set (pass -DMAX_CHANNEL_DELTA=<N>)")
+if(NOT DEFINED PARITY_ARGS)
+    message(FATAL_ERROR "VkParityTest.cmake: PARITY_ARGS not set (pass -DPARITY_ARGS=<compare flags>)")
 endif()
-if(NOT DEFINED MAX_DIFFERING_PCT)
-    message(FATAL_ERROR "VkParityTest.cmake: MAX_DIFFERING_PCT not set (pass -DMAX_DIFFERING_PCT=<P>)")
-endif()
-if(NOT DEFINED MAX_HIGH_DELTA_PCT)
-    message(FATAL_ERROR "VkParityTest.cmake: MAX_HIGH_DELTA_PCT not set (pass -DMAX_HIGH_DELTA_PCT=<P2>)")
-endif()
-if(NOT DEFINED MAX_MAE)
-    message(FATAL_ERROR "VkParityTest.cmake: MAX_MAE not set (pass -DMAX_MAE=<M>)")
-endif()
+separate_arguments(PARITY_ARGS_LIST UNIX_COMMAND "${PARITY_ARGS}")
 
 function(run_oracle)
     execute_process(
@@ -67,16 +62,11 @@ endfunction()
 run_oracle(render-corpus --renderer vk --out ${WORK})
 # --emit-metrics: always on here so every ctest log carries the raw
 # per-scene numbers (maxDelta/differingPct/highDeltaPct/mae) regardless of
-# pass/fail -- the substrate a future ratchet mode (T12) reads from, and
-# exactly what a human re-tuning these four cache variables on a new GPU
-# needs to see without re-running compare by hand.
+# pass/fail -- the substrate a future ratchet mode reads from, and exactly
+# what a human re-tuning ONYX_PARITY_ARGS on a new GPU needs to see
+# without re-running compare by hand.
 run_oracle(compare ${GOLDEN} ${WORK}
-           --max-channel-delta ${MAX_CHANNEL_DELTA}
-           --max-differing-pct ${MAX_DIFFERING_PCT}
-           --max-high-delta-pct ${MAX_HIGH_DELTA_PCT}
-           --max-mae ${MAX_MAE}
+           ${PARITY_ARGS_LIST}
            --emit-metrics)
 
-message(STATUS "VkOracleParity: Vulkan render-corpus matches Tests/Golden/corpus within tolerance "
-               "(maxChannelDelta<=${MAX_CHANNEL_DELTA}, differingPct<=${MAX_DIFFERING_PCT}%, "
-               "highDeltaPct<=${MAX_HIGH_DELTA_PCT}%, mae<=${MAX_MAE})")
+message(STATUS "VkOracleParity: Vulkan render-corpus matches Tests/Golden/corpus within tolerance (${PARITY_ARGS})")

@@ -123,22 +123,25 @@ set_tests_properties(OracleReproducible PROPERTIES SKIP_RETURN_CODE 77 LABELS "r
 # first lavapipe CI run of VkOracleParity is a TUNING event for these
 # cache variables, not a pass/fail verdict on the renderer itself. See
 # task-7-report.md for the full per-scene numbers.
-set(ONYX_VK_PARITY_MAX_CHANNEL_DELTA 160 CACHE STRING
-    "VkOracleParity: hard-cap tripwire on the largest per-channel |a-b| against the GL goldens (weak by design -- see this block's comment)")
-set(ONYX_VK_PARITY_MAX_DIFFERING_PCT 2.0 CACHE STRING
-    "VkOracleParity: max fraction (%) of pixels allowed any nonzero delta against the GL goldens")
-set(ONYX_VK_PARITY_MAX_HIGH_DELTA_PCT 0.8 CACHE STRING
-    "VkOracleParity: max fraction (%) of pixels allowed a channel delta > 8 against the GL goldens")
-set(ONYX_VK_PARITY_MAX_MAE 1.0 CACHE STRING
-    "VkOracleParity: max per-channel mean absolute error (whole image, max across channels) against the GL goldens")
+#
+# T12: the four knobs above used to be four separate cache variables, each
+# threaded through its own -D into VkParityTest.cmake. Folded into ONE
+# cache STRING of literal `onyx-oracle compare` flags so a lavapipe re-tune
+# (the TUNING event named above) is a single -D override on this one
+# variable -- e.g. -DONYX_PARITY_ARGS="--max-channel-delta 200 ..." --
+# instead of four. VkParityTest.cmake splits it back into argv with
+# separate_arguments() and appends it verbatim to the compare command;
+# order and flag names are exactly onyx-oracle's own CLI (see Main.cpp's
+# `compare` help text).
+set(ONYX_PARITY_ARGS
+    "--max-channel-delta 160 --max-differing-pct 2.0 --max-high-delta-pct 0.8 --max-mae 1.0"
+    CACHE STRING
+    "VkOracleParity: onyx-oracle compare tolerance flags against the GL goldens (four-tier gate, see this block's comment for the tuning story and task-7-report.md for per-scene numbers)")
 add_test(NAME VkOracleParity
          COMMAND ${CMAKE_COMMAND}
            -DORACLE=$<TARGET_FILE:onyx-oracle>
            -DWORK=${CMAKE_CURRENT_BINARY_DIR}/oracle-vk-parity
            -DGOLDEN=${CMAKE_SOURCE_DIR}/Tests/Golden/corpus
-           -DMAX_CHANNEL_DELTA=${ONYX_VK_PARITY_MAX_CHANNEL_DELTA}
-           -DMAX_DIFFERING_PCT=${ONYX_VK_PARITY_MAX_DIFFERING_PCT}
-           -DMAX_HIGH_DELTA_PCT=${ONYX_VK_PARITY_MAX_HIGH_DELTA_PCT}
-           -DMAX_MAE=${ONYX_VK_PARITY_MAX_MAE}
+           "-DPARITY_ARGS=${ONYX_PARITY_ARGS}"
            -P ${CMAKE_CURRENT_SOURCE_DIR}/VkParityTest.cmake)
 set_tests_properties(VkOracleParity PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")

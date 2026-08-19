@@ -9,6 +9,15 @@ endif()
 
 option(ONYX_BUILD_EXAMPLES "Build the Onyx example apps" ON)
 option(ONYX_BUILD_TESTS    "Build the Onyx engine unit tests" ON)
+# Declared here (moved up from beside the Onyx_Media target further below)
+# so the FFmpeg discovery block right after this can gate on it. On
+# non-Windows this option previously did nothing for FFmpeg discovery
+# itself: `pkg_check_modules(FFMPEG REQUIRED ...)` ran unconditionally,
+# so turning this OFF still demanded libavformat/libavcodec/... dev
+# packages be installed system-wide, defeating the whole point of the
+# toggle (T12: Linux CI wants to skip FFmpeg entirely rather than pull in
+# apt dev packages of unpinned, possibly API-incompatible versions).
+option(ONYX_COMPONENT_MEDIA "Build the video player component (FFmpeg)" ON)
 
 include(FetchContent)
 include(cmake/ShaderCompile.cmake)
@@ -120,6 +129,13 @@ target_link_libraries(imgui_color_text_edit PUBLIC imgui_lib)
 target_compile_features(imgui_color_text_edit PUBLIC cxx_std_17)
 
 # ── FFmpeg ────────────────────────────────────────────────────────────────
+# Gated on ONYX_COMPONENT_MEDIA (T12): ffmpeg_lib is only ever linked by
+# Onyx_Media further below, itself built only when this option is ON --
+# when it's OFF there is nothing left in the tree that needs FFmpeg found
+# at all, so skip pkg-config/the Windows download entirely rather than
+# demanding dev packages (or a network fetch) a Media-less build has no
+# use for.
+if(ONYX_COMPONENT_MEDIA)
 add_library(ffmpeg_lib INTERFACE)
 
 if(WIN32)
@@ -183,6 +199,7 @@ endif()
 if(WIN32 AND FFMPEG_DLLS)
     set(ONYX_FFMPEG_DLLS "${FFMPEG_DLLS}" CACHE INTERNAL "FFmpeg runtime DLLs for Onyx consumers")
 endif()
+endif() # ONYX_COMPONENT_MEDIA
 
 # ── toml++ (header-only TOML parser for AppConfig) via FetchContent ────────
 # Populate only (SOURCE_SUBDIR points at a non-existent dir); we just need the
@@ -564,7 +581,9 @@ target_link_libraries(Onyx_Shell PUBLIC
 # ── Onyx::Media — sole owner of the FFmpeg edge ──────────────────────────
 # Nothing in Shell references VideoPlayer symbols (verified 2026-08-18);
 # only consumers instantiate it, so OFF simply drops the code and the DLLs.
-option(ONYX_COMPONENT_MEDIA "Build the video player component (FFmpeg)" ON)
+# option(ONYX_COMPONENT_MEDIA ...) is declared near the top of this file now
+# (T12) -- the FFmpeg discovery block above needs it too, and option()
+# only takes effect on its first declaration.
 if(ONYX_COMPONENT_MEDIA)
     add_library(Onyx_Media STATIC ${ONYX_MEDIA_SOURCES})
     add_library(Onyx::Media ALIAS Onyx_Media)
