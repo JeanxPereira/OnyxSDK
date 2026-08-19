@@ -49,6 +49,28 @@ namespace Onyx::RenderVk {
 // this milestone uses, so mixing the two must never happen. No shader in
 // Source/RenderVk/Shaders performs a Y-flip itself; gl_Position is always
 // `projection * view * worldPos` unchanged from the GL source.
+//
+// cameraPos: SceneFrameUBO::cameraPos (and GridUBO::cameraPos) must be
+// fed EXACTLY `glm::vec3(glm::inverse(view)[3])` — GL's own derivation
+// (Source/Rendering/SceneRenderer.cpp:635, recomputed fresh from the view
+// matrix every draw), NOT a camera object's own tracked eye position.
+// The two are normally equal, but "exactly GL's expression" is the
+// binding requirement per the port mandate, and only the view-matrix
+// inverse is guaranteed to agree with whatever the GL corpus actually
+// rendered if the two ever drift. T5 (SceneRendererVk) must use this
+// expression, not substitute a "cleaner" equivalent.
+//
+// NDC-direct shaders bypass this convention entirely and need their own
+// fix: background.vert/frag write gl_Position straight from a procedural
+// fullscreen-triangle UV, never touching a projection matrix, so the
+// Y-flip above does not cover them — see background.frag's top comment
+// for the standalone correction that was needed there. grid.vert does
+// the same raw-NDC trick, but grid.frag immediately unprojects that NDC
+// through `uInvViewProj` (the inverse of the ALREADY-flip-corrected
+// view-projection), which cancels back out to the correct world-space
+// ray — traced through both APIs' NDC-to-screen-row convention, not
+// assumed by symmetry with scene.vert. So grid needed no equivalent fix;
+// only background did.
 // ═══════════════════════════════════════════════════════════════════════
 
 // Fixed dynamic-rendering attachment formats for the whole milestone
@@ -107,8 +129,11 @@ static_assert(sizeof(SceneMaterialUBO) == 48, "SceneMaterialUBO must match scene
 /// SceneMaterialUBO::flags bits (scene.vert/scene.frag: FLAG_* consts).
 /// Bits 0-4 mirror GL's per-batch texture-presence uniforms
 /// (uUseTexture/uHasNormal/uHasAO/uHasGloss/uHasScatter); bit 5 mirrors
-/// GL's uUseJoints (moved here from a standalone uniform — see
-/// scene.frag's divergence-7 comment).
+/// GL's uUseJoints (moved here from a standalone uniform); bit 6 mirrors
+/// GL's uUseEnvmap (`batch->hasEnvmap`,
+/// Source/Rendering/SceneRenderer.cpp:127/691) — restored in the fix
+/// round below after being wrongly dropped in the first pass (see
+/// SceneRole::kEnvMap).
 namespace SceneFlags {
 inline constexpr uint32_t kUseTexture = 1u << 0;
 inline constexpr uint32_t kHasNormal  = 1u << 1;
@@ -116,22 +141,30 @@ inline constexpr uint32_t kHasAO      = 1u << 2;
 inline constexpr uint32_t kHasGloss   = 1u << 3;
 inline constexpr uint32_t kHasScatter = 1u << 4;
 inline constexpr uint32_t kUseJoints  = 1u << 5;
+inline constexpr uint32_t kHasEnvmap  = 1u << 6;
 } // namespace SceneFlags
 
 /// set 1, binding 1 combined-sampler slot indices (scene.frag: ROLE_*
-/// consts) — a straight reindex of the loader's own material-role layer
-/// order (Source/Rendering/ShaderManager.cpp's SCENE_FRAG comment: role 0
-/// diffuse, role 1 normal `_0n_`, role 2 AO `_0ao_`, role 3 gloss `_0g_`,
-/// role 5 scatter `_0sc_`). Index 4 is reserved/unused: no consumer reads
-/// it in scene.frag, but every batch still binds all 6 slots (an absent
-/// role binds the shared default per the brief's descriptor scheme) so
-/// the array stays uniformly sized.
+/// consts). NOT a positional reindex of the loader's 9-entry
+/// `Parsers::TextureRole` enum (Diffuse, Normal, Occlusion, Gloss,
+/// Height, Scatter, Detail, Emissive, EnvMap) — it is exactly the 6
+/// textures GL's SCENE_FRAG actually samples today, reindexed onto a
+/// packed 0-5 array: diffuse (texture0), normal, AO (GL's "Occlusion"
+/// role), gloss, envmap (GL's texture1 -- restored here; see
+/// SceneFlags::kHasEnvmap), scatter. `Height`, `Detail`, and `Emissive`
+/// are resolved by `SceneRenderer::Build` (`roles[]`) but never bound to
+/// a GL texture unit or sampled by SCENE_FRAG
+/// (Source/Rendering/SceneRenderer.cpp:128-131's own comment: "the
+/// shader work for these roles lands with the Vulkan renderer (M4)") --
+/// i.e. they are GL gaps for a LATER M4 task to fill, not something T3's
+/// port mandate ("port GL's shader fidelity") covers, so no slot is
+/// reserved for them here.
 namespace SceneRole {
 inline constexpr int kDiffuse = 0;
 inline constexpr int kNormal  = 1;
 inline constexpr int kAO      = 2;
 inline constexpr int kGloss   = 3;
-// index 4 reserved/unused
+inline constexpr int kEnvMap  = 4;
 inline constexpr int kScatter = 5;
 inline constexpr int kCount   = 6;
 } // namespace SceneRole
@@ -164,17 +197,29 @@ static_assert(sizeof(BackgroundUBO) == 32, "BackgroundUBO must match background.
 /// SceneRendererVk); Create/Destroy bracket a VkContext's lifetime the
 /// same way VkResources' Buffer/Image2D do.
 ///
-/// The three pipelines mirror the three blend behaviors
-/// SceneRenderer::Render/RenderBatches (GL) actually produces today
-/// (Source/Rendering/SceneRenderer.cpp:546-718): opaque batches
-/// (depth test LESS, write on, blend off); then translucent batches
-/// (depth test LEQUAL — GL's comment: "Required for coplanar layered
-/// geometry", write off) split by per-batch blend func into normal alpha
-/// (SRC_ALPHA/ONE_MINUS_SRC_ALPHA — everything not Additive, including
-/// Subtractive/EnvMap batches, which GL does not yet give a distinct
-/// blend func) and additive (SRC_ALPHA/ONE). No wireframe-overlay
-/// pipeline exists (scene.frag's divergence-4: that debug pass is out of
-/// scope for this task).
+/// The four pipelines mirror the four depth/blend combinations
+/// SceneRenderer::RenderSky/Render/RenderBatches (GL) actually produce
+/// today:
+///  - `opaque`        Source/Rendering/SceneRenderer.cpp:546-562 (Pass 1):
+///                     blend off, depth test LESS, write on.
+///  - `blendNormal`    :564-718 (Pass 2, non-Additive batches): blend
+///                     SRC_ALPHA/ONE_MINUS_SRC_ALPHA, depth test LEQUAL
+///                     (GL's comment: "Required for coplanar layered
+///                     geometry"), write off. Also covers Subtractive/
+///                     EnvMap-blend-mode batches, which GL does not yet
+///                     give a distinct blend func (falls through to this
+///                     one — matched exactly, not "improved").
+///  - `blendAdditive`  :654 (Pass 2, Additive batches): blend
+///                     SRC_ALPHA/ONE, same depth state as blendNormal.
+///  - `sky`            RenderSky, :525-543: blend
+///                     SRC_ALPHA/ONE_MINUS_SRC_ALPHA (same factors as
+///                     blendNormal) but depth test LESS AND write ON
+///                     (same depth state as opaque) — a combination none
+///                     of the other three provide, so it needs its own
+///                     pipeline object despite sharing every other piece
+///                     of state with an existing variant.
+/// No wireframe-overlay pipeline exists (scene.frag's divergence-4: that
+/// debug pass is out of scope for this task).
 struct ScenePipelines {
     VkDescriptorSetLayout frameSetLayout = VK_NULL_HANDLE; // set 0
     VkDescriptorSetLayout batchSetLayout = VK_NULL_HANDLE; // set 1
@@ -182,13 +227,9 @@ struct ScenePipelines {
     VkPipeline            opaque         = VK_NULL_HANDLE;
     VkPipeline            blendNormal    = VK_NULL_HANDLE;
     VkPipeline            blendAdditive  = VK_NULL_HANDLE;
+    VkPipeline            sky            = VK_NULL_HANDLE;
 };
 
-/// Reused for both the grid overlay AND skeleton-line debug drawing: GL's
-/// SceneRenderer::RenderSkeleton draws through the "grid" GL program
-/// rather than a dedicated shader (confirmed by reading
-/// Source/Rendering/SceneRenderer.cpp:722-812), so no overlay.vert/frag
-/// pair or overlay pipeline exists here — see grid.frag's top comment.
 struct GridPipeline {
     VkDescriptorSetLayout setLayout = VK_NULL_HANDLE; // set 0
     VkPipelineLayout      layout    = VK_NULL_HANDLE;
@@ -196,6 +237,46 @@ struct GridPipeline {
 };
 
 struct BackgroundPipeline {
+    VkDescriptorSetLayout setLayout = VK_NULL_HANDLE; // set 0
+    VkPipelineLayout      layout    = VK_NULL_HANDLE;
+    VkPipeline            pipeline  = VK_NULL_HANDLE;
+};
+
+/// Vertex format the overlay line pipeline consumes (T6's skeleton/gizmo
+/// debug-line drawing) — mirrors GL SceneRenderer::RenderSkeleton's local
+/// `LineVert` struct exactly (Source/Rendering/SceneRenderer.cpp:725:
+/// `struct LineVert { glm::vec3 pos; glm::vec4 color; };`): world-space
+/// position + a per-vertex RGBA color, nothing else.
+struct OverlayVertex {
+    glm::vec3 pos;
+    glm::vec4 color;
+};
+
+/// set 0, binding 0 for the overlay pipeline — mirrors overlay.vert's
+/// `OverlayUBO` (std140). Positions fed to this pipeline are already
+/// world-space (RenderSkeleton bakes m_instanceTransform into every point
+/// itself before pushing it into the line buffer), so only a combined
+/// view*proj matrix is needed here — no per-instance model matrix / push
+/// constant, unlike the scene pipelines.
+struct alignas(16) OverlayUBO {
+    glm::mat4 viewProj;
+};
+static_assert(sizeof(OverlayUBO) == 64, "OverlayUBO must match overlay.vert's std140 OverlayUBO");
+
+/// GL's SceneRenderer::RenderSkeleton (Source/Rendering/SceneRenderer.cpp:
+/// 722-812) builds a `LineVert` buffer (world-space pos + per-vertex
+/// color) and draws it `GL_LINES`, blend ON (SRC_ALPHA/ONE_MINUS_SRC_ALPHA),
+/// depth test OFF -- a shape GridPipeline (no vertex input, TRIANGLE_LIST,
+/// depth test ON) cannot produce. GL's *literal* draw call actually binds
+/// the "grid" GLSL program to draw those lines, which is worth knowing
+/// (GRID_VERT never reads the bound vertex attributes or the uView/
+/// uProjection uniforms RenderSkeleton feeds it -- both are silently
+/// no-ops, so what GL calls today is not visually meaningful) but is not
+/// what this pipeline replicates: OverlayPipeline implements what
+/// RenderSkeleton's OWN vertex/state setup actually calls for (line-list
+/// topology, depth off, blended, per-vertex color), which is what T6
+/// needs to draw a working skeleton/gizmo overlay in Vulkan.
+struct OverlayPipeline {
     VkDescriptorSetLayout setLayout = VK_NULL_HANDLE; // set 0
     VkPipelineLayout      layout    = VK_NULL_HANDLE;
     VkPipeline            pipeline  = VK_NULL_HANDLE;
@@ -210,10 +291,12 @@ public:
     Pipelines() = delete;
 
     /// Creates the scene descriptor layouts, pipeline layout (with the
-    /// 64-byte push constant range), and all three blend-state pipeline
-    /// variants, targeting kColorFormat/kDepthFormat via dynamic
-    /// rendering (no VkRenderPass). Returns a default (layout ==
-    /// VK_NULL_HANDLE) ScenePipelines and fills err on failure.
+    /// 64-byte push constant range), and all four depth/blend pipeline
+    /// variants (opaque, blendNormal, blendAdditive, sky — see
+    /// ScenePipelines' doc comment), targeting kColorFormat/kDepthFormat
+    /// via dynamic rendering (no VkRenderPass). Returns a default
+    /// (layout == VK_NULL_HANDLE) ScenePipelines and fills err on
+    /// failure.
     static bool CreateScene(VkContext& ctx, ScenePipelines& out, std::string& err);
     static void Destroy(VkContext& ctx, ScenePipelines& p);
 
@@ -230,6 +313,16 @@ public:
     /// glDisable(GL_DEPTH_TEST) + glDepthMask(GL_FALSE)), blend off.
     static bool CreateBackground(VkContext& ctx, BackgroundPipeline& out, std::string& err);
     static void Destroy(VkContext& ctx, BackgroundPipeline& p);
+
+    /// Creates the overlay line pipeline (T6's skeleton/gizmo debug
+    /// lines — see OverlayPipeline's doc comment): OverlayVertex input
+    /// (location 0 vec3 pos, location 1 vec4 color), LINE_LIST topology,
+    /// depth test AND write both off, alpha blend on
+    /// (SRC_ALPHA/ONE_MINUS_SRC_ALPHA) — matches RenderSkeleton's own
+    /// `glDisable(GL_DEPTH_TEST)` / `glEnable(GL_BLEND);
+    /// glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)` exactly.
+    static bool CreateOverlay(VkContext& ctx, OverlayPipeline& out, std::string& err);
+    static void Destroy(VkContext& ctx, OverlayPipeline& p);
 };
 
 } // namespace Onyx::RenderVk

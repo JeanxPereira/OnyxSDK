@@ -510,7 +510,9 @@ onyx_add_spirv(Onyx_RenderVk
     Source/RenderVk/Shaders/grid.vert
     Source/RenderVk/Shaders/grid.frag
     Source/RenderVk/Shaders/background.vert
-    Source/RenderVk/Shaders/background.frag)
+    Source/RenderVk/Shaders/background.frag
+    Source/RenderVk/Shaders/overlay.vert
+    Source/RenderVk/Shaders/overlay.frag)
 
 # ── Onyx::Shell — the ImGui application framework ────────────────────────
 add_library(Onyx_Shell STATIC

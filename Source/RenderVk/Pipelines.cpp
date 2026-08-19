@@ -12,6 +12,8 @@
 #include "grid_frag_spv.h"
 #include "background_vert_spv.h"
 #include "background_frag_spv.h"
+#include "overlay_vert_spv.h"
+#include "overlay_frag_spv.h"
 
 #include <array>
 #include <cstddef>
@@ -257,21 +259,26 @@ bool Pipelines::CreateScene(VkContext& ctx, ScenePipelines& out, std::string& er
 
     VkPipelineRenderingCreateInfo renderingInfo = SceneRenderingInfo();
 
-    // ── the three blend-state variants (Pipelines.h's ScenePipelines doc
-    // explains the mapping to GL's Pass 1 / Pass 2 behavior) ──────────
+    // ── the four depth/blend-state variants (Pipelines.h's ScenePipelines
+    // doc explains the mapping to GL's RenderSky/Pass 1/Pass 2 behavior) ──
     struct Variant {
         VkPipeline*      target;
         bool             depthWrite;
         VkCompareOp      depthCompare;
         VkPipelineColorBlendAttachmentState blend;
     };
-    std::array<Variant, 3> variants{{
+    std::array<Variant, 4> variants{{
         {&out.opaque, true, VK_COMPARE_OP_LESS,
          BlendState(false, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ZERO)},
         {&out.blendNormal, false, VK_COMPARE_OP_LESS_OR_EQUAL,
          BlendState(true, VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA)},
         {&out.blendAdditive, false, VK_COMPARE_OP_LESS_OR_EQUAL,
          BlendState(true, VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE)},
+        // RenderSky (Source/Rendering/SceneRenderer.cpp:525-543): depth
+        // write ON + LESS like opaque, but blended like blendNormal --
+        // a combination neither of the other three provide.
+        {&out.sky, true, VK_COMPARE_OP_LESS,
+         BlendState(true, VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA)},
     }};
 
     for (auto& v : variants) {
@@ -319,6 +326,7 @@ void Pipelines::Destroy(VkContext& ctx, ScenePipelines& p) {
     if (p.opaque != VK_NULL_HANDLE) vkDestroyPipeline(ctx.Device(), p.opaque, nullptr);
     if (p.blendNormal != VK_NULL_HANDLE) vkDestroyPipeline(ctx.Device(), p.blendNormal, nullptr);
     if (p.blendAdditive != VK_NULL_HANDLE) vkDestroyPipeline(ctx.Device(), p.blendAdditive, nullptr);
+    if (p.sky != VK_NULL_HANDLE) vkDestroyPipeline(ctx.Device(), p.sky, nullptr);
     if (p.layout != VK_NULL_HANDLE) vkDestroyPipelineLayout(ctx.Device(), p.layout, nullptr);
     if (p.batchSetLayout != VK_NULL_HANDLE)
         vkDestroyDescriptorSetLayout(ctx.Device(), p.batchSetLayout, nullptr);
@@ -611,6 +619,170 @@ void Pipelines::Destroy(VkContext& ctx, BackgroundPipeline& p) {
     if (p.setLayout != VK_NULL_HANDLE)
         vkDestroyDescriptorSetLayout(ctx.Device(), p.setLayout, nullptr);
     p = BackgroundPipeline{};
+}
+
+bool Pipelines::CreateOverlay(VkContext& ctx, OverlayPipeline& out, std::string& err) {
+    out = OverlayPipeline{};
+
+    // set 0, binding 0: OverlayUBO (view*proj only), vertex stage only --
+    // overlay.frag is a pure passthrough and reads no descriptor.
+    VkDescriptorSetLayoutBinding binding{};
+    binding.binding = 0;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    binding.descriptorCount = 1;
+    binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layoutInfo.bindingCount = 1;
+    layoutInfo.pBindings = &binding;
+
+    VkResult vr = vkCreateDescriptorSetLayout(ctx.Device(), &layoutInfo, nullptr, &out.setLayout);
+    if (vr != VK_SUCCESS) {
+        err = "vkCreateDescriptorSetLayout (overlay) failed (VkResult " +
+              std::to_string(static_cast<int>(vr)) + ")";
+        Destroy(ctx, out);
+        return false;
+    }
+
+    VkPipelineLayoutCreateInfo pipeLayoutInfo{};
+    pipeLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipeLayoutInfo.setLayoutCount = 1;
+    pipeLayoutInfo.pSetLayouts = &out.setLayout;
+
+    vr = vkCreatePipelineLayout(ctx.Device(), &pipeLayoutInfo, nullptr, &out.layout);
+    if (vr != VK_SUCCESS) {
+        err = "vkCreatePipelineLayout (overlay) failed (VkResult " +
+              std::to_string(static_cast<int>(vr)) + ")";
+        Destroy(ctx, out);
+        return false;
+    }
+
+    using namespace Onyx::RenderVk::Shaders;
+    VkShaderModule vertModule = CreateShaderModule(ctx, kOverlayVertSpv, kOverlayVertSpvSize, err);
+    if (vertModule == VK_NULL_HANDLE) {
+        Destroy(ctx, out);
+        return false;
+    }
+    VkShaderModule fragModule = CreateShaderModule(ctx, kOverlayFragSpv, kOverlayFragSpvSize, err);
+    if (fragModule == VK_NULL_HANDLE) {
+        vkDestroyShaderModule(ctx.Device(), vertModule, nullptr);
+        Destroy(ctx, out);
+        return false;
+    }
+
+    std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
+    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vertModule;
+    stages[0].pName = "main";
+    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = fragModule;
+    stages[1].pName = "main";
+
+    // OverlayVertex (Pipelines.h): world-space pos (location 0, vec3) +
+    // per-vertex color (location 1, vec4) -- mirrors GL RenderSkeleton's
+    // local `LineVert` struct exactly.
+    VkVertexInputBindingDescription binding0{};
+    binding0.binding = 0;
+    binding0.stride = sizeof(OverlayVertex);
+    binding0.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+    std::array<VkVertexInputAttributeDescription, 2> attrs{};
+    attrs[0].location = 0;
+    attrs[0].binding = 0;
+    attrs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attrs[0].offset = static_cast<uint32_t>(offsetof(OverlayVertex, pos));
+    attrs[1].location = 1;
+    attrs[1].binding = 0;
+    attrs[1].format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    attrs[1].offset = static_cast<uint32_t>(offsetof(OverlayVertex, color));
+
+    VkPipelineVertexInputStateCreateInfo vertexInput{};
+    vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertexInput.vertexBindingDescriptionCount = 1;
+    vertexInput.pVertexBindingDescriptions = &binding0;
+    vertexInput.vertexAttributeDescriptionCount = static_cast<uint32_t>(attrs.size());
+    vertexInput.pVertexAttributeDescriptions = attrs.data();
+
+    // LINE_LIST: RenderSkeleton draws GL_LINES.
+    VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+    inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+
+    VkPipelineViewportStateCreateInfo viewportState{};
+    viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount = 1;
+
+    VkPipelineRasterizationStateCreateInfo rasterState{};
+    rasterState.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterState.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterState.cullMode = VK_CULL_MODE_NONE;
+    rasterState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterState.lineWidth = 1.0f;
+
+    VkPipelineMultisampleStateCreateInfo multisample{};
+    multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisample.rasterizationSamples = kSampleCount;
+
+    // Depth test AND write both off, matching RenderSkeleton's own
+    // glDisable(GL_DEPTH_TEST) around its GL_LINES draw call exactly.
+    VkPipelineDepthStencilStateCreateInfo depthState{};
+    depthState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthState.depthTestEnable = VK_FALSE;
+    depthState.depthWriteEnable = VK_FALSE;
+
+    // Blend on, SRC_ALPHA/ONE_MINUS_SRC_ALPHA -- matches RenderSkeleton's
+    // glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA).
+    VkPipelineColorBlendAttachmentState blend =
+        BlendState(true, VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA);
+    VkPipelineColorBlendStateCreateInfo colorBlend{};
+    colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    colorBlend.attachmentCount = 1;
+    colorBlend.pAttachments = &blend;
+
+    std::array<VkDynamicState, 2> dynStates{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynStates.size());
+    dynamicState.pDynamicStates = dynStates.data();
+
+    VkPipelineRenderingCreateInfo renderingInfo = SceneRenderingInfo();
+
+    VkGraphicsPipelineCreateInfo pipeInfo{};
+    pipeInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipeInfo.pNext = &renderingInfo;
+    pipeInfo.stageCount = static_cast<uint32_t>(stages.size());
+    pipeInfo.pStages = stages.data();
+    pipeInfo.pVertexInputState = &vertexInput;
+    pipeInfo.pInputAssemblyState = &inputAssembly;
+    pipeInfo.pViewportState = &viewportState;
+    pipeInfo.pRasterizationState = &rasterState;
+    pipeInfo.pMultisampleState = &multisample;
+    pipeInfo.pDepthStencilState = &depthState;
+    pipeInfo.pColorBlendState = &colorBlend;
+    pipeInfo.pDynamicState = &dynamicState;
+    pipeInfo.layout = out.layout;
+
+    vr = vkCreateGraphicsPipelines(ctx.Device(), VK_NULL_HANDLE, 1, &pipeInfo, nullptr, &out.pipeline);
+    DestroyShaderModules(ctx, vertModule, fragModule);
+    if (vr != VK_SUCCESS) {
+        err = "vkCreateGraphicsPipelines (overlay) failed (VkResult " +
+              std::to_string(static_cast<int>(vr)) + ")";
+        Destroy(ctx, out);
+        return false;
+    }
+    return true;
+}
+
+void Pipelines::Destroy(VkContext& ctx, OverlayPipeline& p) {
+    if (p.pipeline != VK_NULL_HANDLE) vkDestroyPipeline(ctx.Device(), p.pipeline, nullptr);
+    if (p.layout != VK_NULL_HANDLE) vkDestroyPipelineLayout(ctx.Device(), p.layout, nullptr);
+    if (p.setLayout != VK_NULL_HANDLE)
+        vkDestroyDescriptorSetLayout(ctx.Device(), p.setLayout, nullptr);
+    p = OverlayPipeline{};
 }
 
 } // namespace Onyx::RenderVk

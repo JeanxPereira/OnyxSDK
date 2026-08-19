@@ -22,14 +22,27 @@
 //     visualization aid with no bearing on asset-format fidelity, the
 //     descriptor scheme above budgets no slot for it, and the oracle
 //     corpus only pins Solid (0) and Textured (2). uShadingMode keeps its
-//     GL integer values; 1 is simply never sent by the Vulkan path.
-//  3. Environment-map blending (GL uUseEnvmap/uEnvmap: a second UV set
-//     lerping an envmap sample into the diffuse color by its alpha) is
-//     DROPPED for the same reason — no descriptor slot budgeted, and it
-//     sits on top of the pinned Solid/Textured math rather than being
-//     part of it. vUV1 is still threaded through scene.vert for
-//     vertex-input parity with the GL attribute layout; nothing reads it
-//     here.
+//     GL integer values; 1 is simply never sent by the Vulkan path. The
+//     `main()` branch below only special-cases `uShadingMode == 2`; any
+//     other value (0, or 1 if it were ever sent) falls through to Solid
+//     mode — an explicit, intentional fallthrough, not an oversight; see
+//     the comment at the branch site.
+//  3. Environment-map blending is a FAITHFUL PORT, not a divergence — an
+//     earlier draft of this file wrongly dropped it under this heading,
+//     reasoning it was an optional extra with no descriptor slot
+//     budgeted; that was wrong on both counts: GL genuinely samples it
+//     (Source/Rendering/ShaderManager.cpp:250-254) and the M0 oracle
+//     corpus pins it on every sphere batch it renders. Corrected: role
+//     slot 4 (documented in the first pass as "reserved/unused") is
+//     `ROLE_ENVMAP`, fed by `FLAG_HAS_ENVMAP` in the material flags
+//     (mirrors GL's `uUseEnvmap`/`batch->hasEnvmap`,
+//     Source/Rendering/SceneRenderer.cpp:127/691). It samples `vUV1` (the
+//     SECOND uv set, already threaded through scene.vert for exactly this
+//     reason) and its placement matches GL exactly: after the diffuse
+//     sample, before vertex-color modulation and the material/layer
+//     tint, applying uniformly to BOTH Solid and Textured mode because it
+//     sits entirely before the `uShadingMode` branch — see the code
+//     below, not a paraphrase of it.
 //  4. The wireframe debug overlay (GL uWireframeOverride/uWireColor: an
 //     early-return solid-color branch paired with a second GL_LINE
 //     polygon-mode pass in SceneRenderer::Render) is DROPPED. It is a
@@ -48,13 +61,16 @@
 //     UBO shape, which lists none of the three.
 //  6. GL's texture units (0 diffuse, 1 envmap, 2 matcap, 3 normal, 4 AO,
 //     5 gloss, 6 scatter) are replaced by the fixed 6-slot role array
-//     from the descriptor scheme: index 0 = diffuse (loader role 0),
-//     1 = normal (role 1), 2 = AO (role 2), 3 = gloss (role 3),
-//     4 = reserved/unused (the loader's role layer 4 has no consumer in
-//     this shader; left bound to the shared default so every batch still
-//     fills all 6 slots uniformly), 5 = scatter (role 5) — a straight
-//     reindex onto the loader's own role order (see the GL SCENE_FRAG
-//     comment this mirrors), no role's sampling math changed.
+//     from the descriptor scheme: index 0 = diffuse, 1 = normal, 2 = AO
+//     (GL's "Occlusion" role), 3 = gloss, 4 = envmap (divergence 3;
+//     wrongly left unassigned in the first pass), 5 = scatter. This is
+//     NOT a positional reindex of the loader's 9-entry
+//     `Parsers::TextureRole` enum (that has Height at index 4, which GL
+//     never binds to a texture unit or samples here at all) — it is
+//     exactly the 6 textures GL's SCENE_FRAG actually samples today,
+//     repacked onto a dense 0-5 array. See
+//     `Onyx::RenderVk::SceneRole`'s comment in Pipelines.h for the same
+//     correction on the C++ side. No role's sampling math changed.
 //  7. GL's top-level `uUseJoints` uniform becomes a bit (FLAG_USE_JOINTS)
 //     in the per-batch MaterialUBO's `flags` field instead — mechanical
 //     repacking onto the brief's fixed UBO shape; same branch, same
@@ -64,8 +80,15 @@
 //     projection matrix itself (GLM_FORCE_DEPTH_ZERO_TO_ONE + a Y-flip
 //     baked into the matrix, NOT a negative viewport or a shader-side
 //     negation), per the plan's fixed camera convention documented in
-//     Include/Onyx/RenderVk/Pipelines.h. No shader in this port performs
-//     a Y-flip itself.
+//     Include/Onyx/RenderVk/Pipelines.h. Scoped claim, corrected from the
+//     first pass: no SCENE or GRID shader performs a Y-flip itself (both
+//     go through a projection matrix, so the fix above covers them).
+//     background.vert/frag do NOT go through a projection matrix at all
+//     (they write NDC directly from a procedural fullscreen-triangle UV)
+//     and so are NOT covered by this fix — they needed, and got, their
+//     own standalone correction; see background.frag's top comment and
+//     Pipelines.h's "Camera convention" note for why grid needed none but
+//     background did.
 // ═══════════════════════════════════════════════════════════════════════
 
 layout(location = 0) in vec3  vWorldPos;
@@ -99,6 +122,7 @@ const uint FLAG_HAS_NORMAL  = 1u << 1;
 const uint FLAG_HAS_AO      = 1u << 2;
 const uint FLAG_HAS_GLOSS   = 1u << 3;
 const uint FLAG_HAS_SCATTER = 1u << 4;
+const uint FLAG_HAS_ENVMAP  = 1u << 6;   // divergence 3 — mirrors GL's uUseEnvmap
 
 // Fixed 6-slot role array (divergence 6). Onyx::RenderVk::SceneRole in
 // Pipelines.h mirrors these indices for the C++ side.
@@ -107,6 +131,7 @@ const int ROLE_DIFFUSE = 0;
 const int ROLE_NORMAL  = 1;
 const int ROLE_AO      = 2;
 const int ROLE_GLOSS   = 3;
+const int ROLE_ENVMAP  = 4;
 const int ROLE_SCATTER = 5;
 
 layout(location = 0) out vec4 FragColor;
@@ -166,6 +191,17 @@ void main() {
         clr = texture(uRoleTex[ROLE_DIFFUSE], vUV);
     }
 
+    // Environment map blending (Go-style: lerp diffuse->envmap by diffuse
+    // alpha) — ported faithfully, see divergence 3. Placement matches GL
+    // exactly: after the diffuse sample, before vertex-color modulation
+    // and the material/layer tint, and BEFORE the uShadingMode branch
+    // below, so it applies uniformly to both Solid and Textured mode.
+    if ((uFlags & FLAG_HAS_ENVMAP) != 0u) {
+        vec3 envColor = texture(uRoleTex[ROLE_ENVMAP], vUV1).rgb;
+        clr.rgb = clr.rgb * (1.0 - clr.a) + envColor * clr.a;
+        clr.a = 1.0;
+    }
+
     // Vertex color modulation — always on at every GL call site (divergence 5).
     clr *= vColor;
 
@@ -176,6 +212,9 @@ void main() {
     if (clr.a < 0.01) discard;
 
     // ── Textured Mode: the material as the game authored it ──────────
+    // Any uShadingMode other than 2 (including 0/Solid and 1/Matcap, the
+    // latter never actually sent — divergence 2) falls through to Solid
+    // mode below. Intentional, not an omission.
     if (uShadingMode == 2) {
         vec3 Nm = ApplyNormalMap(N);
         vec3 V  = normalize(uCameraPos - vWorldPos);

@@ -11,6 +11,8 @@
 #include "grid_frag_spv.h"
 #include "background_vert_spv.h"
 #include "background_frag_spv.h"
+#include "overlay_vert_spv.h"
+#include "overlay_frag_spv.h"
 
 namespace {
 constexpr uint32_t kSpirvMagic = 0x07230203u;
@@ -56,4 +58,18 @@ TEST_CASE("RenderVkSpirv: background.frag compiles to non-empty SPIR-V with the 
     CHECK(kBackgroundFragSpvSize > 0);
     CHECK(sizeof(kBackgroundFragSpv) == kBackgroundFragSpvSize);
     CHECK(kBackgroundFragSpv[0] == kSpirvMagic);
+}
+
+TEST_CASE("RenderVkSpirv: overlay.vert compiles to non-empty SPIR-V with the correct magic") {
+    using namespace Onyx::RenderVk::Shaders;
+    CHECK(kOverlayVertSpvSize > 0);
+    CHECK(sizeof(kOverlayVertSpv) == kOverlayVertSpvSize);
+    CHECK(kOverlayVertSpv[0] == kSpirvMagic);
+}
+
+TEST_CASE("RenderVkSpirv: overlay.frag compiles to non-empty SPIR-V with the correct magic") {
+    using namespace Onyx::RenderVk::Shaders;
+    CHECK(kOverlayFragSpvSize > 0);
+    CHECK(sizeof(kOverlayFragSpv) == kOverlayFragSpvSize);
+    CHECK(kOverlayFragSpv[0] == kSpirvMagic);
 }

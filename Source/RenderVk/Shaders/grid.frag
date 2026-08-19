@@ -7,15 +7,22 @@
 // intersection, the derivative-based line antialiasing, the axis tint,
 // the LOD fade, the distance fade — is a line-for-line port.
 //
-// NOTE for T6: SceneRenderer::RenderSkeleton (GL) draws its debug
-// bone/joint lines through this same "grid" program rather than a
-// dedicated shader (confirmed by reading Source/Rendering/
-// SceneRenderer.cpp:722-812 — it fetches ShaderManager::Get().
-// GetShader("grid") and feeds it uView/uProjection, both of which
-// GRID_VERT/GRID_FRAG never declare, so those calls are silently no-ops
-// against nonexistent uniform locations). The Vulkan port does the same:
-// no overlay.vert/frag pair exists in this task: whatever T6 does for
-// skeleton-line drawing reuses this grid pipeline, not a new one.
+// NOTE on skeleton/gizmo debug lines (fix round; was a wrong call in the
+// first pass): GL's SceneRenderer::RenderSkeleton literally binds this
+// same "grid" GLSL program to draw its debug bone/joint lines
+// (Source/Rendering/SceneRenderer.cpp:722-812 fetches
+// ShaderManager::Get().GetShader("grid") and feeds it uView/uProjection),
+// but that call is not visually meaningful: GRID_VERT never reads the
+// vertex attributes or declares those uniforms, so RenderSkeleton's own
+// line-vertex buffer is silently ignored and nothing correct is drawn.
+// An earlier pass took that literal binding as license to skip a
+// dedicated overlay shader/pipeline and reuse this one; that was wrong —
+// this pipeline (no vertex input, TRIANGLE_LIST, depth test ON) cannot
+// draw what RenderSkeleton's OWN vertex/state setup calls for (a
+// world-space pos+color line buffer, GL_LINES, depth test OFF, blended).
+// Source/RenderVk/Shaders/overlay.vert/overlay.frag plus
+// Onyx::RenderVk::OverlayPipeline (Pipelines.h) now exist for that; T6
+// uses those, not this file.
 //
 //  1. gl_VertexID -> gl_VertexIndex (grid.vert): GLSL 450/Vulkan naming,
 //     not a behavior change.
