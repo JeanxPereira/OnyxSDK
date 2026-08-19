@@ -113,10 +113,10 @@ static int RunGui(const char* optionalPath, bool uiTest, bool openFirstImage) {
                         }
 
                         Onyx::App::ViewerOpener opener;
-                        opener.openImage = [&app](std::string name,
+                        opener.openImage = [&app](Onyx::Modules::DocumentId doc, std::string name,
                                                   std::unique_ptr<Onyx::Parsers::TextureData> texture) {
                             app.getDocumentWindow().AddTab(
-                                std::make_shared<Onyx::Viewers::ImageViewer>(name, std::move(texture)));
+                                std::make_shared<Onyx::Viewers::ImageViewer>(name, std::move(texture)), doc);
                             LOG_INFO("[MinimalViewer] --open-first-image: opened ImageViewer '%s'",
                                      name.c_str());
                         };

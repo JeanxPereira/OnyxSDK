@@ -138,15 +138,20 @@ private:
     // pointer back into m_workspace (see App::init()) -- is destroyed
     // FIRST: panels must be gone before the Workspace they may reach
     // through App::GetWorkspace() is torn down (and before ~Workspace()
-    // joins its JobQueue). m_onDocumentOpened/m_onTreeReady are declared
-    // last of the four so they are destroyed before all of them:
-    // unsubscribing from m_workspace's EventBus before the bus itself dies
-    // is what the Subscription contract wants, and their handlers only
-    // touch the SessionLog, so nothing else orders them.
+    // joins its JobQueue). m_onDocumentOpened/m_onTreeReady/
+    // m_onDocumentClosed are declared last of the five so they are
+    // destroyed before all of them: unsubscribing from m_workspace's
+    // EventBus before the bus itself dies is what the Subscription
+    // contract wants. m_onDocumentOpened/m_onTreeReady's handlers only
+    // touch the SessionLog, so nothing else orders them;
+    // m_onDocumentClosed (Task 13a) also reaches into m_app (via
+    // getDocumentWindow()), which is exactly why it must be declared
+    // after m_app too.
     Onyx::Modules::Workspace     m_workspace{Onyx::Types::TypeCatalog::Get()};
     App                          m_app;
     Onyx::Services::Subscription m_onDocumentOpened;
     Onyx::Services::Subscription m_onTreeReady;
+    Onyx::Services::Subscription m_onDocumentClosed;
 
     // Frame rate control
     double m_fpsUnlockedEndTime    = 0.0;

@@ -38,6 +38,24 @@ namespace {
 // the file's normal syntax highlighting.
 constexpr ImVec4 kFailedColor = ImVec4(1.0f, 0.65f, 0.15f, 1.0f);
 
+// The "Decoding..." tab OpenSelection's opener.openPlaceholder opens the
+// instant a decode job is submitted (Task 13b), so a double-click shows
+// something immediately instead of the UI just sitting there until the
+// background job's Done callback runs on a later Pump(). Closed again
+// (via opener.closePlaceholder -> DocumentWindow::CloseTab, by identity)
+// the moment that happens, whether the decode actually succeeded,
+// salvage-failed, or the document was closed out from under it.
+class DecodingPlaceholder : public Onyx::Viewers::IDocumentContent {
+public:
+    explicit DecodingPlaceholder(std::string name) : m_label("Decoding " + name + "...") {}
+
+    std::string GetName() const override { return m_label; }
+    void Draw() override { ImGui::TextDisabled("%s", m_label.c_str()); }
+
+private:
+    std::string m_label;
+};
+
 // Wires OpenSelection's decode result to the real viewer classes. Kept
 // separate from OpenSelection itself (Include/Onyx/App/ViewerOpening.h)
 // so that seam stays testable without linking ImGui/GL -- see that
@@ -47,20 +65,33 @@ constexpr ImVec4 kFailedColor = ImVec4(1.0f, 0.65f, 0.15f, 1.0f);
 Onyx::App::ViewerOpener MakeShellViewerOpener() {
     Onyx::App::ViewerOpener opener;
 
-    opener.openImage = [](std::string name, std::unique_ptr<Onyx::Parsers::TextureData> texture) {
+    opener.openImage = [](Onyx::Modules::DocumentId doc, std::string name,
+                           std::unique_ptr<Onyx::Parsers::TextureData> texture) {
         Onyx::Api::Documents().AddTab(
-            std::make_shared<Onyx::Viewers::ImageViewer>(name, std::move(texture)));
+            std::make_shared<Onyx::Viewers::ImageViewer>(name, std::move(texture)), doc);
     };
 
-    opener.openText = [](std::string name, Onyx::Modules::TextOut text) {
+    opener.openText = [](Onyx::Modules::DocumentId doc, std::string name, Onyx::Modules::TextOut text) {
         Onyx::Api::Documents().AddTab(
-            std::make_shared<Onyx::Viewers::TextEditorViewer>(name, std::move(text.text)));
+            std::make_shared<Onyx::Viewers::TextEditorViewer>(name, std::move(text.text)), doc);
     };
 
-    opener.openScene = [](std::string name, std::unique_ptr<Onyx::Parsers::SceneData> scene) {
+    opener.openScene = [](Onyx::Modules::DocumentId doc, std::string name,
+                           std::unique_ptr<Onyx::Parsers::SceneData> scene) {
         auto viewport = std::make_shared<Onyx::Viewers::Viewport3D>(name);
         viewport->LoadScene(std::move(scene));
-        Onyx::Api::Documents().AddTab(viewport);
+        Onyx::Api::Documents().AddTab(viewport, doc);
+    };
+
+    opener.openPlaceholder = [](Onyx::Modules::DocumentId doc, std::string name) -> std::shared_ptr<void> {
+        auto tab = std::make_shared<DecodingPlaceholder>(std::move(name));
+        Onyx::Api::Documents().AddTab(tab, doc);
+        return tab;
+    };
+
+    opener.closePlaceholder = [](std::shared_ptr<void> placeholder) {
+        Onyx::Api::Documents().CloseTab(
+            static_cast<Onyx::Viewers::IDocumentContent*>(placeholder.get()));
     };
 
     return opener;

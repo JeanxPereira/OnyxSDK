@@ -150,6 +150,21 @@ Window::Window()
                      (unsigned long long)ev.id, ev.ok ? 1 : 0);
         });
 
+    // Task 13a: restores the legacy close-on-WadClosed behavior the M3b
+    // ledger tracked as an inert regression -- every tab DocumentBrowser's
+    // ViewerOpener associated with this document (see ViewerOpening.h/
+    // DocumentWindow::AddTab's docId parameter) closes the moment the
+    // document itself does. Safe to reach into m_app here even before
+    // App::init() has run (below, in run()): m_app already exists as an
+    // object (default-constructed alongside this Window), and this handler
+    // only ever actually executes later, from a Pump() call, by which time
+    // init() has long since returned.
+    m_onDocumentClosed = m_workspace.Events().On<Onyx::Modules::DocumentClosed>(
+        [this](const Onyx::Modules::DocumentClosed& ev) {
+            LOG_INFO("[Workspace] document closed id=%llu", (unsigned long long)ev.id);
+            m_app.getDocumentWindow().CloseTabsForDocument(ev.id);
+        });
+
     initGLFW();
     initVulkan();
     initImGui();
