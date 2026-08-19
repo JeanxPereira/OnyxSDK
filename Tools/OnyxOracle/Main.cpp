@@ -928,10 +928,26 @@ int RunRenderCorpusVk(const fs::path& outDir) {
 // ── verify ───────────────────────────────────────────────────────────────
 
 int RunVerify(const fs::path& dirA, const fs::path& dirB) {
+    // T11-review minor: this used to return 77 (SKIP) here, the same code
+    // RunRenderCorpusVk returns when no Vulkan-capable device/driver is
+    // found. That made sense when `verify` only ever ran after a real GL
+    // render (no GPU-availability concept applied to `verify` itself, but
+    // 77 was harmless because nothing upstream of it could plausibly skip
+    // without also failing). It stopped making sense once OracleReproducible
+    // was reworked onto vk-vs-vk (Task 11): `verify` now runs after TWO
+    // render-corpus calls that both already returned 0 (success) --
+    // ReproTest.cmake's own run_oracle() propagates a 77 from either render
+    // step immediately via cmake_language(EXIT), so `verify` is never even
+    // invoked in the genuine "no Vulkan device" case. If dirB is missing by
+    // the time `verify` runs, render-corpus claimed success but produced no
+    // output -- a real bug, not an environment limitation -- so this is
+    // FAILURE (2, the same code the per-file loop below already returns for
+    // "files missing"), not SKIP. 77 stays reserved for the render step,
+    // the only place "no Vulkan device" is an actual, honest reason.
     std::error_code ec;
     if (!fs::exists(dirB, ec) || !fs::is_directory(dirB, ec)) {
         std::fprintf(stderr, "verify: %s does not exist\n", dirB.string().c_str());
-        return 77;
+        return 2;
     }
 
     bool anyMissing = false;
@@ -986,10 +1002,18 @@ int RunVerify(const fs::path& dirA, const fs::path& dirB) {
 // expected to agree on.
 int RunCompare(const fs::path& dirA, const fs::path& dirB, int maxChannelDelta,
                 double maxDifferingPct, double maxHighDeltaPct, double maxMae, bool emitMetrics) {
+    // T11-review minor (same shape as RunVerify's own fix, extended here
+    // for consistency -- not separately called out in the review, but the
+    // identical bug): VkParityTest.cmake only ever calls `compare` after a
+    // `render-corpus --renderer vk` step that already returned 0, and its
+    // own run_oracle() already propagates a 77 from THAT step immediately
+    // on "no Vulkan device". A missing dirB here means render-corpus
+    // claimed success but produced no output -- a real bug -- so this is
+    // FAILURE (2), not SKIP; 77 stays reserved for the render step.
     std::error_code ec;
     if (!fs::exists(dirB, ec) || !fs::is_directory(dirB, ec)) {
         std::fprintf(stderr, "compare: %s does not exist\n", dirB.string().c_str());
-        return 77;
+        return 2;
     }
 
     bool anyMissing = false;
