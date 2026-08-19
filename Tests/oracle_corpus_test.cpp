@@ -8,6 +8,7 @@
 
 #include <CorpusScenes.h>
 #include <CorpusTextures.h>
+#include <ImageCompare.h>
 #include <RenderReport.h>
 
 #include <clocale>
@@ -404,4 +405,157 @@ TEST_CASE("OracleCorpus: FormatFloat stays locale-independent under LC_NUMERIC d
     CHECK(report.find("\"metallic\": 0.250000,\n") != std::string::npos);
     CHECK(report.find("\"materialColor\": [0.100000, 0.200000, 0.300000, 0.400000],\n") !=
           std::string::npos);
+}
+
+// ── JsonEqualMaskingPixelHash tests (task 7) ───────────────────────────────
+
+TEST_CASE("OracleCorpus: JsonEqualMaskingPixelHash treats identical reports as equal") {
+    RenderBatch batch;
+    batch.name = "solo";
+    std::vector<RenderBatch> batches = {batch};
+    std::vector<size_t> paletteJointCounts = {0};
+
+    std::string a = BuildReport("scene", 8, 8, 111ull, batches, paletteJointCounts);
+    std::string b = BuildReport("scene", 8, 8, 111ull, batches, paletteJointCounts);
+    CHECK(JsonEqualMaskingPixelHash(a, b));
+}
+
+TEST_CASE("OracleCorpus: JsonEqualMaskingPixelHash masks only the pixelHash value") {
+    RenderBatch batch;
+    batch.name = "solo";
+    std::vector<RenderBatch> batches = {batch};
+    std::vector<size_t> paletteJointCounts = {0};
+
+    std::string a = BuildReport("scene", 8, 8, 111ull, batches, paletteJointCounts);
+    std::string b = BuildReport("scene", 8, 8, 222ull, batches, paletteJointCounts);
+    CHECK(a != b); // sanity: the two raw reports really do differ
+    CHECK(JsonEqualMaskingPixelHash(a, b));
+}
+
+TEST_CASE("OracleCorpus: JsonEqualMaskingPixelHash still catches a real divergence") {
+    RenderBatch batchA;
+    batchA.name = "solo";
+    RenderBatch batchB;
+    batchB.name = "solo";
+    batchB.vertexCount = 3; // a real field divergence, not pixelHash
+
+    std::vector<RenderBatch> batchesA = {batchA};
+    std::vector<RenderBatch> batchesB = {batchB};
+    std::vector<size_t> paletteJointCounts = {0};
+
+    std::string a = BuildReport("scene", 8, 8, 111ull, batchesA, paletteJointCounts);
+    std::string b = BuildReport("scene", 8, 8, 111ull, batchesB, paletteJointCounts);
+    CHECK_FALSE(JsonEqualMaskingPixelHash(a, b));
+}
+
+TEST_CASE("OracleCorpus: JsonEqualMaskingPixelHash rejects a different line count") {
+    RenderBatch batch;
+    batch.name = "solo";
+    std::vector<RenderBatch> batches = {batch};
+    std::vector<size_t> paletteJointCounts = {0};
+
+    std::string a = BuildReport("scene", 8, 8, 111ull, batches, paletteJointCounts);
+    std::string b = BuildReport("scene", 8, 8, 111ull, {}, {}); // empty batches -> fewer lines
+    CHECK_FALSE(JsonEqualMaskingPixelHash(a, b));
+}
+
+// ── ImageCompare tests (task 7, four-knob gate amended in the fix round) ───
+
+TEST_CASE("OracleCorpus: CompareRGBA reports zero delta for identical buffers") {
+    std::vector<uint8_t> rgba = {10, 20, 30, 255, 40, 50, 60, 255};
+    auto result = CompareRGBA(2, 1, rgba, rgba);
+
+    CHECK_FALSE(result.sizeMismatch);
+    CHECK(result.maxChannelDelta == 0);
+    CHECK(result.differingPixels == 0);
+    CHECK(result.highDeltaPixels == 0);
+    CHECK(result.totalPixels == 2);
+    CHECK(result.differingPct == doctest::Approx(0.0));
+    CHECK(result.highDeltaPct == doctest::Approx(0.0));
+    CHECK(result.mae == doctest::Approx(0.0));
+}
+
+TEST_CASE("OracleCorpus: CompareRGBA finds the single largest channel delta") {
+    std::vector<uint8_t> a = {0, 0, 0, 255,   100, 100, 100, 255};
+    std::vector<uint8_t> b = {5, 0, 0, 255,   100, 92,  100, 255};
+    auto result = CompareRGBA(2, 1, a, b);
+
+    CHECK_FALSE(result.sizeMismatch);
+    CHECK(result.maxChannelDelta == 8); // |100-92| beats |5-0|
+    CHECK(result.differingPixels == 2); // both pixels have a nonzero channel
+    CHECK(result.differingPct == doctest::Approx(100.0));
+}
+
+TEST_CASE("OracleCorpus: CompareRGBA differingPct counts pixels, not channels") {
+    // 4 pixels; only the first differs (on one channel only) -- differingPct
+    // must be 25%, not 6.25% (1 of 16 channels) or some other channel-based
+    // fraction.
+    std::vector<uint8_t> a(4 * 4, 0);
+    std::vector<uint8_t> b(4 * 4, 0);
+    b[0] = 1; // first pixel's R channel
+
+    auto result = CompareRGBA(4, 1, a, b);
+    CHECK(result.differingPixels == 1);
+    CHECK(result.totalPixels == 4);
+    CHECK(result.differingPct == doctest::Approx(25.0));
+}
+
+TEST_CASE("OracleCorpus: CompareRGBA highDeltaPct only counts deltas strictly above kHighDeltaThreshold") {
+    // Pixel 0: delta exactly kHighDeltaThreshold (8) on one channel -- NOT
+    // high (the threshold is exclusive: "> 8", matching WithinTolerance's
+    // own doc comment). Pixel 1: delta kHighDeltaThreshold+1 (9) -- high.
+    std::vector<uint8_t> a = {0, 0, 0, 0,   0, 0, 0, 0};
+    std::vector<uint8_t> b = {kHighDeltaThreshold, 0, 0, 0,   kHighDeltaThreshold + 1, 0, 0, 0};
+
+    auto result = CompareRGBA(2, 1, a, b);
+    CHECK(result.differingPixels == 2);  // both pixels have SOME nonzero delta
+    CHECK(result.highDeltaPixels == 1);  // only pixel 1 crosses the high-delta line
+    CHECK(result.highDeltaPct == doctest::Approx(50.0));
+}
+
+TEST_CASE("OracleCorpus: CompareRGBA mae is the max per-channel mean, not a global average") {
+    // 2 pixels. Channel 0 (R): deltas {10, 0} -> mean 5. Channel 1 (G):
+    // deltas {0, 0} -> mean 0. mae must report 5 (the worst channel's
+    // mean), not e.g. (10+0+0+0)/8 = 1.25 (a flattened all-channel
+    // average) -- this test has multiple channels precisely so a
+    // global-average implementation would disagree with the expected 5.
+    std::vector<uint8_t> a = {0, 0, 0, 255,   0, 0, 0, 255};
+    std::vector<uint8_t> b = {10, 0, 0, 255,  0, 0, 0, 255};
+
+    auto result = CompareRGBA(2, 1, a, b);
+    CHECK(result.mae == doctest::Approx(5.0));
+}
+
+TEST_CASE("OracleCorpus: CompareRGBA flags a size mismatch instead of diffing") {
+    std::vector<uint8_t> a(2 * 2 * 4, 0);
+    std::vector<uint8_t> b(3 * 3 * 4, 0); // buffer sized for a different width/height
+
+    auto result = CompareRGBA(2, 2, a, b); // b is big enough here...
+    CHECK_FALSE(result.sizeMismatch);      // ...CompareRGBA only checks the DECLARED w/h fits
+
+    std::vector<uint8_t> tooShort(2 * 2 * 4 - 1, 0);
+    auto shortResult = CompareRGBA(2, 2, a, tooShort);
+    CHECK(shortResult.sizeMismatch);
+    CHECK(shortResult.maxChannelDelta == 0);
+    CHECK(shortResult.differingPixels == 0);
+    CHECK(shortResult.highDeltaPixels == 0);
+    CHECK(shortResult.mae == doctest::Approx(0.0));
+}
+
+TEST_CASE("OracleCorpus: WithinTolerance applies all four bounds inclusively") {
+    ImageCompareResult r;
+    r.maxChannelDelta = 8;
+    r.differingPct = 2.0;
+    r.highDeltaPct = 0.8;
+    r.mae = 1.0;
+
+    CHECK(WithinTolerance(r, 8, 2.0, 0.8, 1.0));       // exactly at all four bounds -> pass
+    CHECK_FALSE(WithinTolerance(r, 7, 2.0, 0.8, 1.0)); // maxChannelDelta exceeds the cap
+    CHECK_FALSE(WithinTolerance(r, 8, 1.9, 0.8, 1.0)); // differingPct exceeds its bound
+    CHECK_FALSE(WithinTolerance(r, 8, 2.0, 0.7, 1.0)); // highDeltaPct exceeds its bound
+    CHECK_FALSE(WithinTolerance(r, 8, 2.0, 0.8, 0.9)); // mae exceeds its bound
+
+    ImageCompareResult mismatch;
+    mismatch.sizeMismatch = true;
+    CHECK_FALSE(WithinTolerance(mismatch, 255, 100.0, 100.0, 255.0)); // size mismatch never passes
 }

@@ -6,11 +6,13 @@
 
 namespace Onyx::App {
 
-// -- Platform-specific GL hints -----------------------------------------------
+// -- Platform-specific window hints -------------------------------------------
+// GL context/profile hints are gone (T9: GLFW_CLIENT_API=GLFW_NO_API is set
+// by initGLFW() itself, before this runs -- Vulkan needs no window-creation
+// hint of its own beyond that). GLFW_DECORATED stays: the borderless
+// styling this platform file's other methods handle is GL-agnostic, exactly
+// as before.
 void Window::configureGLFW() {
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
 }
 

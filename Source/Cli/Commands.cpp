@@ -349,7 +349,34 @@ int CmdDecode(Workspace& ws, const std::filesystem::path& path, std::string_view
     Progress progress;
     bool hadCapability = false;
 
-    if (reg.HasImage(entry->typeId)) {
+    // Scene > Image > Text -- mirrors Onyx::App::RouteForType's priority
+    // exactly (Include/Onyx/App/ViewerRouting.h/.cpp, spec sec11: CLI and
+    // GUI routing must not diverge). Only ONE branch below ever runs per
+    // entry, same as the GUI opening exactly one viewer for a double-click.
+    //
+    // CLI/oracle boundary: this prints a compact TEXT summary only (parts/
+    // materials/vertices) -- it deliberately does NOT reuse Tools/
+    // OnyxOracle/RenderReport.h's BuildReport(), which is tool-side (linked
+    // only into onyx-oracle/onyx_tests, per Tools/OnyxOracle/CMakeLists.txt
+    // and Tests/CMakeLists.txt) and produces a byte-stable JSON report
+    // keyed to GL/Vulkan pixel-parity testing, a concern this generic,
+    // Onyx_Core-only CLI command has no business depending on (Commands.cpp
+    // compiles into Onyx_Core, which links no renderer at all -- see
+    // Include/Onyx/Cli/Render.h's top comment for the full boundary
+    // writeup). `render` (Examples/OnyxCli/Render.cpp) is the one Cli-side
+    // surface that actually touches rendering, and it writes its OWN
+    // separate minimal report shape for the identical reason.
+    if (reg.HasScene(entry->typeId)) {
+        hadCapability = true;
+        DecodeContext ctx{*doc, *entry, doc->diags, progress};
+        auto scene = reg.DecodeScene(ctx);
+        if (scene) {
+            size_t totalVertices = 0;
+            for (const auto& part : scene->meshParts) totalVertices += part.vertices.size();
+            out << "scene " << entry->name << " parts=" << scene->meshParts.size()
+                << " materials=" << scene->materials.size() << " vertices=" << totalVertices << "\n";
+        }
+    } else if (reg.HasImage(entry->typeId)) {
         hadCapability = true;
         DecodeContext ctx{*doc, *entry, doc->diags, progress};
         auto img = reg.DecodeImage(ctx);

@@ -1,14 +1,32 @@
-#include <glad/glad.h>  // Must be before GLFW
+// Vulkan must be visible before GLFW's own header (pulled in transitively
+// by <Onyx/App/Window.h> below) so GLFW's optional Vulkan support
+// functions (glfwCreateWindowSurface, glfwGetPhysicalDevicePresentation-
+// Support, ...) pick up the REAL VkInstance/VkPhysicalDevice/VkSurfaceKHR
+// types instead of the void*-typedef fallback GLFW declares when it has
+// never seen vulkan.h. This is a single-translation-unit ordering rule --
+// see VkContext.h's "include-order rule" comment for the general form and
+// why it binds every RenderVk-touching TU, including this Shell one that
+// only forward-declares VkContext/RenderContext in its own header.
+#include <volk.h>
+#include <vk_mem_alloc.h>
+
 #include <Onyx/App/Window.h>
 
+#include <algorithm>
 #include <cfloat>
+#include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl3.h"
+#include "imgui_impl_vulkan.h"
 #include "implot.h"
+
+#include <Onyx/RenderVk/RenderContext.h>
+#include <Onyx/RenderVk/TexturePool.h>
+#include <Onyx/RenderVk/VkContext.h>
 
 #include <Onyx/Services/PathUtils.h>
 #include <Onyx/Services/TaskManager.h>
@@ -25,6 +43,65 @@ namespace Onyx::App {
 
 // -- Globals needed by GLFW callbacks -----------------------------------------
 static Window* s_windowInstance = nullptr;
+
+namespace {
+// T10 fix-round-1 (MEDIUM): was an independently-hardcoded `2` that
+// happened to agree with every TexturePool's own deferred-destroy
+// latency default -- nothing tied the two together, so a future move to
+// triple-buffering could update this literal and silently under-retire
+// every pooled texture (destroying a descriptor/image a still-in-flight
+// third frame slot could be reading). Now the SAME symbol
+// Onyx::Rendering::kFramesInFlight (Include/Onyx/RenderVk/TexturePool.h)
+// backs both -- see that constant's own doc comment.
+constexpr uint32_t kFramesInFlight = Onyx::Rendering::kFramesInFlight;
+
+void ImGuiVulkanCheckResult(VkResult err) {
+    if (err == VK_SUCCESS) return;
+    LOG_ERR("[Vulkan][imgui] backend call failed (VkResult %d)", static_cast<int>(err));
+}
+} // namespace
+
+// -- VulkanState -- everything Window.cpp owns beyond the VkContext/
+// RenderContext already forward-declared in Window.h. Nested inside Window
+// (declared `struct VulkanState;` there) so it never needs a name outside
+// this translation unit -- Vulkan swapchain/sync-object types stay entirely
+// out of the public header per that file's top comment. ------------------
+struct Window::VulkanState {
+    // Surface + swapchain (recreated on resize/minimize-restore; the
+    // surface itself is not).
+    VkSurfaceKHR       surface            = VK_NULL_HANDLE;
+    VkFormat           swapchainFormat    = VK_FORMAT_UNDEFINED;
+    VkColorSpaceKHR    swapchainColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+    VkExtent2D         swapchainExtent{0, 0};
+    VkSwapchainKHR     swapchain          = VK_NULL_HANDLE;
+
+    // The surface's own VkSurfaceCapabilitiesKHR::minImageCount, captured
+    // by the first createSwapchain() call (before initImGui() runs) so
+    // initImGui()'s ImGui_ImplVulkan_InitInfo::MinImageCount and every
+    // later recreateSwapchain()'s ImGui_ImplVulkan_SetMinImageCount() call
+    // derive from the exact same clamp(max(surfaceMinImageCount, 2))
+    // expression instead of two independently-hardcoded values that can
+    // silently disagree -- see the fix-round comments at both call sites.
+    uint32_t           surfaceMinImageCount = 2;
+
+    // Per-swapchain-image state (sized to the swapchain's own image count,
+    // which need not equal kFramesInFlight).
+    std::vector<VkImage>       images;
+    std::vector<VkImageView>   imageViews;
+    std::vector<VkImageLayout> imageLayouts;         // what THIS object left each image in
+    std::vector<VkFence>       imagesInFlight;        // fence currently owning each image, or NULL
+    std::vector<VkSemaphore>   renderFinishedSemaphores; // one per image (present waits on it)
+
+    // Per-frame-in-flight state (fixed size kFramesInFlight; independent of
+    // swapchain image count and NOT touched by a swapchain recreate).
+    VkCommandPool   commandPools[kFramesInFlight]           = {};
+    VkCommandBuffer commandBuffers[kFramesInFlight]         = {};
+    VkSemaphore     imageAvailableSemaphores[kFramesInFlight] = {};
+    VkFence         inFlightFences[kFramesInFlight]         = {};
+    uint32_t        currentFrame = 0;
+
+    bool framebufferResized = false;
+};
 
 static void glfw_error_callback(int error, const char* desc) {
     // GLFW_PLATFORM_ERROR (65544) "Cannot query workarea without screen" is a
@@ -73,7 +150,23 @@ Window::Window()
                      (unsigned long long)ev.id, ev.ok ? 1 : 0);
         });
 
+    // Task 13a: restores the legacy close-on-WadClosed behavior the M3b
+    // ledger tracked as an inert regression -- every tab DocumentBrowser's
+    // ViewerOpener associated with this document (see ViewerOpening.h/
+    // DocumentWindow::AddTab's docId parameter) closes the moment the
+    // document itself does. Safe to reach into m_app here even before
+    // App::init() has run (below, in run()): m_app already exists as an
+    // object (default-constructed alongside this Window), and this handler
+    // only ever actually executes later, from a Pump() call, by which time
+    // init() has long since returned.
+    m_onDocumentClosed = m_workspace.Events().On<Onyx::Modules::DocumentClosed>(
+        [this](const Onyx::Modules::DocumentClosed& ev) {
+            LOG_INFO("[Workspace] document closed id=%llu", (unsigned long long)ev.id);
+            m_app.getDocumentWindow().CloseTabsForDocument(ev.id);
+        });
+
     initGLFW();
+    initVulkan();
     initImGui();
     setupNativeWindow();
 
@@ -122,7 +215,45 @@ Window::~Window() {
     Onyx::Services::EventManager::clear();
     Onyx::Services::TaskManager::exit();
 
+    // The last submitted frame's command buffer may still be executing on
+    // the GPU right up to this point (presentFrame() only fences the CPU
+    // side of frames-in-flight, it never waits for the final one). ImGui's
+    // Vulkan backend destroys GPU resources (font texture, descriptor pool,
+    // pipeline) that command buffer references, so exitImGui() is not safe
+    // to call until the GPU has actually gone idle -- caught live: without
+    // this wait, ImGui_ImplVulkan_Shutdown()'s vkDestroyPipeline() raised
+    // VUID-vkDestroyPipeline-pipeline-00765 ("pipeline...currently in use
+    // by VkCommandBuffer") on every run, an otherwise-invisible validation
+    // error since it fires after the window is already gone.
+    if (m_vkContext && m_vkContext->Device() != VK_NULL_HANDLE)
+        vkDeviceWaitIdle(m_vkContext->Device());
+
+    // T10 fix: destroy every open document tab's OWN Vulkan resources
+    // (Viewport3D/ImageViewer/VideoPlayer TexturePool instances) while the
+    // VkContext and ImGui's Vulkan backend are BOTH still fully alive --
+    // m_app (and the DocumentWindow tabs it owns) is not destroyed by C++
+    // member-destruction order until AFTER this whole ~Window() body
+    // finishes (m_app is declared below m_vkContext/m_vk in this class),
+    // which is AFTER exitVulkan() would otherwise have already cleared
+    // Onyx::Rendering::GetGlobalContext() and torn down the device --
+    // caught live: without this call, a still-open ImageViewer/Viewport3D
+    // tab's TexturePool-owned VkImage was never destroyed before
+    // vmaDestroyAllocator() ran, tripping VMA's own
+    // "Some allocations were not freed before destruction of this memory
+    // block!" debug assertion (a blocking MessageBox with nothing to click
+    // it in an automated run -- looked exactly like a hang). See
+    // DocumentWindow::Shutdown()'s own doc comment for why this is safe
+    // here specifically (GPU already idle, no more Draw() coming) and not
+    // a substitute for TexturePool's own shutdown-order guard (a document
+    // opened AFTER this point, or any consumer that doesn't route through
+    // DocumentWindow, still needs that guard).
+    m_app.getDocumentWindow().Shutdown();
+
+    // exitVulkan() itself must finish (surface destroyed) BEFORE exitGLFW()
+    // destroys the window whose native handle that surface was created
+    // from.
     exitImGui();
+    exitVulkan();
     exitGLFW();
 
     s_windowInstance = nullptr;
@@ -149,7 +280,12 @@ void Window::initGLFW() {
         std::exit(-1);
     }
 
-    // Delegate platform-specific GL hints
+    // No GL context: GLFW must not try to create one, or glfwCreateWindow
+    // fails outright the moment a Vulkan-only driver is in play. Delegate
+    // any remaining platform-specific hints (borderless decoration, etc.)
+    // to configureGLFW() -- GL version/profile hints used to live there;
+    // they are gone now, this is the one hint every platform needs.
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     configureGLFW();
 
     m_window = glfwCreateWindow(m_config.windowW, m_config.windowH,
@@ -164,8 +300,9 @@ void Window::initGLFW() {
     if (m_config.maximized)
         glfwMaximizeWindow(m_window);
 
-    glfwMakeContextCurrent(m_window);
-    glfwSwapInterval(1);
+    // Store 'this' for callbacks -- set before any callback below (or
+    // initVulkan()'s own framebuffer-resize callback) can possibly fire.
+    glfwSetWindowUserPointer(m_window, this);
 
     // Track window attributes dynamically since macOS shutdown can miss late bounds queries
     glfwSetWindowPosCallback(m_window, [](GLFWwindow* window, int xpos, int ypos) {
@@ -185,14 +322,363 @@ void Window::initGLFW() {
             }
         }
     });
+}
 
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        fprintf(stderr, "Failed to initialize OpenGL loader\n");
+// -- initVulkan -----------------------------------------------------------------
+// VkContext (presentSupport=true) + a glfwCreateWindowSurface-made surface +
+// the swapchain + the frames-in-flight sync objects. Runs after initGLFW()
+// (needs m_window) and before initImGui() (needs the swapchain's image
+// count/format to configure imgui_impl_vulkan's dynamic-rendering pipeline).
+
+void Window::initVulkan() {
+    m_vk = std::make_unique<VulkanState>();
+    m_vkContext = std::make_unique<Onyx::Rendering::VkContext>();
+    m_renderContext = std::make_unique<Onyx::Rendering::RenderContext>();
+
+    // F1 fix: VkContext must never link GLFW (RenderVk's own binding rule
+    // -- see VkContext.h's include-order comment), so it cannot ask GLFW
+    // what the current platform's surface needs; this is the one place
+    // that both has a live GLFWwindow and is about to request
+    // presentSupport=true, so it is the one place that can ask. On
+    // Windows this returns exactly the two extensions VkContext already
+    // hardcodes for VK_USE_PLATFORM_WIN32_KHR (VK_KHR_surface +
+    // VK_KHR_win32_surface) -- Init de-duplicates against its own list, so
+    // passing them again here is harmless and keeps Windows behavior
+    // identical to before this fix. On Linux this is the extension pair
+    // (VK_KHR_surface + VK_KHR_xcb_surface/wayland_surface, whichever
+    // windowing backend GLFW was built against) that was previously never
+    // requested at all, which is why glfwCreateWindowSurface() below used
+    // to fail VK_ERROR_EXTENSION_NOT_PRESENT before this exit(-1) ever had
+    // a real chance to report anything else.
+    uint32_t glfwExtCount = 0;
+    const char** glfwExts = glfwGetRequiredInstanceExtensions(&glfwExtCount);
+    std::vector<const char*> requiredInstanceExtensions;
+    if (glfwExts) requiredInstanceExtensions.assign(glfwExts, glfwExts + glfwExtCount);
+
+    std::string err;
+    if (!m_vkContext->Init(/*presentSupport=*/true, err, requiredInstanceExtensions)) {
+        fprintf(stderr, "Failed to initialize Vulkan context: %s\n", err.c_str());
+        LOG_ERR("[Vulkan] VkContext::Init failed: %s", err.c_str());
+        std::exit(-1);
+    }
+    LOG_INFO("[Vulkan] device=\"%s\" apiVersion=%u.%u.%u validation=%d",
+             m_vkContext->Info().deviceName.c_str(),
+             VK_API_VERSION_MAJOR(m_vkContext->Info().apiVersion),
+             VK_API_VERSION_MINOR(m_vkContext->Info().apiVersion),
+             VK_API_VERSION_PATCH(m_vkContext->Info().apiVersion),
+             m_vkContext->Info().validation ? 1 : 0);
+
+    VkResult vr = glfwCreateWindowSurface(m_vkContext->Instance(), m_window, nullptr, &m_vk->surface);
+    if (vr != VK_SUCCESS) {
+        fprintf(stderr, "Failed to create Vulkan surface (VkResult %d)\n", static_cast<int>(vr));
+        LOG_ERR("[Vulkan] glfwCreateWindowSurface failed (VkResult %d)", static_cast<int>(vr));
         std::exit(-1);
     }
 
-    // Store 'this' for callbacks
-    glfwSetWindowUserPointer(m_window, this);
+    // VkContext already verified (Windows: vkGetPhysicalDeviceWin32Presentation
+    // SupportKHR) that the chosen graphics family can present to THIS
+    // platform's windowing system before a real surface existed. Checking
+    // again against the actual surface is cheap and catches the
+    // (theoretical, shouldn't-happen-given-the-above) case where a driver
+    // disagrees once a concrete surface is involved -- logged, not fatal,
+    // since every platform this milestone targets picks the same family
+    // either way.
+    VkBool32 presentSupported = VK_FALSE;
+    vkGetPhysicalDeviceSurfaceSupportKHR(m_vkContext->Physical(), m_vkContext->GraphicsFamily(),
+                                          m_vk->surface, &presentSupported);
+    if (!presentSupported) {
+        LOG_ERR("[Vulkan] chosen graphics queue family cannot present to the real surface "
+                 "(VkContext's platform pre-check said it could)");
+    }
+
+    int fbW = 0, fbH = 0;
+    glfwGetFramebufferSize(m_window, &fbW, &fbH);
+    createSwapchain(static_cast<uint32_t>(fbW), static_cast<uint32_t>(fbH));
+    createFrameSync();
+
+    // Framebuffer-resize callback: separate from the window-size callback
+    // above (that one persists screen-coordinate size into m_config; this
+    // one reacts to the pixel-resolution change a swapchain actually cares
+    // about, which on a HiDPI display is not the same number).
+    glfwSetFramebufferSizeCallback(m_window, [](GLFWwindow* window, int, int) {
+        if (Window* w = (Window*)glfwGetWindowUserPointer(window))
+            w->m_vk->framebufferResized = true;
+    });
+
+    LOG_INFO("[Vulkan] swapchain init: %ux%u, %zu image(s), format=%d, FIFO present, "
+             "%u frame(s) in flight",
+             m_vk->swapchainExtent.width, m_vk->swapchainExtent.height, m_vk->images.size(),
+             static_cast<int>(m_vk->swapchainFormat), kFramesInFlight);
+
+    // T10: publish this Window's VkContext through the process-wide
+    // accessor (Onyx::Rendering::GetGlobalContext()) so viewers constructed
+    // with no reference back to this Window (Viewport3D/ImageViewer/
+    // VideoPlayer -- see that function's own doc comment) can still reach
+    // it. Set only after Init() has fully succeeded (every early-exit
+    // above calls std::exit(-1) rather than returning, so this line is
+    // only ever reached with a live context).
+    Onyx::Rendering::SetGlobalContext(m_vkContext.get());
+}
+
+// -- createSwapchain / destroySwapchain / recreateSwapchain --------------------
+
+void Window::createSwapchain(uint32_t width, uint32_t height) {
+    if (width == 0 || height == 0) {
+        // Minimized (or not yet laid out): leave swapchain == VK_NULL_HANDLE.
+        // frameEnd()'s present step checks the framebuffer size itself every
+        // frame and simply skips the GPU frame while it stays 0x0 -- see
+        // that method's doc comment.
+        m_vk->swapchainExtent = {0, 0};
+        return;
+    }
+
+    Onyx::Rendering::VkContext& ctx = *m_vkContext;
+
+    VkSurfaceCapabilitiesKHR caps{};
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(ctx.Physical(), m_vk->surface, &caps);
+
+    // Captured every call (not just the first) so a driver that reports a
+    // different minImageCount after a mode change is still honored -- but
+    // it is the FIRST call, from initVulkan() before initImGui() runs, that
+    // matters for the MinImageCount/SetMinImageCount agreement documented
+    // on the field itself.
+    m_vk->surfaceMinImageCount = caps.minImageCount;
+
+    uint32_t formatCount = 0;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(ctx.Physical(), m_vk->surface, &formatCount, nullptr);
+    std::vector<VkSurfaceFormatKHR> formats(formatCount);
+    if (formatCount > 0)
+        vkGetPhysicalDeviceSurfaceFormatsKHR(ctx.Physical(), m_vk->surface, &formatCount, formats.data());
+
+    // RGBA8/BGRA8 as available (plan's own wording): prefer plain RGBA8
+    // UNORM (matches Pipelines.h's kColorFormat, so a future offscreen-
+    // target blit/compare against the swapchain never has to think about a
+    // channel swap), fall back to BGRA8 UNORM (what most desktop drivers
+    // actually report first), else whatever the surface listed first.
+    VkSurfaceFormatKHR chosen = formats.empty()
+        ? VkSurfaceFormatKHR{VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR}
+        : formats[0];
+    bool haveExact = false;
+    for (const auto& f : formats) {
+        if (f.format == VK_FORMAT_R8G8B8A8_UNORM) { chosen = f; haveExact = true; break; }
+    }
+    if (!haveExact) {
+        for (const auto& f : formats) {
+            if (f.format == VK_FORMAT_B8G8R8A8_UNORM) { chosen = f; break; }
+        }
+    }
+
+    VkExtent2D extent;
+    if (caps.currentExtent.width != UINT32_MAX) {
+        extent = caps.currentExtent;
+    } else {
+        extent.width  = std::min(std::max(width,  caps.minImageExtent.width),  caps.maxImageExtent.width);
+        extent.height = std::min(std::max(height, caps.minImageExtent.height), caps.maxImageExtent.height);
+    }
+    if (extent.width == 0 || extent.height == 0) {
+        m_vk->swapchainExtent = {0, 0};
+        return;
+    }
+
+    uint32_t imageCount = caps.minImageCount + 1;
+    if (caps.maxImageCount > 0 && imageCount > caps.maxImageCount)
+        imageCount = caps.maxImageCount;
+
+    VkSwapchainCreateInfoKHR info{};
+    info.sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    info.surface           = m_vk->surface;
+    info.minImageCount     = imageCount;
+    info.imageFormat       = chosen.format;
+    info.imageColorSpace    = chosen.colorSpace;
+    info.imageExtent       = extent;
+    info.imageArrayLayers  = 1;
+    info.imageUsage        = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    // Single graphics+present queue family (VkContext::Init selected it for
+    // exactly that combination) -- no queue family transfer needed.
+    info.imageSharingMode  = VK_SHARING_MODE_EXCLUSIVE;
+    info.preTransform      = caps.currentTransform;
+    info.compositeAlpha    = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    info.presentMode       = VK_PRESENT_MODE_FIFO_KHR; // guaranteed available; plan pins FIFO
+    info.clipped           = VK_TRUE;
+    info.oldSwapchain      = VK_NULL_HANDLE; // destroySwapchain() already ran (see recreateSwapchain)
+
+    VkSwapchainKHR newSwapchain = VK_NULL_HANDLE;
+    VkResult vr = vkCreateSwapchainKHR(ctx.Device(), &info, nullptr, &newSwapchain);
+    if (vr != VK_SUCCESS) {
+        fprintf(stderr, "vkCreateSwapchainKHR failed (VkResult %d)\n", static_cast<int>(vr));
+        LOG_ERR("[Vulkan] vkCreateSwapchainKHR failed (VkResult %d)", static_cast<int>(vr));
+        std::exit(-1);
+    }
+
+    m_vk->swapchain            = newSwapchain;
+    m_vk->swapchainFormat      = chosen.format;
+    m_vk->swapchainColorSpace  = chosen.colorSpace;
+    m_vk->swapchainExtent      = extent;
+
+    uint32_t actualCount = 0;
+    vkGetSwapchainImagesKHR(ctx.Device(), m_vk->swapchain, &actualCount, nullptr);
+    m_vk->images.resize(actualCount);
+    vkGetSwapchainImagesKHR(ctx.Device(), m_vk->swapchain, &actualCount, m_vk->images.data());
+
+    m_vk->imageViews.resize(actualCount);
+    m_vk->imageLayouts.assign(actualCount, VK_IMAGE_LAYOUT_UNDEFINED);
+    m_vk->imagesInFlight.assign(actualCount, VK_NULL_HANDLE);
+    m_vk->renderFinishedSemaphores.resize(actualCount);
+
+    VkSemaphoreCreateInfo semInfo{};
+    semInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    for (uint32_t i = 0; i < actualCount; ++i) {
+        VkImageViewCreateInfo viewInfo{};
+        viewInfo.sType                            = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image                            = m_vk->images[i];
+        viewInfo.viewType                         = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format                           = m_vk->swapchainFormat;
+        viewInfo.components                       = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
+                                                       VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY};
+        viewInfo.subresourceRange.aspectMask       = VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.subresourceRange.baseMipLevel     = 0;
+        viewInfo.subresourceRange.levelCount       = 1;
+        viewInfo.subresourceRange.baseArrayLayer   = 0;
+        viewInfo.subresourceRange.layerCount       = 1;
+
+        vr = vkCreateImageView(ctx.Device(), &viewInfo, nullptr, &m_vk->imageViews[i]);
+        if (vr != VK_SUCCESS) {
+            fprintf(stderr, "vkCreateImageView failed for swapchain image %u (VkResult %d)\n", i,
+                    static_cast<int>(vr));
+            LOG_ERR("[Vulkan] vkCreateImageView failed for swapchain image %u (VkResult %d)", i,
+                    static_cast<int>(vr));
+            std::exit(-1);
+        }
+
+        vr = vkCreateSemaphore(ctx.Device(), &semInfo, nullptr, &m_vk->renderFinishedSemaphores[i]);
+        if (vr != VK_SUCCESS) {
+            fprintf(stderr, "vkCreateSemaphore (renderFinished[%u]) failed (VkResult %d)\n", i,
+                    static_cast<int>(vr));
+            LOG_ERR("[Vulkan] vkCreateSemaphore (renderFinished[%u]) failed (VkResult %d)", i,
+                    static_cast<int>(vr));
+            std::exit(-1);
+        }
+    }
+
+    // ImGui's own MinImageCount bookkeeping (only meaningful once
+    // initImGui() has already run -- a mid-run resize, not the first
+    // creation from the constructor). Fix round 2: this MUST derive from
+    // the exact same expression as initImGui()'s InitInfo::MinImageCount
+    // below -- imgui_impl_vulkan.cpp's SetMinImageCount hits an
+    // unconditional IM_ASSERT(0) the moment the value it's called with
+    // differs from what Init() recorded, and caps.minImageCount is a
+    // per-driver number (several Windows ICDs report 3, not 2) that a
+    // hardcoded literal at the other call site could silently disagree
+    // with on any GPU other than the one this was last tested on.
+    if (ImGui::GetCurrentContext())
+        ImGui_ImplVulkan_SetMinImageCount(std::max(m_vk->surfaceMinImageCount, 2u));
+}
+
+void Window::destroySwapchain() {
+    if (!m_vk) return;
+    VkDevice device = m_vkContext->Device();
+
+    for (VkSemaphore s : m_vk->renderFinishedSemaphores)
+        if (s) vkDestroySemaphore(device, s, nullptr);
+    m_vk->renderFinishedSemaphores.clear();
+
+    for (VkImageView v : m_vk->imageViews)
+        if (v) vkDestroyImageView(device, v, nullptr);
+    m_vk->imageViews.clear();
+
+    m_vk->images.clear();
+    m_vk->imageLayouts.clear();
+    m_vk->imagesInFlight.clear();
+
+    if (m_vk->swapchain != VK_NULL_HANDLE) {
+        vkDestroySwapchainKHR(device, m_vk->swapchain, nullptr);
+        m_vk->swapchain = VK_NULL_HANDLE;
+    }
+}
+
+void Window::recreateSwapchain() {
+    int fbW = 0, fbH = 0;
+    glfwGetFramebufferSize(m_window, &fbW, &fbH);
+
+    // vkDeviceWaitIdle before tearing down the old swapchain's images: the
+    // simplest correct option (a resize/restore is not a hot path), and it
+    // sidesteps every subtlety of VkSwapchainCreateInfoKHR::oldSwapchain
+    // retirement (still-in-flight presents against the old images, etc.).
+    vkDeviceWaitIdle(m_vkContext->Device());
+    destroySwapchain();
+    createSwapchain(static_cast<uint32_t>(fbW), static_cast<uint32_t>(fbH));
+    m_vk->framebufferResized = false;
+}
+
+// -- createFrameSync / destroyFrameSync -----------------------------------------
+// Frames-in-flight resources: fixed at kFramesInFlight, created once here
+// and never touched by a swapchain recreate (see the field comments on
+// VulkanState above).
+
+void Window::createFrameSync() {
+    VkDevice device = m_vkContext->Device();
+
+    VkCommandPoolCreateInfo poolInfo{};
+    poolInfo.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    poolInfo.queueFamilyIndex = m_vkContext->GraphicsFamily();
+
+    VkSemaphoreCreateInfo semInfo{};
+    semInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    VkFenceCreateInfo fenceInfo{};
+    fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT; // first wait must not block forever
+
+    for (uint32_t i = 0; i < kFramesInFlight; ++i) {
+        VkResult vr = vkCreateCommandPool(device, &poolInfo, nullptr, &m_vk->commandPools[i]);
+        if (vr != VK_SUCCESS) {
+            fprintf(stderr, "vkCreateCommandPool failed (VkResult %d)\n", static_cast<int>(vr));
+            LOG_ERR("[Vulkan] vkCreateCommandPool failed (VkResult %d)", static_cast<int>(vr));
+            std::exit(-1);
+        }
+
+        VkCommandBufferAllocateInfo allocInfo{};
+        allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.commandPool        = m_vk->commandPools[i];
+        allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandBufferCount = 1;
+        vr = vkAllocateCommandBuffers(device, &allocInfo, &m_vk->commandBuffers[i]);
+        if (vr != VK_SUCCESS) {
+            fprintf(stderr, "vkAllocateCommandBuffers failed (VkResult %d)\n", static_cast<int>(vr));
+            LOG_ERR("[Vulkan] vkAllocateCommandBuffers failed (VkResult %d)", static_cast<int>(vr));
+            std::exit(-1);
+        }
+
+        vr = vkCreateSemaphore(device, &semInfo, nullptr, &m_vk->imageAvailableSemaphores[i]);
+        if (vr != VK_SUCCESS) {
+            fprintf(stderr, "vkCreateSemaphore (imageAvailable[%u]) failed (VkResult %d)\n", i,
+                    static_cast<int>(vr));
+            LOG_ERR("[Vulkan] vkCreateSemaphore (imageAvailable[%u]) failed (VkResult %d)", i,
+                    static_cast<int>(vr));
+            std::exit(-1);
+        }
+
+        vr = vkCreateFence(device, &fenceInfo, nullptr, &m_vk->inFlightFences[i]);
+        if (vr != VK_SUCCESS) {
+            fprintf(stderr, "vkCreateFence failed (VkResult %d)\n", static_cast<int>(vr));
+            LOG_ERR("[Vulkan] vkCreateFence failed (VkResult %d)", static_cast<int>(vr));
+            std::exit(-1);
+        }
+    }
+}
+
+void Window::destroyFrameSync() {
+    if (!m_vk || !m_vkContext) return;
+    VkDevice device = m_vkContext->Device();
+    if (device == VK_NULL_HANDLE) return;
+
+    for (uint32_t i = 0; i < kFramesInFlight; ++i) {
+        if (m_vk->inFlightFences[i]) vkDestroyFence(device, m_vk->inFlightFences[i], nullptr);
+        if (m_vk->imageAvailableSemaphores[i]) vkDestroySemaphore(device, m_vk->imageAvailableSemaphores[i], nullptr);
+        if (m_vk->commandPools[i]) vkDestroyCommandPool(device, m_vk->commandPools[i], nullptr); // frees its buffer too
+    }
 }
 
 // -- initImGui ----------------------------------------------------------------
@@ -249,21 +735,99 @@ void Window::initImGui() {
         Onyx::Appearance::Commit();
     }
 
-    ImGui_ImplGlfw_InitForOpenGL(m_window, true);
-#if defined(__APPLE__)
-    ImGui_ImplOpenGL3_Init("#version 150");
-#else
-    ImGui_ImplOpenGL3_Init("#version 330");
-#endif
+    ImGui_ImplGlfw_InitForVulkan(m_window, true);
+
+    Onyx::Rendering::VkContext& ctx = *m_vkContext;
+
+    ImGui_ImplVulkan_InitInfo initInfo{};
+    initInfo.ApiVersion       = ctx.Info().apiVersion;
+    initInfo.Instance         = ctx.Instance();
+    initInfo.PhysicalDevice   = ctx.Physical();
+    initInfo.Device           = ctx.Device();
+    initInfo.QueueFamily      = ctx.GraphicsFamily();
+    initInfo.Queue            = ctx.GraphicsQueue();
+    initInfo.DescriptorPool   = VK_NULL_HANDLE;
+    // Backend auto-creates its own pool (VK_DESCRIPTOR_POOL_CREATE_FREE_
+    // DESCRIPTOR_SET_BIT, per imgui_impl_vulkan.h's "About descriptor pool"
+    // note) when DescriptorPoolSize > 0. 64 leaves headroom over the font
+    // atlas's own handful of descriptors for T10's per-viewer
+    // ImGui_ImplVulkan_AddTexture() churn.
+    initInfo.DescriptorPoolSize = 64;
+    // Fix round 2: MUST match recreateSwapchain()'s later
+    // ImGui_ImplVulkan_SetMinImageCount() call exactly (same expression,
+    // same m_vk->surfaceMinImageCount field) -- imgui_impl_vulkan.cpp's
+    // SetMinImageCount unconditionally asserts if the value it is ever
+    // called with differs from what Init() recorded here, and this used
+    // to be a hardcoded kFramesInFlight-derived literal that could disagree
+    // with the device's real VkSurfaceCapabilitiesKHR::minImageCount (e.g.
+    // ICDs reporting 3) the first time a resize called SetMinImageCount.
+    initInfo.MinImageCount    = std::max(m_vk->surfaceMinImageCount, 2u);
+    initInfo.ImageCount       = static_cast<uint32_t>(m_vk->images.size());
+    initInfo.PipelineCache    = VK_NULL_HANDLE;
+    initInfo.UseDynamicRendering = true;
+    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.sType =
+        VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
+    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+    initInfo.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &m_vk->swapchainFormat;
+    // Secondary OS windows (floating/undocked panels, ImGuiConfigFlags_
+    // ViewportsEnable is on above) are created and driven entirely by the
+    // backend itself -- mirror the main window's dynamic-rendering setup so
+    // those get the same pipeline shape instead of falling back to a
+    // (nonexistent, since this app never creates one) VkRenderPass path.
+    initInfo.PipelineInfoForViewports = initInfo.PipelineInfoMain;
+    initInfo.Allocator        = nullptr;
+    initInfo.CheckVkResultFn  = &ImGuiVulkanCheckResult;
+
+    ImGui_ImplVulkan_Init(&initInfo);
 }
 
-// -- exitImGui / exitGLFW -----------------------------------------------------
+// -- exitImGui / exitGLFW / exitVulkan ------------------------------------------
 
 void Window::exitImGui() {
-    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplVulkan_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImPlot::DestroyContext();
     ImGui::DestroyContext();
+}
+
+void Window::exitVulkan() {
+    if (!m_vkContext) return;
+
+    // Clear the global accessor before touching a single Vulkan handle:
+    // any viewer's TexturePool that fetches Onyx::Rendering::GetGlobalContext()
+    // from here on gets nullptr (its own lazy-init check treats that as
+    // "no Vulkan available yet/anymore"), never a context mid-teardown.
+    Onyx::Rendering::SetGlobalContext(nullptr);
+
+    VkDevice device = m_vkContext->Device();
+    if (device != VK_NULL_HANDLE)
+        vkDeviceWaitIdle(device);
+
+    destroySwapchain();
+    destroyFrameSync();
+
+    if (m_vk && m_vk->surface != VK_NULL_HANDLE) {
+        vkDestroySurfaceKHR(m_vkContext->Instance(), m_vk->surface, nullptr);
+        m_vk->surface = VK_NULL_HANDLE;
+    }
+
+    // Snapshot before Shutdown(): ValidationMessageCount()/
+    // LastValidationMessage() persist across it (VkContext.h's own
+    // guarantee) specifically so a caller can still read what Shutdown()
+    // itself raised, so read AFTER Shutdown() rather than before -- this is
+    // the log line the T9 proof asserts "zero validation errors" against.
+    m_vkContext->Shutdown();
+    const uint32_t validationCount = m_vkContext->ValidationMessageCount();
+    if (validationCount != 0) {
+        LOG_ERR("[Vulkan] shutdown: %u validation message(s); last: %s", validationCount,
+                 m_vkContext->LastValidationMessage().c_str());
+    } else {
+        LOG_INFO("[Vulkan] shutdown: %u validation message(s)", validationCount);
+    }
+
+    m_renderContext.reset();
+    m_vkContext.reset();
+    m_vk.reset();
 }
 
 void Window::exitGLFW() {
@@ -351,7 +915,7 @@ void Window::fullFrame() {
 // -- frameBegin ---------------------------------------------------------------
 
 void Window::frameBegin() {
-    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplVulkan_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
@@ -377,36 +941,44 @@ void Window::frame() {
 }
 
 // -- frameEnd -----------------------------------------------------------------
+// Per-frame Vulkan record/submit/present (T9). Order, per the plan: acquire
+// -> record (RenderContext's raw-floor passes, then the ImGui pass, both
+// inside ONE dynamic-rendering scope over the swapchain image) -> present.
+// A viewer's own scene draw (into ITS OWN OffscreenTarget, e.g. Viewport3D
+// from T10 on) happens earlier, during m_app.frameEnd()'s ImGui calls above
+// in frame()/frameBegin() -- by the time this method's vkCmdBeginRendering
+// runs, ImGui::Render() has already produced this frame's whole draw list
+// and every panel has already recorded (or, pre-T10, simply not yet
+// recorded) into its own resources.
 
 void Window::frameEnd() {
     endNativeWindowFrame();
 
     ImGui::Render();
 
-    // Always present. The old vertex-buffer diff could not see an FBO whose
-    // pixels changed behind an unchanged texture id, and the event wait already
-    // caps the idle rate -- Onyx::Frame decides when that cap lifts.
-    {
-        ImDrawData* drawData = ImGui::GetDrawData();
-        if (drawData) {
-            int w, h;
-            glfwGetFramebufferSize(m_window, &w, &h);
-            glViewport(0, 0, w, h);
-            glClearColor(0.10f, 0.10f, 0.10f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT);
-            ImGui_ImplOpenGL3_RenderDrawData(drawData);
-            glfwSwapBuffers(m_window);
-        }
+    // Minimized (or not yet laid out): skip the GPU frame entirely rather
+    // than blocking on it (the plan's own "0x0 = skip frame"). ImGui::Render()
+    // above still ran, so the next NewFrame() picks up cleanly; nothing here
+    // touches the swapchain, which may not even exist yet.
+    int fbW = 0, fbH = 0;
+    glfwGetFramebufferSize(m_window, &fbW, &fbH);
+    if (fbW == 0 || fbH == 0) {
+        m_vk->framebufferResized = true; // force a fresh swapchain once restored
+    } else {
+        if (m_vk->swapchain == VK_NULL_HANDLE || m_vk->framebufferResized)
+            recreateSwapchain();
+
+        if (m_vk->swapchain != VK_NULL_HANDLE)
+            presentFrame();
     }
 
-    // Viewport windows (external OS windows) are always updated and rendered:
-    // dragging one flickers otherwise, since its content changes without the
-    // main window's own draw data changing.
+    // Viewport windows (external OS windows): imgui_impl_vulkan manages
+    // their own swapchains/pipelines internally once ViewportsEnable is on
+    // and Init() saw UseDynamicRendering -- no GL-style "make context
+    // current" dance needed here, just the same two calls GL used.
     if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-        GLFWwindow* backup = glfwGetCurrentContext();
         ImGui::UpdatePlatformWindows();
         ImGui::RenderPlatformWindowsDefault();
-        glfwMakeContextCurrent(backup);
     }
 
     // Font rebuild MUST happen after all rendering is complete.
@@ -424,5 +996,190 @@ void Window::frameEnd() {
     m_app.frameEnd();
 }
 
+// -- presentFrame -- acquire/record/submit/present for one swapchain image ----
+// Split out of frameEnd() only for readability; always called with a valid
+// (non-VK_NULL_HANDLE) m_vk->swapchain and a non-zero framebuffer.
+
+void Window::presentFrame() {
+    VulkanState& vk = *m_vk;
+    VkDevice device = m_vkContext->Device();
+
+    vkWaitForFences(device, 1, &vk.inFlightFences[vk.currentFrame], VK_TRUE, UINT64_MAX);
+
+    uint32_t imageIndex = 0;
+    VkResult vr = vkAcquireNextImageKHR(device, vk.swapchain, UINT64_MAX,
+                                         vk.imageAvailableSemaphores[vk.currentFrame],
+                                         VK_NULL_HANDLE, &imageIndex);
+    if (vr == VK_ERROR_OUT_OF_DATE_KHR) {
+        recreateSwapchain();
+        return; // try again next frame
+    }
+    if (vr != VK_SUCCESS && vr != VK_SUBOPTIMAL_KHR) {
+        LOG_ERR("[Vulkan] vkAcquireNextImageKHR failed (VkResult %d)", static_cast<int>(vr));
+        return;
+    }
+
+    // If this swapchain image is still being read by a previous frame-in-
+    // flight slot's submission (imageCount > kFramesInFlight makes that
+    // possible), wait for that slot's fence before touching it again.
+    if (vk.imagesInFlight[imageIndex] != VK_NULL_HANDLE)
+        vkWaitForFences(device, 1, &vk.imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX);
+    vk.imagesInFlight[imageIndex] = vk.inFlightFences[vk.currentFrame];
+
+    vkResetFences(device, 1, &vk.inFlightFences[vk.currentFrame]);
+
+    VkCommandBuffer cmd = vk.commandBuffers[vk.currentFrame];
+    vkResetCommandBuffer(cmd, 0);
+
+    VkCommandBufferBeginInfo beginInfo{};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cmd, &beginInfo);
+
+    // Barrier: whatever this object left the image in (UNDEFINED on its
+    // very first use, PRESENT_SRC_KHR on every frame after) -> COLOR_
+    // ATTACHMENT_OPTIMAL, sync2 throughout per the plan.
+    {
+        VkImageMemoryBarrier2 b{};
+        b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        // T10 fix-round-2 (sync-validation WRITE_AFTER_READ, VUID hint):
+        // srcStageMask must include COLOR_ATTACHMENT_OUTPUT_BIT so this
+        // transition chains after the acquire semaphore's wait stage
+        // (this submission waits that semaphore at COLOR_ATTACHMENT_
+        // OUTPUT) instead of racing the presentation engine's read of
+        // this same image. srcAccessMask stays NONE -- there is no
+        // memory access to make visible here, only an execution
+        // dependency against the semaphore wait.
+        b.srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        b.srcAccessMask       = VK_ACCESS_2_NONE;
+        b.dstStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        b.dstAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        b.oldLayout           = vk.imageLayouts[imageIndex];
+        b.newLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image               = vk.images[imageIndex];
+        b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+        VkDependencyInfo dep{};
+        dep.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers    = &b;
+        vkCmdPipelineBarrier2(cmd, &dep);
+        vk.imageLayouts[imageIndex] = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    }
+
+    VkRenderingAttachmentInfo colorAttachment{};
+    colorAttachment.sType       = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    colorAttachment.imageView   = vk.imageViews[imageIndex];
+    colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    colorAttachment.loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    colorAttachment.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttachment.clearValue.color = {{0.10f, 0.10f, 0.10f, 1.0f}};
+
+    VkRenderingInfo renderInfo{};
+    renderInfo.sType                = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    renderInfo.renderArea.offset    = {0, 0};
+    renderInfo.renderArea.extent    = vk.swapchainExtent;
+    renderInfo.layerCount           = 1;
+    renderInfo.colorAttachmentCount = 1;
+    renderInfo.pColorAttachments    = &colorAttachment;
+
+    vkCmdBeginRendering(cmd, &renderInfo);
+
+    VkViewport viewport{0.0f, 0.0f, static_cast<float>(vk.swapchainExtent.width),
+                        static_cast<float>(vk.swapchainExtent.height), 0.0f, 1.0f};
+    VkRect2D scissor{{0, 0}, vk.swapchainExtent};
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    // Raw-floor passes (T8's RenderContext) run first, still inside this
+    // same dynamic-rendering scope -- a consuming app that wants to draw
+    // directly onto the swapchain image gets exactly one hook, right here,
+    // before ImGui's own overlay. Nothing registers a pass yet in T9; this
+    // wires the mechanism T10+ (and any raw-floor consumer) draws through.
+    Onyx::Rendering::FrameHandles handles{device, m_vkContext->GraphicsQueue(), cmd,
+                                          m_vkContext->GraphicsFamily(), m_vkContext->Allocator()};
+    m_renderContext->Execute(handles);
+
+    if (ImDrawData* drawData = ImGui::GetDrawData())
+        ImGui_ImplVulkan_RenderDrawData(drawData, cmd);
+
+    vkCmdEndRendering(cmd);
+
+    // Barrier: COLOR_ATTACHMENT_OPTIMAL -> PRESENT_SRC_KHR.
+    {
+        VkImageMemoryBarrier2 b{};
+        b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        b.srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        b.srcAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+        b.dstStageMask        = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
+        b.dstAccessMask       = VK_ACCESS_2_NONE;
+        b.oldLayout           = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        b.newLayout           = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image               = vk.images[imageIndex];
+        b.subresourceRange    = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+        VkDependencyInfo dep{};
+        dep.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers    = &b;
+        vkCmdPipelineBarrier2(cmd, &dep);
+        vk.imageLayouts[imageIndex] = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    }
+
+    vkEndCommandBuffer(cmd);
+
+    VkSemaphoreSubmitInfo waitInfo{};
+    waitInfo.sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    waitInfo.semaphore = vk.imageAvailableSemaphores[vk.currentFrame];
+    waitInfo.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+    VkSemaphoreSubmitInfo signalInfo{};
+    signalInfo.sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signalInfo.semaphore = vk.renderFinishedSemaphores[imageIndex];
+    // ALL_COMMANDS rather than COLOR_ATTACHMENT_OUTPUT: the final layout-
+    // transition barrier above has dstStage=BOTTOM_OF_PIPE (nothing on the
+    // GPU reads/writes the image again this submission), so the semaphore
+    // signal must wait for the whole submission, not just the color-write
+    // stage that barrier's own src side depends on.
+    signalInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+    VkCommandBufferSubmitInfo cmdInfo{};
+    cmdInfo.sType         = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+    cmdInfo.commandBuffer = cmd;
+
+    VkSubmitInfo2 submit{};
+    submit.sType                    = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submit.waitSemaphoreInfoCount   = 1;
+    submit.pWaitSemaphoreInfos      = &waitInfo;
+    submit.commandBufferInfoCount   = 1;
+    submit.pCommandBufferInfos      = &cmdInfo;
+    submit.signalSemaphoreInfoCount = 1;
+    submit.pSignalSemaphoreInfos    = &signalInfo;
+
+    vr = vkQueueSubmit2(m_vkContext->GraphicsQueue(), 1, &submit, vk.inFlightFences[vk.currentFrame]);
+    if (vr != VK_SUCCESS)
+        LOG_ERR("[Vulkan] vkQueueSubmit2 failed (VkResult %d)", static_cast<int>(vr));
+
+    VkPresentInfoKHR presentInfo{};
+    presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    presentInfo.waitSemaphoreCount = 1;
+    presentInfo.pWaitSemaphores    = &vk.renderFinishedSemaphores[imageIndex];
+    presentInfo.swapchainCount     = 1;
+    presentInfo.pSwapchains        = &vk.swapchain;
+    presentInfo.pImageIndices      = &imageIndex;
+
+    vr = vkQueuePresentKHR(m_vkContext->GraphicsQueue(), &presentInfo);
+    if (vr == VK_ERROR_OUT_OF_DATE_KHR || vr == VK_SUBOPTIMAL_KHR || vk.framebufferResized) {
+        recreateSwapchain();
+    } else if (vr != VK_SUCCESS) {
+        LOG_ERR("[Vulkan] vkQueuePresentKHR failed (VkResult %d)", static_cast<int>(vr));
+    }
+
+    vk.currentFrame = (vk.currentFrame + 1) % kFramesInFlight;
+}
 
 } // namespace Onyx::App

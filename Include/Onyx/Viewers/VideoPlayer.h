@@ -11,6 +11,7 @@ extern "C" {
 }
 
 #include <miniaudio.h>
+#include <imgui.h>
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -20,6 +21,8 @@ extern "C" {
 #include <vector>
 #include <string>
 #include <memory>
+
+namespace Onyx::App { class TexturePool; }
 
 namespace Onyx::Viewers {
 
@@ -207,10 +210,10 @@ private:
     uint32_t m_audioChannels = 2;
     uint32_t m_audioSampleRate = 44100;
 
-    // UI & Rendering State
-    unsigned int m_glTexture = 0;
-    unsigned int m_pbo[2] = {0, 0};
-    int m_pboWrite = 0;
+    // UI & Rendering State (T10: Vulkan texture via Onyx::App::TexturePool,
+    // replaces the GL texture + PBO double-buffer pair)
+    std::unique_ptr<Onyx::App::TexturePool> m_texPool;
+    ImTextureID m_texId = 0; // ImTextureID_Invalid until the first UploadFrame()
     int m_texW = 0, m_texH = 0;
 
     float m_sliderPreviewPos = 0.0f;

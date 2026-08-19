@@ -3,6 +3,70 @@
 ## Unreleased
 
 ### Added
+- **M4 Vulkan renderer** (v1 spec §W4) — `Onyx::Render` rewritten on
+  Vulkan 1.3 (dynamic rendering, VMA), offscreen-first, on two floors:
+  `SceneRendererVk` (the ready-made PBR/skinning/grid/skeleton path
+  consumers use by default) and `Onyx::Rendering::RenderContext` (raw
+  `VkDevice`/queue/command-buffer handles plus `AddPass`/`RemovePass`, for
+  callers that need to record their own Vulkan work — a registered pass
+  that throws is caught, logged and skipped without corrupting the frame
+  or unregistering the pass). Device/instance/swapchain bootstrap
+  (`VkContext`) supports headless (no surface) as the primary path, with
+  presentation as the GUI's addition on top — platform status, honestly:
+  **Windows** is verified end to end (this is where the GUI has actually
+  been run). **Linux** is implemented (`VkContext::Init` takes the
+  caller's `glfwGetRequiredInstanceExtensions()` result and requests
+  those instance extensions) and builds green in CI (`linux-lavapipe`),
+  but nobody has run the GUI against a real Linux window in this
+  milestone — "implemented and builds" is not the same claim as
+  "verified," and earlier drafts of this entry conflated the two.
+  **macOS is unsupported** for M4: `Source/App/Platform/Window_macos.mm`
+  and `NativeWindow_macos.mm` still drive a `GLFW_NO_API` window through
+  `glfwMakeContextCurrent`/`NSOpenGLContext` (leftover OpenGL-context
+  calls with nothing to attach to now that the GL renderer is deleted),
+  and there is no `VK_KHR_portability_enumeration`/`VK_EXT_metal_surface`
+  enablement anywhere in `VkContext` -- both are real, unstarted work, not
+  a formality. PBR pipeline on role-indexed materials, skinning via a
+  joint-palette SSBO (shared with the deleted GL renderer's own
+  extraction, `Rendering::JointPalette`), procedural grid + skeleton
+  overlay.
+- **The parity gate ("the milestone's teeth")** — `onyx-oracle
+  render-corpus --renderer vk` renders the M0 corpus through the Vulkan
+  path; `onyx-oracle compare` checks it against the frozen GL goldens
+  (`Tests/Golden/corpus`, produced before GL was deleted and never
+  regenerated) on a four-tier tolerance tuned to separate expected 4x-MSAA
+  coverage-quantization noise from a real regression: a hard per-channel
+  delta cap (tripwire only), the percentage of pixels with any nonzero
+  delta, the percentage with a channel delta > 8 (isolates "a few pixels
+  differ a lot" edge noise), and whole-image mean absolute error (catches
+  broad, low-amplitude drift the two percentage tiers structurally
+  cannot). Wired as the `VkOracleParity` ctest, `SKIP_RETURN_CODE 77` when
+  no Vulkan-capable device is present. See "Known gaps" below for what
+  this gate does and does not catch.
+- **Headless per-container render** — `onyx-oracle`'s corpus renderer is
+  joined by a per-container path: the generic CLI (`onyxbox-cli render
+  <container> <entry> --out out.png`) resolves an entry, decodes it as a
+  Scene, and renders it headlessly through the same `VkContext` +
+  `SceneRendererVk` + `OffscreenTarget` stack, gated `OnyxCliRender`
+  (`SKIP_RETURN_CODE 77`, same convention). `CmdDecode` also gains a Scene
+  branch ahead of Image/Text, matching the GUI's own `RouteForType`
+  priority so CLI and GUI routing cannot diverge (v1 spec §11).
+- Async decode: `OpenSelection`'s decode now runs on the Workspace's own
+  `JobQueue` instead of the UI thread, with a placeholder tab standing in
+  until the job's `Done` callback lands on a later `Pump()` and
+  cooperative cancellation if the document closes mid-decode. Every tab
+  `OpenSelection` opens now records the `DocumentId` it belongs to, and
+  closing that document closes every tab it owns (`DocumentClosed` on the
+  Workspace's `EventBus`).
+- **First CI** (`.github/workflows/ci.yml`) — `windows-msvc` (Ninja +
+  MSVC, GPU-less hosted runner: every render-labeled ctest entry SKIPs via
+  its `SKIP_RETURN_CODE 77`, the suite still ends green) and
+  `linux-lavapipe` (Mesa's software Vulkan implementation: render tests
+  including `VkOracleParity` actually run and gate every PR — see "Known
+  gaps" below for why this leg's first real run is a tuning event, not a
+  pass/fail verdict). The four parity tolerance knobs are one CMake cache
+  variable now (`ONYX_PARITY_ARGS`, `Tools/OnyxOracle/CMakeLists.txt`), so
+  a lavapipe re-tune is a one-line change.
 - **M0 GL oracle corpus** -- the reference the Vulkan renderer must match:
   `onyx-oracle` (Tools/OnyxOracle) renders five deterministic synthetic
   scenes offscreen to PNG plus a canonical byte-stable JSON report
@@ -11,9 +75,13 @@
   skinned cube posed rest-vs-bind, alpha-blend stack, 200-joint spiral);
   a fifth, ShadingMode::Textured sphere-grid variant pins the PBR
   role/metallic path Solid's shader never exercises. Golden references
-  live in `Tests/Golden/corpus` and ctest gates prove render-twice
-  byte-identity (`OracleReproducible`, `OracleMatchesGolden`,
-  `SKIP_RETURN_CODE 77` when no GL).
+  live in `Tests/Golden/corpus`; `OracleReproducible` proves two
+  independent Vulkan render-corpus runs are byte-identical
+  (`SKIP_RETURN_CODE 77` when no Vulkan-capable device is present) —
+  matching those goldens is `VkOracleParity`'s job (see "the milestone's
+  teeth" above), not this test's. `OracleMatchesGolden` (a GL-render
+  ctest) died at Task 11 along with the GL renderer it existed to gate;
+  it is not part of this suite anymore.
 - **Mounts at open** (v1 spec §5.2) -- a module's `MountSpec` now runs:
   the Workspace mounts matching archives at open, documents own a file
   table (slot 0 = the container) plus the mounted VFS, and module-thrown
@@ -49,6 +117,13 @@
     Example binary `onyxbox-cli`.
 
 ### Changed
+- **BREAKING: the OpenGL renderer is deleted.** `Onyx::Render` is Vulkan
+  1.3 only now — glad, the GLSL 330 shaders and the GL `SceneRenderer` are
+  gone from the tree entirely; there is no compatibility shim. Consumers
+  present through the Vulkan surface (`Include/Onyx/RenderVk/`) described
+  above. The GL oracle corpus's goldens (`Tests/Golden/corpus`) are kept,
+  frozen, as the permanent parity anchor the Vulkan renderer is measured
+  against — they are not regenerated by a GL build that no longer exists.
 - **BREAKING:** entries address their payload through
   `Domain::ByteRange` (`source.fileIndex/offset/size`, 64-bit) instead
   of raw `uint32_t offset/size` fields (v1 spec §5.4); mounted entries
@@ -103,6 +178,93 @@
   `ProfileManager`, `AssetDatabase`, the Iso/Pak browsers and the
   raw-pointer asset events are gone. Consumers pinned to v0.6.x are
   unaffected until they port.
+
+### Known gaps — M4 Vulkan renderer
+Recorded here on purpose so nobody rediscovers these by surprise once the
+milestone's working ledger (`.superpowers/sdd/2026-08-19-onyx-v1-m4-vulkan/`)
+is gone at merge. None of these are silent: every one is either disabled
+with an in-UI tooltip, documented in the source at the exact spot a reader
+would look, or both.
+- **No animation playback.** `SceneRendererVk` has no
+  `SetAnimation`/`UpdateAnimation`/`AnimationPlayer` wiring this milestone
+  — every skinned scene renders its rest pose. The GL path's transport
+  bar/clip browser/play-pause UI was removed with it rather than left
+  wired against nothing. `Onyx::Rendering::AnimationPlayer` still exists
+  and compiles, but nothing constructs one:
+  `Onyx::App::GetActiveAnimationPlayer()` is permanently null, so
+  `Dopesheet` and `AnimCurveView` degrade gracefully (no crash, just
+  nothing to show) rather than being deleted outright.
+- **No per-batch visibility culling.** `Render()` does not read
+  `RenderBatch::isVisible`/`isHighlighted` — the Inspector's visibility
+  checkboxes and hover highlight still exist and still mutate those
+  fields (the same `Rendering::RenderBatch` struct the deleted GL renderer
+  also filled), they simply have no effect on what gets drawn yet.
+- **No outline/hover-highlight pass, no wireframe or matcap shading.**
+  `ShadingMode::Matcap`/`Wireframe`/`TexturedWire` were alias-only on the
+  GL renderer already (they silently rendered as Solid/Textured); the T11
+  fix round removed all three from the shading-mode combo and both
+  toolbar cycle sites rather than keep offering choices with no effect.
+  Only `Solid` and `Textured` remain.
+- **Four viewport color pickers are dead knobs.** Bones/Wireframe/Outline
+  colors (`AppConfig::boneR`/`wireR`/`hlR`) have zero readers at HEAD —
+  the skeleton overlay draws every frame with its own hardcoded color, so
+  a picker that looks like it controls it but doesn't would be actively
+  misleading. All three are disabled in Settings with a tooltip
+  explaining why; the config fields keep persisting so a real reader can
+  pick them up later with no migration. (The Matcap picker that used to
+  sit beside these was removed outright at T11 — no Vulkan path reads it
+  at all, disabled-with-tooltip would have been describing a feature that
+  no longer exists in any form.)
+- **The parity gate's honest detection floor.** `VkOracleParity`'s
+  four-tier tolerance (see above) catches a defect that touches more than
+  roughly 0.2-0.3% of pixels at delta>8, or one broad enough to move
+  whole-image MAE past 1 LSB. It does **not** catch a defect confined to
+  one small object's silhouette (~0.13% of the frame in the adjudicated
+  measurements) — real teeth against that class of regression would come
+  from the opt-in per-scene metrics ratchet `compare --emit-metrics`
+  already emits into every ctest log, not yet wired into any gate.
+- **`Viewport3D` redraws via a blocking `OneShot` submit on the UI
+  thread.** Each redraw allocates its own command buffer, records the
+  frame, submits, and blocks until the GPU finishes — 45 FPS observed with
+  vsync on a trivial scene. It only runs when something actually changed
+  (camera moved, a scene loaded, a toggle flipped), not every ImGui
+  frame, mirroring the GL path's own "cache the FBO, redraw only on
+  change" strategy — but the GPU round trip is synchronous where GL's
+  was an implicit queue-and-continue. `RenderContext::AddPass` exists as
+  the structurally right home for a frame-pipelined, non-blocking version
+  of this; nothing beyond the 45 FPS single observation above has been
+  measured, and no work here has started.
+- **macOS is unsupported this milestone**, not a formality gap.
+  `Source/App/Platform/Window_macos.mm` and `NativeWindow_macos.mm` still
+  call `glfwMakeContextCurrent`/`NSOpenGLContext` against what is now a
+  `GLFW_NO_API` window — leftover OpenGL-context calls with nothing left
+  to attach to now that the GL renderer is deleted — and `VkContext` has
+  no `VK_KHR_portability_enumeration`/`VK_EXT_metal_surface` enablement
+  anywhere. Nobody on this milestone has macOS hardware to build or test
+  against, so the `.mm` platform layer was left as-is rather than
+  half-fixed; both blockers are real, unstarted work.
+- **Closing a "Decoding…" placeholder tab does not cancel the decode.**
+  `ViewerOpening.cpp`'s cancellation only fires on `DocumentClosed`
+  (closing the whole document); closing just the placeholder tab the
+  decode is standing in for leaves the job running on the `JobQueue` —
+  the real viewer still opens seconds later even though the tab that was
+  going to show it is gone.
+- **All decoding is globally serialized on one lane (`kDecodeLane`).**
+  There is one decode lane, not one per document or one sized to
+  available cores — a second document's asset decode queues entirely
+  behind whatever large decode is already running on the lane, with no
+  way to jump the queue or run in parallel.
+- **The CLI `render` command collapses distinct failure modes onto
+  `kUsage`.** GPU-init failure, pipeline-build failure, framebuffer
+  readback failure, and PNG-write failure all currently exit with the
+  same usage-error code, so a calling script cannot tell "you passed a
+  bad argument" apart from "the disk is full" or "there is no
+  Vulkan-capable device" from the exit code alone.
+- **The swapchain frame path has zero automated coverage.** Every "0
+  validation messages" claim made for the Shell's actual windowed
+  presentation is a manual, timeout-bounded run of the GUI, not a ctest —
+  no test in this suite creates a real window and drives frames through
+  the swapchain.
 
 ## v0.6.0 - 2026-08-18
 

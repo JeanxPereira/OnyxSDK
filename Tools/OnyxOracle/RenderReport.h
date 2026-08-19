@@ -4,21 +4,23 @@
 // Task 5 renders each corpus scene and calls BuildReport() to produce a
 // byte-stable JSON document describing what was drawn: scene name/size, a
 // hash of the rendered pixels, and a per-batch geometry/material summary in
-// Rendering::SceneRenderer::GetBatches() order. Byte-stability is the whole
-// point -- the report becomes the equality test between two runs of the GL
-// oracle, and later between the GL and Vulkan oracles -- so every value is
-// formatted deterministically: fixed-precision floats (FormatFloat), manual
-// string building (no ostream locale risk), explicit "\n" (never emitted
-// via anything that could turn into "\r\n"), and no timestamps, paths, or
-// pointers anywhere in the output.
+// SceneRendererVk::GetBatches() order (Task 11 deleted the GL SceneRenderer
+// this comment used to name; RenderBatch/GetBatches() outlived it, now the
+// Vulkan renderer's own surface). Byte-stability is the whole point -- the
+// report was the equality test between two runs of the GL oracle, and is
+// now between two runs of the Vulkan one (OracleReproducible) -- so every
+// value is formatted deterministically: fixed-precision floats
+// (FormatFloat), manual string building (no ostream locale risk), explicit
+// "\n" (never emitted via anything that could turn into "\r\n"), and no
+// timestamps, paths, or pointers anywhere in the output.
 //
-// This header pulls in Rendering::SceneRenderer.h for RenderBatch, which
-// only forward-declares GL types (GLuint/GLenum = unsigned int) -- it does
-// NOT include glad/GLFW, so RenderReport.{h,cpp} stay GL-free and can be
-// exercised from doctest without a GL context, same as CorpusTextures and
-// CorpusScenes.
+// This header pulls in Rendering::RenderBatch.h for RenderBatch, which only
+// forward-declares GLuint (= unsigned int) -- it does NOT include glad, so
+// RenderReport.{h,cpp} stay GL-free (there is no GL left to depend on) and
+// can be exercised from doctest without any GPU context, same as
+// CorpusTextures and CorpusScenes.
 
-#include <Onyx/Rendering/SceneRenderer.h>
+#include <Onyx/Rendering/RenderBatch.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -60,5 +62,29 @@ std::string BuildReport(const std::string& sceneName, int w, int h,
                         uint64_t pixelHash,
                         const std::vector<Rendering::RenderBatch>& batches,
                         const std::vector<size_t>& paletteJointCounts);
+
+// ── Task 7: masked report comparison ───────────────────────────────────────
+//
+// The Vulkan oracle's `render-corpus` writes the exact same BuildReport()
+// shape as the GL path, from its own renderer-agnostic GetBatches()
+// (SceneRendererVk::GetBatches() returns the same Rendering::RenderBatch
+// vector type -- see SceneRendererVk.h's top comment). Every field should
+// therefore come out byte-identical between the two renderers EXCEPT
+// `pixelHash`, which is a hash of the rendered pixel buffer itself and is
+// never expected to match across two different rasterizers (different GPU,
+// different math, sometimes different pixels within tolerance) -- masking
+// that one line is the whole point of this comparison, everything else
+// staying byte-exact is what actually pins the report layer.
+
+/// True iff `a` and `b` are identical line-for-line EXCEPT any line that
+/// begins with the exact prefix `  "pixelHash": ` (BuildReport's own
+/// two-space-indented key), which is skipped on both sides rather than
+/// compared -- so the two documents may report different scene names,
+/// batch counts, or any other field and still fail here (correctly: that
+/// would be a real divergence), but two reports that differ ONLY in their
+/// pixelHash value compare equal. Documents with a different number of
+/// lines are never equal (compare `--help` in Main.cpp documents this
+/// masking rule).
+bool JsonEqualMaskingPixelHash(const std::string& a, const std::string& b);
 
 } // namespace Onyx::OracleTool

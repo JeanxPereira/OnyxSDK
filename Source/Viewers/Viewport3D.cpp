@@ -1,237 +1,409 @@
+// ═══════════════════════════════════════════════════════════════════════
+// T10 port notes (Shell swap part 2 -- see task-10-report.md for the full
+// writeup; this comment covers the decisions load-bearing enough to want
+// beside the code they explain).
+//
+// VulkanState / header split: Viewport3D.h forward-declares every Vulkan-
+// touching type and hides them behind this file's private `VulkanState`
+// struct (unique_ptr<incomplete-type>, exactly Include/Onyx/App/Window.h's
+// own pattern) rather than including OffscreenTarget.h/Pipelines.h/
+// SceneRendererVk.h directly in the header. This is not stylistic: those
+// headers pull in volk.h, which on Windows pulls in <windows.h> for
+// VK_USE_PLATFORM_WIN32_KHR -- and Viewport3D.h is transitively included
+// by DocumentBrowser.cpp and CameraPanel.cpp, neither of which has
+// anything to do with Vulkan. The first version of this port included
+// them directly and broke the build: <wingdi.h>'s `#define TextOut
+// TextOutW` (or `TextOutA`) collided with `Onyx::Modules::TextOut`, a real
+// type DocumentBrowser.cpp names in its own ViewerOpener wiring.
+//
+// Recording seam: T9's Window.cpp records the swapchain frame's own
+// command buffer (m_vk->commandBuffers[...]) already inside an open
+// dynamic-rendering scope over the SWAPCHAIN image by the time
+// RenderContext::Execute runs (see Window.cpp's frameEnd() doc comment) --
+// Vulkan does not allow a second, nested vkCmdBeginRendering on that same
+// command buffer, so Viewport3D cannot record its OffscreenTarget's
+// BeginFrame/EndFrame through a RenderContext::AddPass callback (that seam
+// is for drawing directly onto the swapchain image, not into a second,
+// independent render target). Instead, RenderFrame() below uses its own,
+// separate command buffer via Onyx::Rendering::Resources::OneShot (the same
+// primitive T4/T5/T7's own smoke/oracle paths already use to drive
+// OffscreenTarget) -- allocate, record BeginFrame/draws/EndFrame/
+// PrepareForSampling, submit, and BLOCK until the GPU finishes, all inside
+// one OneShot call. This only runs when m_needsRedraw is set (camera
+// moved, a scene just loaded, a toggle changed) rather than every single
+// ImGui frame, so the blocking cost is bounded to actual redraws -- the
+// same "cache the FBO, only re-render on change" strategy the GL version
+// used, just with a synchronous GPU round trip standing in for GL's
+// implicit "draw commands queue against the current context" model. A
+// truly async, frame-pipelined recording path (reusing T9's own frames-in-
+// flight machinery for a second target) is a reasonable follow-up but is
+// not what this task's file list or time budget covers.
+//
+// No scene decoder exists in OnyxBox yet (T14 gap, stated in the task
+// brief): LoadScene() is exercised by nothing today, so this whole path
+// compiles and initializes correctly but is NOT visually verified by any
+// test in this milestone -- MinimalViewer's --open-first-image proof
+// (Examples/MinimalViewer) opens an IMAGE entry, not a scene, precisely
+// because no scene entry exists to open. Stated here, honestly, rather
+// than implied.
+//
+// Feature gaps inherited from SceneRendererVk (Include/Onyx/RenderVk/
+// SceneRendererVk.h), not introduced by this task -- do not "fix" these
+// here, per the brief's "MSAA + outline parity comes from the renderer --
+// do not reimplement effects in the viewer":
+//   - No animation playback API (SetAnimation/UpdateAnimation/AnimPlayer)
+//     exists on SceneRendererVk this milestone -- every skinned scene
+//     renders its rest pose. The GL path's transport bar/clip browser/
+//     play-pause UI is therefore dropped entirely rather than wired
+//     against nothing; showBones + RenderSkeleton() still work (rest
+//     pose).
+//   - Render() does not read RenderBatch::isVisible/isHighlighted (no
+//     per-batch culling, no hover-outline pass) -- the inspector's
+//     visibility checkboxes and hover highlight still mutate those fields
+//     (via GetBatches(), the exact same Rendering::RenderBatch struct GL's
+//     SceneRenderer also fills -- see SceneRendererVk.h's own "RenderBatch
+//     reuse" comment), they simply have no visible effect yet.
+//
+// Y-flip on display: GL's ImGui::Image() call used uv0=(0,1)/uv1=(1,0) to
+// flip vertically (GL's texture origin is bottom-left). Vulkan's resolve
+// image is already top-down in memory (OffscreenTarget::Readback's own
+// doc comment: "empirically verified top-down for this target") and
+// ImGui's own UV convention is top-down too, so the Vulkan path below
+// draws with the plain uv0=(0,0)/uv1=(1,1) -- no flip.
+// ═══════════════════════════════════════════════════════════════════════
+
 #include <Onyx/Viewers/Viewport3D.h>
-#include <Onyx/Rendering/ShaderManager.h>
+#include <Onyx/App/TexturePool.h>
+#include <Onyx/RenderVk/OffscreenTarget.h>
+#include <Onyx/RenderVk/Pipelines.h>
+#include <Onyx/RenderVk/SceneRendererVk.h>
+#include <Onyx/RenderVk/VkContext.h>
 #include <Onyx/Services/Events.h>
-#include <glad/glad.h>
 #include <imgui.h>
 #include <Onyx/Services/AppConfig.h>
+#include <Onyx/Services/Logger.h>
 #include <Onyx/Services/ThemeManager.h>
 #include <Onyx/Fonts/SFSymbols.h>
 #include <Onyx/App/Panels/CameraPanel.h>
 #include <Onyx/App/Widgets.h>
-#include "App/AnimationTimeline.h"
-#include "App/ActiveAnimation.h"
 #include <glm/gtc/matrix_transform.hpp>
+#include <algorithm>
+#include <limits>
 
 namespace Onyx::Viewers {
 
+using Onyx::Rendering::Resources;
+using Onyx::Rendering::VulkanProjection;
+
+// ── VulkanState -- see Viewport3D.h's top comment for why this is a
+// forward-declared, .cpp-only struct ─────────────────────────────────────
+struct Viewport3D::VulkanState {
+    Onyx::Rendering::ScenePipelines     scenePipelines;
+    Onyx::Rendering::GridPipeline       gridPipeline;
+    Onyx::Rendering::BackgroundPipeline backgroundPipeline;
+    Onyx::Rendering::OverlayPipeline    overlayPipeline;
+    Onyx::Rendering::SceneRendererVk    sceneRendererVk;
+    Onyx::Rendering::OffscreenTarget    target;
+    bool targetCreated = false;
+};
+
 Viewport3D::Viewport3D(const std::string& name) : m_name(name) {
-    InitFBO();
+    m_vk = std::make_unique<VulkanState>();
+
+    // Task 11: Onyx::Rendering::Camera's constructor used to pull these
+    // same fields from AppConfig itself (see Camera.cpp's own comment for
+    // why that moved) -- applying them here, right after m_camera's default
+    // construction, keeps the "new viewport matches the user's last-session
+    // camera preferences" behavior exactly, just from the one Shell class
+    // that owns both AppConfig and the Camera instance. Mirrors
+    // Source/App/Panels/CameraPanel.cpp's own field list, which writes
+    // these same members back into AppConfig when the user edits them.
+    if (auto* cfg = Onyx::Services::AppConfig::Get()) {
+        m_camera.fov               = cfg->camFov;
+        m_camera.nearPlane         = cfg->camNearPlane;
+        m_camera.farPlane          = cfg->camFarPlane;
+        m_camera.autoNear          = cfg->camAutoNear;
+        m_camera.autoFar           = cfg->camAutoFar;
+        m_camera.manualNear        = cfg->camManualNear;
+        m_camera.manualFar         = cfg->camManualFar;
+        m_camera.nearDistanceScale = cfg->camNearDistanceScale;
+        m_camera.farMargin         = cfg->camFarMargin;
+        m_camera.nearFarRatioMax   = cfg->camNearFarRatioMax;
+    }
 }
 
 Viewport3D::~Viewport3D() {
-    // Tear down active-anim broker if we set ourselves as the publisher;
-    // otherwise downstream panels (Anim Curves / Dopesheet) keep a dangling
-    // pointer into a freed AnimationPlayer.
-    if (m_sceneRenderer &&
-        Onyx::App::GetActiveAnimationPlayer() == m_sceneRenderer->GetAnimPlayer()) {
-        Onyx::App::SetActiveAnimationPlayer(nullptr);
+    // Shutdown-order guard (T10 disclosed gap -- see task-10-report.md's
+    // Concerns, same rationale as TexturePool's destructor comment): only
+    // touch a Vulkan handle if the process-wide accessor still reports the
+    // context alive. A full-app shutdown with this document still open
+    // reaches this destructor after Window::exitVulkan() has already
+    // cleared it -- everything below is deliberately skipped (leaked) in
+    // that case rather than risking UB against an already-torn-down
+    // device; the process is exiting either way.
+    m_texPool.reset(); // safe either way -- TexturePool::~TexturePool() carries the same guard itself
+
+    Onyx::Rendering::VkContext* live = Onyx::Rendering::GetGlobalContext();
+    if (live && m_vkReady) {
+        m_vk->sceneRendererVk.Clear(*live);
+        if (m_vk->targetCreated) m_vk->target.Destroy(*live);
+        Onyx::Rendering::Pipelines::Destroy(*live, m_vk->overlayPipeline);
+        Onyx::Rendering::Pipelines::Destroy(*live, m_vk->backgroundPipeline);
+        Onyx::Rendering::Pipelines::Destroy(*live, m_vk->gridPipeline);
+        Onyx::Rendering::Pipelines::Destroy(*live, m_vk->scenePipelines);
     }
-    ClearScene();
-
-    if (m_msaaFbo) glDeleteFramebuffers(1, &m_msaaFbo);
-    if (m_msaaColor) glDeleteTextures(1, &m_msaaColor);
-    if (m_msaaRbo) glDeleteRenderbuffers(1, &m_msaaRbo);
-
-    if (m_fbo) glDeleteFramebuffers(1, &m_fbo);
-    if (m_colorTex) glDeleteTextures(1, &m_colorTex);
 }
 
 std::string Viewport3D::GetName() const { return m_name; }
 
+bool Viewport3D::HasBatches() const {
+    return !m_vk->sceneRendererVk.GetBatches().empty();
+}
+
 void Viewport3D::ClearScene() {
-    if (m_sceneRenderer &&
-        Onyx::App::GetActiveAnimationPlayer() == m_sceneRenderer->GetAnimPlayer()) {
-        Onyx::App::SetActiveAnimationPlayer(nullptr);
-    }
-    m_sceneRenderer.reset();
     m_sceneData.reset();
+    m_bounds = Onyx::Domain::BoundingBox{};
+    if (m_vkReady) {
+        Onyx::Rendering::VkContext* live = Onyx::Rendering::GetGlobalContext();
+        if (live) m_vk->sceneRendererVk.Clear(*live);
+    }
     m_needsRedraw = true;
 }
 
-void Viewport3D::LoadFromMeshData(const Parsers::MeshData& data, const std::vector<std::unique_ptr<Parsers::TextureData>>& textures) {
+void Viewport3D::LoadFromMeshData(const Parsers::MeshData& data,
+                                  const std::vector<std::unique_ptr<Parsers::TextureData>>& textures) {
+    // Dead API (verified: zero callers anywhere in this repo, including
+    // Tools/OnyxOracle and Examples -- grep before this task started).
+    // Its old body constructed and drove Onyx::Rendering::SceneRenderer
+    // (GL) directly, which is exactly the "GL call with no context
+    // current" landmine T9's report flagged and this task exists to close
+    // -- rather than port a MeshData -> SceneRendererVk::Build path
+    // nothing exercises, this stays a clearly-logged no-op. Left in place
+    // (not deleted) only to avoid touching the public header surface
+    // beyond what this task's GL-removal scope requires.
+    (void)data;
+    (void)textures;
+    LOG_WARN("[Viewport3D] LoadFromMeshData: not ported to Vulkan (dead code path, no callers) -- ignored");
     ClearScene();
-    if (data.parts.empty()) return;
-
-    m_sceneRenderer = std::make_unique<Rendering::SceneRenderer>();
-    m_sceneRenderer->BuildFromMeshData(data, textures);
-    m_camera.FocusOn(m_sceneRenderer->GetBounds());
-    m_needsRedraw = true;
 }
 
 void Viewport3D::LoadScene(std::unique_ptr<Parsers::SceneData> scene) {
     ClearScene();
     if (!scene || scene->IsEmpty()) return;
 
-    // Keep a shared copy for animation access
     m_sceneData = std::shared_ptr<Parsers::SceneData>(scene.release());
-    
+
     if (m_sceneData->animations) {
         EventAnimationLoaded::post(m_sceneData->animations);
     }
 
-    m_sceneRenderer = std::make_unique<Rendering::SceneRenderer>();
-    m_sceneRenderer->Build(*m_sceneData);
-    m_camera.FocusOn(m_sceneRenderer->GetBounds());
+    ComputeBounds();
+    m_camera.FocusOn(m_bounds);
     m_needsRedraw = true;
     m_lastFrameTime = 0.0f;
+
+    EnsureVulkanReady();
+    if (m_vkReady && m_ctx) {
+        std::string err;
+        if (!m_vk->sceneRendererVk.Build(*m_ctx, m_vk->scenePipelines, *m_sceneData, err)) {
+            LOG_ERR("[Viewport3D] SceneRendererVk::Build failed: %s", err.c_str());
+        }
+    }
 }
 
-void Viewport3D::InitFBO() {
-    glGenFramebuffers(1, &m_msaaFbo);
-    glGenTextures(1, &m_msaaColor);
-    glGenRenderbuffers(1, &m_msaaRbo);
-
-    glGenFramebuffers(1, &m_fbo);
-    glGenTextures(1, &m_colorTex);
-
-    Rendering::ShaderManager::Get().Initialize();
+void Viewport3D::ComputeBounds() {
+    glm::vec3 lo(std::numeric_limits<float>::max());
+    glm::vec3 hi(-std::numeric_limits<float>::max());
+    bool any = false;
+    if (m_sceneData) {
+        // T11-review F1: bounds must be computed in RENDERED space, not
+        // object space -- the GL SceneRenderer::Build did exactly this
+        // (git show 7525d1f:Source/Rendering/SceneRenderer.cpp) and said
+        // why: FocusOn's camera framing has to cover every vertex as it
+        // actually draws, and SceneRendererVk::Build applies this same
+        // instanceTransform (Source/RenderVk/SceneRendererVk.cpp, "GOW2
+        // models face -Z, GOWR is already screen-correct -- identical to
+        // GL's SceneRenderer::Build") before rasterizing. Skipping this
+        // transform here left ComputeBounds silently out of sync with
+        // what the renderer draws: any asset with a non-identity
+        // instanceTransform framed on the wrong center, and any GOW2
+        // asset (flipZ=true) framed mirrored in Z.
+        const glm::mat4 instanceTransform = m_sceneData->flipZ
+            ? glm::scale(m_sceneData->instanceTransform, glm::vec3(1.0f, 1.0f, -1.0f))
+            : m_sceneData->instanceTransform;
+        for (const Parsers::MeshPart& part : m_sceneData->meshParts) {
+            for (const Onyx::Domain::GpuVertex& v : part.vertices) {
+                const glm::vec3 tp = glm::vec3(instanceTransform * glm::vec4(v.position, 1.0f));
+                lo = glm::min(lo, tp);
+                hi = glm::max(hi, tp);
+                any = true;
+            }
+        }
+    }
+    if (!any) {
+        m_bounds = Onyx::Domain::BoundingBox{};
+        return;
+    }
+    m_bounds.min = lo;
+    m_bounds.max = hi;
 }
 
-void Viewport3D::ResizeFBO(int width, int height) {
+void Viewport3D::EnsureVulkanReady() {
+    if (m_vkReady) return;
+
+    m_ctx = Onyx::Rendering::GetGlobalContext();
+    if (!m_ctx) return; // Vulkan not up yet (or Window is already tearing down) -- retry next Draw()
+
+    std::string err;
+    bool ok = Onyx::Rendering::Pipelines::CreateScene(*m_ctx, m_vk->scenePipelines, err) &&
+              Onyx::Rendering::Pipelines::CreateGrid(*m_ctx, m_vk->gridPipeline, err) &&
+              Onyx::Rendering::Pipelines::CreateBackground(*m_ctx, m_vk->backgroundPipeline, err) &&
+              Onyx::Rendering::Pipelines::CreateOverlay(*m_ctx, m_vk->overlayPipeline, err);
+    if (!ok) {
+        LOG_ERR("[Viewport3D] Vulkan pipeline creation failed: %s", err.c_str());
+        Onyx::Rendering::Pipelines::Destroy(*m_ctx, m_vk->overlayPipeline);
+        Onyx::Rendering::Pipelines::Destroy(*m_ctx, m_vk->backgroundPipeline);
+        Onyx::Rendering::Pipelines::Destroy(*m_ctx, m_vk->gridPipeline);
+        Onyx::Rendering::Pipelines::Destroy(*m_ctx, m_vk->scenePipelines);
+        m_ctx = nullptr;
+        return;
+    }
+
+    m_texPool = std::make_unique<Onyx::App::TexturePool>(*m_ctx);
+    m_vkReady = true;
+}
+
+void Viewport3D::ResizeTarget(int width, int height) {
     if (width <= 0 || height <= 0) return;
     if (width == m_fboWidth && height == m_fboHeight) return;
+    if (!m_ctx) return;
 
+    if (m_vk->targetCreated) {
+        m_vk->target.Destroy(*m_ctx);
+        m_vk->targetCreated = false;
+    }
+
+    std::string err;
+    if (!m_vk->target.Create(*m_ctx, width, height, err)) {
+        LOG_ERR("[Viewport3D] OffscreenTarget::Create failed: %s", err.c_str());
+        m_fboWidth = m_fboHeight = 0;
+        return;
+    }
+    m_vk->targetCreated = true;
     m_fboWidth = width;
     m_fboHeight = height;
     m_needsRedraw = true;
 
-    // MSAA FBO
-    glBindFramebuffer(GL_FRAMEBUFFER, m_msaaFbo);
-    glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, m_msaaColor);
-    glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, m_msaaSamples, GL_RGBA8, width, height, GL_TRUE);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D_MULTISAMPLE, m_msaaColor, 0);
+    // "AddTexture once per resize, not per frame" (the brief's own
+    // wording): re-register the descriptor against the NEW resolve view,
+    // deferred-retiring whatever m_displayTexId pointed at before.
+    ImTextureID newId = m_texPool->RegisterExternalView(
+        m_vk->target.ResolveView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, m_displayTexId, err);
+    if (newId == ImTextureID_Invalid) {
+        // T10 fix-round-1 (LOW): RegisterExternalView already kept the OLD
+        // descriptor alive on failure (never retired it) -- keep displaying
+        // it too, rather than clobbering m_displayTexId with the failure.
+        LOG_ERR("[Viewport3D] TexturePool::RegisterExternalView failed: %s", err.c_str());
+        return;
+    }
+    m_displayTexId = newId;
+}
 
-    glBindRenderbuffer(GL_RENDERBUFFER, m_msaaRbo);
-    glRenderbufferStorageMultisample(GL_RENDERBUFFER, m_msaaSamples, GL_DEPTH24_STENCIL8, width, height);
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_msaaRbo);
+void Viewport3D::RenderFrame(int width, int height) {
+    if (!m_ctx || !m_vk->targetCreated) return;
 
-    // Resolve FBO
-    glBindFramebuffer(GL_FRAMEBUFFER, m_fbo);
-    glBindTexture(GL_TEXTURE_2D, m_colorTex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_colorTex, 0);
+    auto* cfg = Onyx::Services::AppConfig::Get();
+    const bool hasContent = HasBatches();
 
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glm::vec3 top, bottom;
+    if (hasContent && cfg) {
+        top = glm::vec3(cfg->bgTopR, cfg->bgTopG, cfg->bgTopB);
+        bottom = glm::vec3(cfg->bgBotR, cfg->bgBotG, cfg->bgBotB);
+    } else if (hasContent) {
+        top = bgTopColor; bottom = bgBottomColor;
+    } else if (cfg) {
+        top = glm::vec3(cfg->bgTopR, cfg->bgTopG, cfg->bgTopB) * 0.8f;
+        bottom = glm::vec3(cfg->bgBotR, cfg->bgBotG, cfg->bgBotB) * 0.8f;
+    } else {
+        top = glm::vec3(0.14f, 0.14f, 0.16f);
+        bottom = glm::vec3(0.06f, 0.06f, 0.08f);
+    }
+
+    const float aspect = static_cast<float>(width) / static_cast<float>(height);
+    const glm::mat4 view = m_camera.GetViewMatrix();
+    const glm::mat4 proj = VulkanProjection(m_camera.GetProjectionMatrix(aspect));
+
+    const glm::vec4 gridColor = cfg ? glm::vec4(cfg->gridR, cfg->gridG, cfg->gridB, cfg->gridA)
+                                     : glm::vec4(0.35f, 0.35f, 0.35f, 0.5f);
+
+    std::string err;
+    const float clear[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    bool ok = Resources::OneShot(*m_ctx, [&](VkCommandBuffer cmd) {
+        m_vk->target.BeginFrame(cmd, clear);
+
+        std::string bgErr;
+        if (!m_vk->sceneRendererVk.RenderBackground(*m_ctx, m_vk->backgroundPipeline, cmd, top, bottom, bgErr))
+            LOG_ERR("[Viewport3D] RenderBackground failed: %s", bgErr.c_str());
+
+        if (hasContent)
+            m_vk->sceneRendererVk.Render(cmd, view, proj, shadingMode, width, height);
+
+        if (showBones && m_sceneData && m_sceneData->HasSkeleton()) {
+            std::string skelErr;
+            if (!m_vk->sceneRendererVk.RenderSkeleton(*m_ctx, m_vk->overlayPipeline, cmd, view, proj, width, height, skelErr))
+                LOG_ERR("[Viewport3D] RenderSkeleton failed: %s", skelErr.c_str());
+        }
+
+        if (showGrid) {
+            std::string gridErr;
+            if (!m_vk->sceneRendererVk.RenderGrid(*m_ctx, m_vk->gridPipeline, cmd, view, proj, gridColor, 1.0f,
+                                                  width, height, gridErr))
+                LOG_ERR("[Viewport3D] RenderGrid failed: %s", gridErr.c_str());
+        }
+
+        m_vk->target.EndFrame(cmd);
+        m_vk->target.PrepareForSampling(cmd);
+    }, err);
+
+    if (!ok) {
+        LOG_ERR("[Viewport3D] RenderFrame OneShot failed: %s", err.c_str());
+    }
 }
 
 void Viewport3D::Draw() {
     ImVec2 avail = ImGui::GetContentRegionAvail();
     if (avail.x <= 0 || avail.y <= 0) return;
 
-    // Reserve a strip at the bottom of the viewport for the animation
-    // transport (only when a clip is loaded). Image render area shrinks
-    // by that height so the bar lives directly under the 3D scene.
-    Onyx::Rendering::AnimationPlayer* transportPlayer =
-        m_sceneRenderer ? m_sceneRenderer->GetAnimPlayer() : nullptr;
-    const bool hasTransport =
-        transportPlayer && transportPlayer->GetCurrentActIndex() >= 0 &&
-        transportPlayer->GetFrameCount() > 0;
-    const float transportHeight = hasTransport ? 86.0f : 0.0f;
+    EnsureVulkanReady();
 
-    ImVec2 viewSize(avail.x, std::max(50.0f, avail.y - transportHeight));
+    ImVec2 viewSize(avail.x, std::max(50.0f, avail.y));
 
-    ResizeFBO((int)viewSize.x, (int)viewSize.y);
-
-    // ── Animation update (every frame, regardless of redraw) ─────────
+    // ── Camera flight animation only (mesh animation has no Vulkan API
+    // this milestone -- see this file's top comment) ───────────────────
     float currentTime = (float)ImGui::GetTime();
     float dt = (m_lastFrameTime > 0.0f) ? (currentTime - m_lastFrameTime) : 0.0f;
     m_lastFrameTime = currentTime;
-
-    if (m_sceneRenderer && m_sceneRenderer->UpdateAnimation(dt)) {
-        m_needsRedraw = true;
-    }
     if (m_camera.UpdateAnimation(dt)) {
         m_needsRedraw = true;
     }
 
-    // ── Render to FBO ────────────────────────────────────────────────
-    if (m_needsRedraw && m_fboWidth > 0 && m_fboHeight > 0) {
-        m_needsRedraw = false;
+    if (m_vkReady) {
+        ResizeTarget((int)viewSize.x, (int)viewSize.y);
 
-        float aspect = (float)m_fboWidth / (float)m_fboHeight;
-        glm::mat4 view = m_camera.GetViewMatrix();
-        glm::mat4 proj = m_camera.GetProjectionMatrix(aspect);
-
-        glBindFramebuffer(GL_FRAMEBUFFER, m_msaaFbo);
-        glViewport(0, 0, m_fboWidth, m_fboHeight);
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glEnable(GL_DEPTH_TEST);
-        glEnable(GL_MULTISAMPLE);
-
-        bool hasContent = m_sceneRenderer && !m_sceneRenderer->IsEmpty();
-        auto* cfg = Onyx::Services::AppConfig::Get();
-
-        // ── Background gradient ───────────────────────────────────────
-        if (hasContent && cfg) {
-            Rendering::SceneRenderer::RenderBackground(
-                glm::vec3(cfg->bgTopR, cfg->bgTopG, cfg->bgTopB),
-                glm::vec3(cfg->bgBotR, cfg->bgBotG, cfg->bgBotB)
-            );
-        } else if (hasContent) {
-            Rendering::SceneRenderer::RenderBackground(bgTopColor, bgBottomColor);
-        } else if (cfg) {
-            // Empty viewport: darker gradient based on configured top color
-            Rendering::SceneRenderer::RenderBackground(
-                glm::vec3(cfg->bgTopR * 0.8f, cfg->bgTopG * 0.8f, cfg->bgTopB * 0.8f),
-                glm::vec3(cfg->bgBotR * 0.8f, cfg->bgBotG * 0.8f, cfg->bgBotB * 0.8f)
-            );
-        } else {
-            // Empty viewport: darker gradient
-            Rendering::SceneRenderer::RenderBackground(
-                glm::vec3(0.14f, 0.14f, 0.16f),
-                glm::vec3(0.06f, 0.06f, 0.08f)
-            );
+        if (m_needsRedraw && m_fboWidth > 0 && m_fboHeight > 0) {
+            m_needsRedraw = false;
+            RenderFrame(m_fboWidth, m_fboHeight);
         }
-
-        // Re-enable depth after background pass (RenderBackground disables it)
-        glEnable(GL_DEPTH_TEST);
-        glDepthMask(GL_TRUE);
-        glClear(GL_DEPTH_BUFFER_BIT);
-
-        // ── Scene ────────────────────────────────────────────────────
-        if (hasContent) {
-            if (m_sceneRenderer->HasSky()) {
-                m_sceneRenderer->RenderSky(view, proj, shadingMode);
-            }
-            
-            m_sceneRenderer->Render(view, proj, shadingMode, m_fboWidth, m_fboHeight);
-
-            if (showBones && m_sceneRenderer->HasSkeleton()) {
-                m_sceneRenderer->RenderSkeleton(view, proj);
-            }
-        }
-
-        // ── Grid ────────────────────────────────────────────────────────────
-        if (showGrid) {
-            glm::vec4 gridColor = cfg ? glm::vec4(cfg->gridR, cfg->gridG, cfg->gridB, cfg->gridA) 
-                                      : glm::vec4(0.35f, 0.35f, 0.35f, 0.5f);
-            // Draw grid WITHOUT writing to the depth buffer so it doesn't clip transparent objects
-            glDepthMask(GL_FALSE);
-            // Allow grid lines to render if exactly coplanar
-            glDepthFunc(GL_LEQUAL);
-            m_grid.Draw(view, proj, m_camera.GetPosition(), gridColor, 1.0f);
-            glDepthFunc(GL_LESS);
-            glDepthMask(GL_TRUE);
-        }
-
-        // ── Resolve MSAA ───────────────────────────────────────────────
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, m_msaaFbo);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_fbo);
-        glBlitFramebuffer(0, 0, m_fboWidth, m_fboHeight, 0, 0, m_fboWidth, m_fboHeight,
-                          GL_COLOR_BUFFER_BIT, GL_NEAREST);
-
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glDisable(GL_MULTISAMPLE);
     }
 
-    // ── Display cached texture ───────────────────────────────────────
-    ImVec2 uv0(0, 1), uv1(1, 0); // flip Y for OpenGL
-    ImGui::Image((void*)(intptr_t)m_colorTex, viewSize, uv0, uv1);
-
-    m_viewportHovered = ImGui::IsItemHovered();
+    // ── Display ─────────────────────────────────────────────────────
+    if (m_vkReady && m_displayTexId != ImTextureID_Invalid) {
+        ImGui::Image(m_displayTexId, viewSize, ImVec2(0, 0), ImVec2(1, 1));
+        m_viewportHovered = ImGui::IsItemHovered();
+    } else {
+        ImGui::InvisibleButton("##vp3d_pending", viewSize);
+        m_viewportHovered = false;
+    }
     const ImVec2 imageMin = ImGui::GetItemRectMin();
     const ImVec2 imageMax = ImGui::GetItemRectMax();
 
@@ -249,11 +421,8 @@ void Viewport3D::Draw() {
     ImVec2 cursorPos = ImGui::GetCursorScreenPos();
     DrawToolbar(avail, cursorPos);
 
-    // ── Object list ──────────────────────────────────────────────────
-    DrawObjectList(avail, cursorPos);
-
     // ── Empty viewport message ────────────────────────────────────────
-    if (!m_sceneRenderer || m_sceneRenderer->IsEmpty()) {
+    if (!m_sceneData || m_sceneData->IsEmpty()) {
         const char* msg = "No mesh loaded";
         ImVec2 textSize = ImGui::CalcTextSize(msg);
         ImGui::SetCursorScreenPos(ImVec2(
@@ -263,10 +432,7 @@ void Viewport3D::Draw() {
         ImGui::TextDisabled("%s", msg);
     }
 
-    // ── Animation transport bar (only when a clip is loaded) ─────────
-    if (hasTransport) {
-        DrawTransportBar();
-    }
+    if (m_texPool) m_texPool->AdvanceFrame();
 }
 
 void Viewport3D::HandleInput() {
@@ -274,54 +440,48 @@ void Viewport3D::HandleInput() {
 
     ImGuiIO& io = ImGui::GetIO();
 
-    // Suppress camera mouse handling while the axis gizmo owns the cursor —
-    // otherwise a click-to-snap would also fire an orbit on drag-off.
     const bool gizmoHot = m_axisGizmo.IsHovered();
 
-    // Right-drag: orbit
     if (!gizmoHot &&
         ImGui::IsMouseDragging(ImGuiMouseButton_Right) &&
         (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f)) {
         m_camera.ProcessMouseDrag(io.MouseDelta.x, io.MouseDelta.y);
         m_needsRedraw = true;
     }
-    // Middle-drag: pan
     if (!gizmoHot &&
         ImGui::IsMouseDragging(ImGuiMouseButton_Middle) &&
         (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f)) {
         m_camera.ProcessMousePan(io.MouseDelta.x, io.MouseDelta.y);
         m_needsRedraw = true;
     }
-    // Scroll: zoom
     if (!gizmoHot && io.MouseWheel != 0.0f) {
         m_camera.ProcessScroll(io.MouseWheel);
         m_needsRedraw = true;
     }
 
-    // Keyboard shortcuts
     if (!io.WantCaptureKeyboard) {
-        // F: Focus / frame all
-        if (ImGui::IsKeyPressed(ImGuiKey_F) && m_sceneRenderer && !m_sceneRenderer->IsEmpty()) {
-            m_camera.FocusOn(m_sceneRenderer->GetBounds());
+        if (ImGui::IsKeyPressed(ImGuiKey_F) && m_sceneData && !m_sceneData->IsEmpty()) {
+            m_camera.FocusOn(m_bounds);
             m_needsRedraw = true;
         }
-        // Z: Cycle shading mode
         if (ImGui::IsKeyPressed(ImGuiKey_Z)) {
-            switch (shadingMode) {
-                case Rendering::ShadingMode::Solid:        shadingMode = Rendering::ShadingMode::Matcap;       break;
-                case Rendering::ShadingMode::Matcap:       shadingMode = Rendering::ShadingMode::Textured;     break;
-                case Rendering::ShadingMode::Textured:     shadingMode = Rendering::ShadingMode::Wireframe;    break;
-                case Rendering::ShadingMode::Wireframe:    shadingMode = Rendering::ShadingMode::TexturedWire; break;
-                case Rendering::ShadingMode::TexturedWire: shadingMode = Rendering::ShadingMode::Solid;        break;
-            }
+            // T11-review F3: Matcap/Wireframe/TexturedWire all render
+            // identically to Solid or Textured on SceneRendererVk (no
+            // Vulkan matcap/wireframe pass exists -- see that class's own
+            // divergence-2 comment) -- cycling through five labels that
+            // produce two distinct images was misleading. Toggle between
+            // the two modes that actually look different; keep in sync
+            // with DrawToolbar's identical cycle below and DrawInspector's
+            // combo.
+            shadingMode = (shadingMode == Rendering::ShadingMode::Solid)
+                ? Rendering::ShadingMode::Textured
+                : Rendering::ShadingMode::Solid;
             m_needsRedraw = true;
         }
-        // G: Toggle grid
         if (ImGui::IsKeyPressed(ImGuiKey_G)) {
             showGrid = !showGrid;
             m_needsRedraw = true;
         }
-        // Numpad 5: Reset camera
         if (ImGui::IsKeyPressed(ImGuiKey_Keypad5)) {
             m_camera.Reset();
             m_needsRedraw = true;
@@ -338,28 +498,19 @@ void Viewport3D::DrawToolbar(ImVec2 avail, ImVec2 cursorPos) {
 
     namespace W = Onyx::App::Widgets;
 
-    // Shading cycle — icon is the cube; mode goes in the tooltip.
-    const char* shadingLabel = nullptr;
-    switch (shadingMode) {
-        case Rendering::ShadingMode::Solid:        shadingLabel = "Solid";      break;
-        case Rendering::ShadingMode::Matcap:       shadingLabel = "Matcap";     break;
-        case Rendering::ShadingMode::Textured:     shadingLabel = "Textured";   break;
-        case Rendering::ShadingMode::Wireframe:    shadingLabel = "Wire";       break;
-        case Rendering::ShadingMode::TexturedWire: shadingLabel = "Wire (Tex)"; break;
-    }
+    // T11-review F3: only Solid/Textured are offered any more -- see the
+    // [Z]-shortcut handler's comment above for why.
+    const char* shadingLabel =
+        (shadingMode == Rendering::ShadingMode::Textured) ? "Textured" : "Solid";
     char shadingTip[64];
     snprintf(shadingTip, sizeof(shadingTip), "Shading: %s [Z]", shadingLabel);
     {
         W::IconButtonOpts opts;
         opts.tooltip = shadingTip;
         if (W::IconButton("vp_shading", ICON_SF_CUBE, opts)) {
-            switch (shadingMode) {
-                case Rendering::ShadingMode::Solid:        shadingMode = Rendering::ShadingMode::Matcap;       break;
-                case Rendering::ShadingMode::Matcap:       shadingMode = Rendering::ShadingMode::Textured;     break;
-                case Rendering::ShadingMode::Textured:     shadingMode = Rendering::ShadingMode::Wireframe;    break;
-                case Rendering::ShadingMode::Wireframe:    shadingMode = Rendering::ShadingMode::TexturedWire; break;
-                case Rendering::ShadingMode::TexturedWire: shadingMode = Rendering::ShadingMode::Solid;        break;
-            }
+            shadingMode = (shadingMode == Rendering::ShadingMode::Solid)
+                ? Rendering::ShadingMode::Textured
+                : Rendering::ShadingMode::Solid;
             m_needsRedraw = true;
         }
     }
@@ -375,7 +526,7 @@ void Viewport3D::DrawToolbar(ImVec2 avail, ImVec2 cursorPos) {
         }
     }
 
-    if (m_sceneRenderer && !m_sceneRenderer->IsEmpty()) {
+    if (m_sceneData && !m_sceneData->IsEmpty()) {
         ImGui::SameLine();
         W::IconButtonOpts opts;
         opts.tooltip  = "Toggle object list";
@@ -390,8 +541,8 @@ void Viewport3D::DrawToolbar(ImVec2 avail, ImVec2 cursorPos) {
         W::IconButtonOpts opts;
         opts.tooltip = "Frame all [F]";
         if (W::IconButton("vp_focus", ICON_SF_VIEWFINDER, opts)) {
-            if (m_sceneRenderer && !m_sceneRenderer->IsEmpty()) {
-                m_camera.FocusOn(m_sceneRenderer->GetBounds());
+            if (m_sceneData && !m_sceneData->IsEmpty()) {
+                m_camera.FocusOn(m_bounds);
             } else {
                 m_camera.Reset();
             }
@@ -408,14 +559,11 @@ void Viewport3D::DrawToolbar(ImVec2 avail, ImVec2 cursorPos) {
         opts.selected = camOpen;
         if (W::IconButton("vp_cam", ICON_SF_CAMERA, opts)) {
             Onyx::App::CameraPanel::Toggle();
-            // Surface the dock tab on open so the user sees it without
-            // hunting through tab headers.
             if (panel && panel->visible) ImGui::SetWindowFocus("Camera");
         }
     }
 
-    // Show Bones / Skin toggles
-    if (m_sceneRenderer && m_sceneRenderer->HasSkeleton()) {
+    if (m_sceneData && m_sceneData->HasSkeleton()) {
         ImGui::SameLine();
         {
             W::IconButtonOpts opts;
@@ -426,27 +574,17 @@ void Viewport3D::DrawToolbar(ImVec2 avail, ImVec2 cursorPos) {
                 m_needsRedraw = true;
             }
         }
-        ImGui::SameLine();
-        {
-            const bool noSkin = m_sceneRenderer->GetDebugDisableSkin();
-            W::IconButtonOpts opts;
-            opts.tooltip  = "Toggle skinning (debug)";
-            opts.selected = !noSkin;
-            if (W::IconButton("vp_skin", ICON_SF_PERSON, opts)) {
-                m_sceneRenderer->SetDebugDisableSkin(!noSkin);
-                m_needsRedraw = true;
-            }
-        }
     }
 
     // Stats
-    if (m_sceneRenderer && !m_sceneRenderer->IsEmpty()) {
-        int totalVerts = m_sceneRenderer->GetTotalVertices();
-        int totalTris  = m_sceneRenderer->GetTotalTriangles();
-        if (totalVerts > 0) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("| %d verts, %d tris", totalVerts, totalTris);
+    if (HasBatches()) {
+        int totalVerts = 0, totalTris = 0;
+        for (const auto& b : m_vk->sceneRendererVk.GetBatches()) {
+            totalVerts += b.vertexCount;
+            totalTris  += b.triangleCount;
         }
+        ImGui::SameLine();
+        ImGui::TextDisabled("| %d verts, %d tris", totalVerts, totalTris);
     }
 
     // FPS counter — bottom center
@@ -468,98 +606,45 @@ void Viewport3D::DrawInspector() {
     ImGui::Text("Viewport Settings");
     ImGui::Separator();
 
-    const char* shadingLabel = "Solid\0Matcap\0Textured\0Wireframe\0TexturedWire\0";
-    int mode = (int)shadingMode;
+    // T11-review F3: Matcap/Wireframe/TexturedWire removed from this list
+    // (rather than kept and disabled) -- SceneRendererVk aliases all three
+    // to Solid or Textured (no Vulkan matcap/wireframe pass exists), so
+    // they never produced a distinct image; offering five labels for two
+    // results was misleading. shadingMode's enum still has all five values
+    // (nothing else in this class sets it to the removed three), so the
+    // combo index maps explicitly rather than casting -- keep this in sync
+    // with the [Z]-shortcut/toolbar-button cycle in HandleInput/DrawToolbar.
+    const char* shadingLabel = "Solid\0Textured\0";
+    int mode = (shadingMode == Rendering::ShadingMode::Textured) ? 1 : 0;
     if (ImGui::Combo("Shading", &mode, shadingLabel)) {
-        shadingMode = (Rendering::ShadingMode)mode;
+        shadingMode = (mode == 1) ? Rendering::ShadingMode::Textured : Rendering::ShadingMode::Solid;
         m_needsRedraw = true;
     }
 
     if (ImGui::Checkbox("Show Grid", &showGrid)) m_needsRedraw = true;
-    if (m_sceneRenderer && m_sceneRenderer->HasSkeleton()) {
+    if (m_sceneData && m_sceneData->HasSkeleton()) {
         if (ImGui::Checkbox("Show Bones", &showBones)) m_needsRedraw = true;
     }
 
-    // Publish whichever player this viewport currently owns so cross-cutting
-    // panels (Anim Curves, Dopesheet) can read its playhead.
-    if (m_sceneRenderer) {
-        Onyx::App::SetActiveAnimationPlayer(m_sceneRenderer->GetAnimPlayer());
-    } else {
-        Onyx::App::SetActiveAnimationPlayer(nullptr);
-    }
-
-    // ── Animation Section ─────────────────────────────────────────────
-    if (m_sceneRenderer && m_sceneRenderer->HasAnimations()) {
+    if (m_sceneData && m_sceneData->animations) {
         ImGui::Separator();
-        ImGui::Text("Animations");
-
-        auto* animData = m_sceneRenderer->GetAnimationData();
-        auto* player = m_sceneRenderer->GetAnimPlayer();
-
-        // Animation group/act tree
-        ImGui::BeginChild("AnimTree", ImVec2(0, 150), true);
-        for (int ig = 0; ig < (int)animData->groups.size(); ++ig) {
-            const auto& group = animData->groups[ig];
-            if (group.isExternal || group.acts.empty()) continue;
-
-            // Only show skinning acts (type 0)
-            int skinIdx = animData->FindSkinningTypeIndex();
-            if (skinIdx < 0) continue;
-
-            bool groupOpen = ImGui::TreeNodeEx(group.name.c_str(),
-                ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth);
-
-            if (groupOpen) {
-                for (int ia = 0; ia < (int)group.acts.size(); ++ia) {
-                    const auto& act = group.acts[ia];
-
-                    bool isSelected = player && player->IsPlaying()
-                        && player->GetCurrentGroupIndex() == ig
-                        && player->GetCurrentActIndex() == ia;
-
-                    char label[128];
-                    snprintf(label, sizeof(label), "%s  [%.1fs]",
-                             act.name.c_str(), act.duration);
-
-                    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf
-                        | ImGuiTreeNodeFlags_NoTreePushOnOpen
-                        | ImGuiTreeNodeFlags_SpanAvailWidth;
-                    if (isSelected) flags |= ImGuiTreeNodeFlags_Selected;
-
-                    ImGui::TreeNodeEx((void*)(intptr_t)(ig * 1000 + ia), flags, "%s", label);
-
-                    // Double-click to play
-                    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-                        m_sceneRenderer->SetAnimation(ig, ia);
-                        m_needsRedraw = true;
-                    }
-                }
-                ImGui::TreePop();
-            }
-        }
-        ImGui::EndChild();
-
-        // Transport now lives in the bar directly under the viewport.
-        // The inspector keeps just the clip browser so users can pick
-        // an act without leaving their docked panel.
-        ImGui::TextDisabled("Transport controls below viewport ↓");
+        ImGui::TextDisabled("Animation clips are present but playback has no Vulkan renderer "
+                            "API yet (M4 gap) -- scenes render their rest pose.");
     }
 
     // ── Mesh Batches ────────────────────────────────────────────────
     ImGui::Separator();
     ImGui::Text("Scene Mesh Batches");
 
-    if (!m_sceneRenderer || m_sceneRenderer->IsEmpty()) {
+    auto& batches = m_vk->sceneRendererVk.GetBatches();
+    if (batches.empty()) {
         ImGui::TextDisabled("No meshes in scene.");
         return;
     }
 
-    auto& batches = m_sceneRenderer->GetBatches();
-
-    // Group consecutive batches that share the same non-zero meshHash:
-    //   each shared LOD blob in the lodpack is referenced by N consecutive
-    //   submeshes representing LOD0..LODn of one logical mesh part.
-    //   meshHash == 0 (internal/embedded LOD) gets its own single-entry group.
+    // Group consecutive batches that share the same non-zero meshHash --
+    // same LOD-grouping heuristic the GL inspector used (each shared LOD
+    // blob is referenced by N consecutive submeshes).
     struct LodGroup { uint64_t hash; std::vector<size_t> idx; };
     std::vector<LodGroup> groups;
     for (size_t i = 0; i < batches.size(); ++i) {
@@ -603,7 +688,6 @@ void Viewport3D::DrawInspector() {
     for (size_t g = 0; g < groups.size(); ++g) {
         const auto& grp = groups[g];
 
-        // Single-entry group (internal LOD or lone hashed part): render flat row
         if (grp.idx.size() == 1) {
             size_t i = grp.idx[0];
             auto& batch = batches[i];
@@ -618,10 +702,8 @@ void Viewport3D::DrawInspector() {
             continue;
         }
 
-        // Multi-LOD group: collapsible tree
         ImGui::PushID((int)(1000 + g));
 
-        // Group-level visibility checkbox: ANY visible → checked; toggling sets all
         bool anyVisible = false, allVisible = true;
         for (size_t i : grp.idx) {
             if (batches[i].isVisible) anyVisible = true;
@@ -655,8 +737,7 @@ void Viewport3D::DrawInspector() {
                       g, grp.idx.size(),
                       (unsigned long long)grp.hash);
 
-        bool open = ImGui::TreeNodeEx(header,
-            ImGuiTreeNodeFlags_SpanAvailWidth);
+        bool open = ImGui::TreeNodeEx(header, ImGuiTreeNodeFlags_SpanAvailWidth);
 
         if (open) {
             for (size_t k = 0; k < grp.idx.size(); ++k) {
@@ -681,106 +762,9 @@ void Viewport3D::DrawInspector() {
 
     ImGui::EndChild();
 
-    // Release the drag-toggle smear on mouse-up
     if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
         m_dragToggleActive = false;
     }
-}
-
-void Viewport3D::DrawObjectList(ImVec2 avail, ImVec2 cursorPos) {
-    // Moved to DrawInspector
-}
-
-void Viewport3D::DrawTransportBar() {
-    if (!m_sceneRenderer) return;
-    Onyx::Rendering::AnimationPlayer* player = m_sceneRenderer->GetAnimPlayer();
-    if (!player || player->GetCurrentActIndex() < 0) return;
-
-    bool  isPlaying   = player->IsPlaying();
-    float dur         = player->GetDuration();
-    int   totalFrames = std::max(1, player->GetFrameCount());
-    int   curFrame    = player->GetCurrentFrame();
-
-    // Tinted background that visually separates the strip from the 3D image.
-    ImVec4 bgCol = ImGui::GetStyleColorVec4(ImGuiCol_ChildBg);
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(bgCol.x, bgCol.y, bgCol.z, 0.9f));
-    ImGui::BeginChild("##transport", ImVec2(0, 0), false,
-                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-
-    // Row 1: transport buttons + speed + loop mode
-    const float btnW = 28.0f;
-    if (ImGui::Button("|<", ImVec2(btnW, 0))) { player->SetFrame(0); m_needsRedraw = true; }
-    ImGui::SameLine();
-    if (ImGui::Button("<",  ImVec2(btnW, 0))) { player->SetFrame(curFrame - 1); m_needsRedraw = true; }
-    ImGui::SameLine();
-    if (ImGui::Button(isPlaying ? "Pause" : "Play", ImVec2(60, 0))) {
-        if (dur > 0.0f) { player->Toggle(); m_needsRedraw = true; }
-    }
-    ImGui::SameLine();
-    if (ImGui::Button(">",  ImVec2(btnW, 0))) { player->SetFrame(curFrame + 1); m_needsRedraw = true; }
-    ImGui::SameLine();
-    if (ImGui::Button(">|", ImVec2(btnW, 0))) { player->SetFrame(totalFrames - 1); m_needsRedraw = true; }
-    ImGui::SameLine();
-    if (ImGui::Button("Stop", ImVec2(50, 0))) { m_sceneRenderer->StopAnimation(); m_needsRedraw = true; }
-
-    ImGui::SameLine();
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8);
-    ImGui::Text("F %d/%d  %.2fs/%.2fs", curFrame, totalFrames - 1, player->GetTime(), dur);
-
-    ImGui::SameLine();
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8);
-    ImGui::PushItemWidth(70);
-    float speed = player->GetSpeed();
-    if (ImGui::DragFloat("##speed", &speed, 0.05f, -4.0f, 4.0f, "%.2fx")) {
-        player->SetSpeed(speed);
-    }
-    ImGui::PopItemWidth();
-    ImGui::SameLine();
-
-    const struct { const char* lbl; float val; } presets[] = {
-        {".25", 0.25f}, {".5", 0.5f}, {"1x", 1.0f}, {"2x", 2.0f}, {"-1x", -1.0f},
-    };
-    for (auto& p : presets) {
-        if (ImGui::SmallButton(p.lbl)) player->SetSpeed(p.val);
-        ImGui::SameLine();
-    }
-
-    ImGui::PushItemWidth(90);
-    int loopMode = (int)player->GetLoopMode();
-    const char* loopLabels[] = { "No Loop", "Loop", "PingPong" };
-    if (ImGui::Combo("##loop", &loopMode, loopLabels, IM_ARRAYSIZE(loopLabels))) {
-        player->SetLoopMode((Rendering::AnimationPlayer::LoopMode)loopMode);
-    }
-    ImGui::PopItemWidth();
-
-    // Keyboard shortcuts: Space/arrows/Home/End. Active while the viewport
-    // window has focus (covers both the image hover and the transport).
-    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) ||
-        m_viewportHovered) {
-        if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
-            if (dur > 0.0f) { player->Toggle(); m_needsRedraw = true; }
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true)) {
-            player->SetFrame(player->GetCurrentFrame() - 1); m_needsRedraw = true;
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, true)) {
-            player->SetFrame(player->GetCurrentFrame() + 1); m_needsRedraw = true;
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_Home, false)) {
-            player->SetFrame(0); m_needsRedraw = true;
-        }
-        if (ImGui::IsKeyPressed(ImGuiKey_End, false)) {
-            player->SetFrame(totalFrames - 1); m_needsRedraw = true;
-        }
-    }
-
-    // Row 2: rich timeline with frame ticks, keyframe markers, scrub
-    if (Onyx::App::DrawAnimationTimeline("anim_timeline", *player)) {
-        m_needsRedraw = true;
-    }
-
-    ImGui::EndChild();
-    ImGui::PopStyleColor();
 }
 
 } // namespace Onyx::Viewers

@@ -1,10 +1,10 @@
 # OnyxSDK
 
-Onyx is a reusable, game-agnostic engine SDK for building game-asset explorer applications. It provides windowing (GLFW), UI (Dear ImGui + ImPlot), 3D rendering (OpenGL), audio (miniaudio), video (FFmpeg), math (GLM), and compression (lz4) — all wired together as a single static library `Onyx::Onyx`.
+Onyx is a reusable, game-agnostic engine SDK for building game-asset explorer applications. It provides windowing (GLFW), UI (Dear ImGui + ImPlot), 3D rendering (Vulkan 1.3, via volk + VMA), audio (miniaudio), video (FFmpeg), math (GLM), and compression (lz4) — all wired together as a single static library `Onyx::Onyx`.
 
 ## Building standalone
 
-Prerequisites: CMake 3.20+, Ninja, MSVC (Windows) or clang/GCC (Linux/macOS). On Linux/macOS FFmpeg comes from pkg-config; on Windows a prebuilt FFmpeg is downloaded during configure.
+Prerequisites: CMake 3.20+, Ninja, MSVC (Windows) or clang/GCC (Linux/macOS), and a Vulkan 1.3-capable driver (the Vulkan loader/headers themselves are fetched, see below — this is about the GPU driver actually present on the machine running the build's tests or the GUI). On Linux/macOS FFmpeg comes from pkg-config; on Windows a prebuilt FFmpeg is downloaded during configure. The GUI is verified end to end on Windows only; Linux presentation is implemented and builds in CI but has never been run against a real window, and macOS is unsupported (see `CHANGELOG.md`'s "Known gaps — M4 Vulkan renderer" for why).
 
 ```bash
 cmake --preset debug        # or: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -B build
@@ -12,7 +12,7 @@ cmake --build --preset debug
 ctest --test-dir build --output-on-failure
 ```
 
-Everything else (GLFW, Dear ImGui, ImPlot, ImGuiColorTextEdit, GLM, lz4, toml++, doctest) is fetched and pinned by `CMakeLists.txt` — no submodules, no vendored third-party sources beyond glad and miniaudio.
+Everything else (GLFW, Dear ImGui, ImPlot, ImGuiColorTextEdit, GLM, lz4, toml++, doctest, Vulkan-Headers, volk, VMA, glslang) is fetched and pinned by `CMakeLists.txt` — no submodules, no vendored third-party sources beyond fonts, miniaudio and stb.
 
 ## Consuming via CMake FetchContent
 
@@ -73,7 +73,7 @@ Source/           implementation; mirrors Include/Onyx/ folder for folder
 Examples/         MinimalViewer -- a minimal consumer of the SDK
 Tests/            doctest unit tests, run by ctest
 cmake/            build-time codegen (version header, SF Symbols table)
-third_party/      glad + miniaudio (everything else is fetched)
+third_party/      fonts + miniaudio + stb (everything else is fetched)
 docs/             design specs and plans
 ```
 

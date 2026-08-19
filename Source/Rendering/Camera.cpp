@@ -1,25 +1,29 @@
 #include <Onyx/Rendering/Camera.h>
-#include <Onyx/Services/AppConfig.h>
 #include <algorithm>
 #include <cmath>
 
 namespace Onyx::Rendering {
 
+// Task 11 (M4 "delete the GL renderer"): this constructor used to pull
+// persisted tuning knobs (fov/near/far/...) directly from
+// Onyx::Services::AppConfig::Get() here, so a freshly constructed Camera
+// matched the user's last-session preferences with no per-viewport sync
+// needed. That made Camera.cpp -- which now compiles into the surviving
+// (Vulkan) Render layer -- reference AppConfig, whose only definition
+// (Source/Services/AppConfig.cpp) lives in Onyx_Shell; every composition
+// root linking Render without Shell (onyx-oracle, onyxbox-cli) then needed
+// its own AppConfig::Get() stub just to satisfy this one call, exactly the
+// carried "link-completeness" defect this task closes (see
+// Include/Onyx/Rendering/RenderBatch.h's doc comment for the matching
+// ResolveRoleIndices half of the same defect). Render must not know
+// AppConfig exists at all now, so the read moves to the one Shell class
+// that actually owns a Camera: Onyx::Viewers::Viewport3D applies these same
+// fields onto m_camera right after construction (Source/Viewers/
+// Viewport3D.cpp) — Camera's public fields are the exact ones
+// Source/App/Panels/CameraPanel.cpp already writes back into AppConfig
+// when the user edits them, so this is the same read/write pair, just
+// moved to where AppConfig is allowed to be named.
 Camera::Camera() {
-    // Pull persisted tuning knobs so the projection slab matches the user's
-    // last-session preferences immediately (no per-viewport sync needed).
-    if (auto* cfg = Onyx::Services::AppConfig::Get()) {
-        fov               = cfg->camFov;
-        nearPlane         = cfg->camNearPlane;
-        farPlane          = cfg->camFarPlane;
-        autoNear          = cfg->camAutoNear;
-        autoFar           = cfg->camAutoFar;
-        manualNear        = cfg->camManualNear;
-        manualFar         = cfg->camManualFar;
-        nearDistanceScale = cfg->camNearDistanceScale;
-        farMargin         = cfg->camFarMargin;
-        nearFarRatioMax   = cfg->camNearFarRatioMax;
-    }
     UpdatePosition();
 }
 

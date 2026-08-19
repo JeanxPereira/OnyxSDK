@@ -1,20 +1,42 @@
 #pragma once
 #include <Onyx/Viewers/IDocumentContent.h>
 #include <Onyx/Rendering/Camera.h>
-#include <Onyx/Rendering/GridRenderer.h>
-#include <Onyx/Rendering/SceneRenderer.h>
-#include <Onyx/Rendering/ShaderManager.h>
 #include <Onyx/Rendering/AxisGizmo.h>
+#include <Onyx/Rendering/RenderBatch.h> // Rendering::RenderBatch/ShadingMode -- see .cpp top comment
 #include <Onyx/Parsers/MeshData.h>
 #include <Onyx/Parsers/TextureData.h>
 #include <Onyx/Parsers/SceneNode.h>
+#include <Onyx/Domain/BoundingBox.h>
 #include <string>
 #include <vector>
 #include <memory>
 #include <imgui.h>
 
+// Forward-declared only, never included here -- Onyx::Rendering::VkContext
+// (and every other Vulkan-touching type this class needs: ScenePipelines,
+// OffscreenTarget, SceneRendererVk, ...) pulls in volk.h, which on Windows
+// pulls in <windows.h> for VK_USE_PLATFORM_WIN32_KHR. Viewport3D.h is a
+// widely-included header (DocumentBrowser.cpp, CameraPanel.cpp, ...) that
+// has NOTHING to do with Vulkan from its callers' point of view -- pulling
+// windows.h in through it broke the build the first time this was tried
+// (<wingdi.h>'s `#define TextOut TextOutW/A` collided with
+// Onyx::Modules::TextOut, a real type DocumentBrowser.cpp names). Every
+// Vulkan-touching member lives instead in the private, .cpp-only
+// `VulkanState` struct below -- the same forward-declare + unique_ptr<
+// incomplete-type> pattern Include/Onyx/App/Window.h already established
+// for exactly this reason (see that header's own top comment).
+namespace Onyx::Rendering { class VkContext; }
+namespace Onyx::App { class TexturePool; }
+
 namespace Onyx::Viewers {
 
+// T10: renders through Onyx::Rendering::SceneRendererVk into a VkContext-
+// owned OffscreenTarget, replacing the GL FBO pair + Onyx::Rendering::
+// SceneRenderer this class used before T9 removed the GL context Window
+// keeps current. See Source/Viewers/Viewport3D.cpp's top comment for the
+// full design writeup (recording seam, bounds computation, and the
+// animation/LOD-toggle/outline features this milestone's SceneRendererVk
+// does not yet implement).
 class Viewport3D : public IDocumentContent {
 public:
     Viewport3D(const std::string& name);
@@ -33,10 +55,19 @@ public:
     // Accessors for the CameraPanel (renders camera tuning UI as a dock tab
     // next to Inspector).
     Rendering::Camera&            GetCamera()  { return m_camera; }
-    Rendering::SceneRenderer*     GetSceneRenderer() const { return m_sceneRenderer.get(); }
     int                GetFboWidth()  const { return m_fboWidth; }
     int                GetFboHeight() const { return m_fboHeight; }
     void               RequestRedraw()       { m_needsRedraw = true; }
+
+    // The ImGui texture handle Draw() last registered for the resolved
+    // frame -- ImTextureID_Invalid (0) until a scene has actually rendered
+    // and been registered via TexturePool (see Draw()'s own display gate,
+    // Source/Viewers/Viewport3D.cpp). Exists so a caller outside this class
+    // can verify, headlessly, that a Vulkan-backed Viewport3D produced a
+    // real sample-able texture without needing any private access --
+    // MinimalViewer's --open-first-scene debug flag (M4 Task 14) is the
+    // first such caller.
+    ImTextureID DisplayTexture() const { return m_displayTexId; }
 
     // Render settings
     bool showGrid       = true;
@@ -45,7 +76,10 @@ public:
     bool showObjectList = true;
     Rendering::ShadingMode shadingMode = Rendering::ShadingMode::Solid;
 
-    // Outline settings
+    // Outline settings (SceneRendererVk does not implement the highlight
+    // outline pass this milestone -- see .cpp top comment; kept as plain
+    // state so the inspector/toolbar this class already had keep compiling
+    // and the setting round-trips once a future task wires it up).
     glm::vec4 outlineColor      {0.0f, 0.0f, 0.0f, 1.0f};
     float     outlineThickness  = 0.015f;
 
@@ -54,39 +88,39 @@ public:
     glm::vec3 bgBottomColor {0.08f, 0.08f, 0.10f};
 
 private:
-    void InitFBO();
-    void ResizeFBO(int width, int height);
+    void EnsureVulkanReady();
+    void ResizeTarget(int width, int height);
+    void RenderFrame(int width, int height);
     void DrawToolbar(ImVec2 avail, ImVec2 cursorPos);
-    void DrawObjectList(ImVec2 avail, ImVec2 cursorPos);
-    void DrawTransportBar();  // bottom strip with anim transport + timeline
     void HandleInput();
+    void ComputeBounds();
+    bool HasBatches() const; // true once SceneRendererVk::Build() produced >=1 batch
 
     std::string m_name;
     Rendering::Camera m_camera;
-    Rendering::GridRenderer m_grid;
     Rendering::AxisGizmo m_axisGizmo;
 
-    // Unified scene renderer — all content goes through here
-    std::unique_ptr<Rendering::SceneRenderer> m_sceneRenderer;
-
-    // Keep scene data around for animation access
+    // Keep scene data around: bounds computation, HasSkeleton()/IsEmpty(),
+    // and the animations-present check the inspector shows (M4 gap: no
+    // playback -- see .cpp top comment).
     std::shared_ptr<Parsers::SceneData> m_sceneData;
+    Onyx::Domain::BoundingBox m_bounds;
 
-    // FBO state
-    unsigned int m_msaaFbo = 0;
-    unsigned int m_msaaColor = 0;
-    unsigned int m_msaaRbo = 0;
-
-    unsigned int m_fbo = 0;
-    unsigned int m_colorTex = 0;
+    // ── Vulkan (T10) -- see this file's top comment for why this is a
+    // forward-declared, .cpp-only struct rather than plain members ───────
+    struct VulkanState;
+    std::unique_ptr<VulkanState> m_vk;
+    Onyx::Rendering::VkContext* m_ctx = nullptr; // non-owning, Onyx::Rendering::GetGlobalContext()
+    bool m_vkReady = false; // VulkanState's pipelines created successfully
+    std::unique_ptr<Onyx::App::TexturePool> m_texPool;
+    ImTextureID m_displayTexId = 0;
 
     int m_fboWidth = 0;
     int m_fboHeight = 0;
-    int m_msaaSamples = 4;
 
     bool m_needsRedraw = true;
     bool m_viewportHovered = false;
-    float m_lastFrameTime = 0.0f;  // For animation delta time
+    float m_lastFrameTime = 0.0f; // for Camera::UpdateAnimation's dt (view-flight easing, not mesh animation)
 
     // Photoshop-style click-and-drag toggling across visibility checkboxes
     bool m_dragToggleActive = false;

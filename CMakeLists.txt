@@ -9,8 +9,18 @@ endif()
 
 option(ONYX_BUILD_EXAMPLES "Build the Onyx example apps" ON)
 option(ONYX_BUILD_TESTS    "Build the Onyx engine unit tests" ON)
+# Declared here (moved up from beside the Onyx_Media target further below)
+# so the FFmpeg discovery block right after this can gate on it. On
+# non-Windows this option previously did nothing for FFmpeg discovery
+# itself: `pkg_check_modules(FFMPEG REQUIRED ...)` ran unconditionally,
+# so turning this OFF still demanded libavformat/libavcodec/... dev
+# packages be installed system-wide, defeating the whole point of the
+# toggle (T12: Linux CI wants to skip FFmpeg entirely rather than pull in
+# apt dev packages of unpinned, possibly API-incompatible versions).
+option(ONYX_COMPONENT_MEDIA "Build the video player component (FFmpeg)" ON)
 
 include(FetchContent)
+include(cmake/ShaderCompile.cmake)
 
 # ── GLFW ───────────────────────────────────────────────────────────────────
 FetchContent_Declare(
@@ -53,14 +63,6 @@ add_library(lz4_lib STATIC
 )
 target_include_directories(lz4_lib PUBLIC ${lz4_SOURCE_DIR}/lib)
 
-# ── glad (manual, vendored) ────────────────────────────────────────────────
-add_library(glad STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glad/src/glad.c
-)
-target_include_directories(glad PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/glad/include
-)
-
 # ── miniaudio (single-header audio, vendored) ────────────────────────────
 add_library(miniaudio STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio/miniaudio.c
@@ -86,13 +88,13 @@ add_library(imgui_lib STATIC
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/imgui_demo.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
 )
 target_include_directories(imgui_lib PUBLIC
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
 )
-target_link_libraries(imgui_lib PUBLIC glfw glad)
+target_link_libraries(imgui_lib PUBLIC glfw)
 
 # ── ImPlot via FetchContent (pinned to the previously-submoduled commit) ───
 FetchContent_Declare(implot
@@ -127,6 +129,13 @@ target_link_libraries(imgui_color_text_edit PUBLIC imgui_lib)
 target_compile_features(imgui_color_text_edit PUBLIC cxx_std_17)
 
 # ── FFmpeg ────────────────────────────────────────────────────────────────
+# Gated on ONYX_COMPONENT_MEDIA (T12): ffmpeg_lib is only ever linked by
+# Onyx_Media further below, itself built only when this option is ON --
+# when it's OFF there is nothing left in the tree that needs FFmpeg found
+# at all, so skip pkg-config/the Windows download entirely rather than
+# demanding dev packages (or a network fetch) a Media-less build has no
+# use for.
+if(ONYX_COMPONENT_MEDIA)
 add_library(ffmpeg_lib INTERFACE)
 
 if(WIN32)
@@ -190,6 +199,7 @@ endif()
 if(WIN32 AND FFMPEG_DLLS)
     set(ONYX_FFMPEG_DLLS "${FFMPEG_DLLS}" CACHE INTERNAL "FFmpeg runtime DLLs for Onyx consumers")
 endif()
+endif() # ONYX_COMPONENT_MEDIA
 
 # ── toml++ (header-only TOML parser for AppConfig) via FetchContent ────────
 # Populate only (SOURCE_SUBDIR points at a non-existent dir); we just need the
@@ -201,6 +211,97 @@ FetchContent_Declare(tomlplusplus
     UPDATE_DISCONNECTED TRUE
     SOURCE_SUBDIR  _skip_add_subdirectory)
 FetchContent_MakeAvailable(tomlplusplus)
+
+# ── Vulkan (RenderVk: Vulkan-Headers + volk + VMA + glslang) ───────────────
+# Vulkan-Headers pins the API surface every other Vulkan dep below builds
+# against; declared first so volk and VMA link against these exact headers
+# rather than whatever the system Vulkan SDK happens to have on PATH.
+FetchContent_Declare(
+    vulkan_headers
+    GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+    GIT_TAG        v1.3.296
+    GIT_SHALLOW    TRUE
+    UPDATE_DISCONNECTED TRUE
+)
+set(VULKAN_HEADERS_ENABLE_TESTS   OFF CACHE BOOL "" FORCE)
+set(VULKAN_HEADERS_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+# The C++20 vulkan.hpp module target is autodetected ON for MSVC>=19.41/
+# Clang>=16/GCC>=14 when the CMake version allows it -- RenderVk only uses
+# volk's C API, never vulkan.hpp, and module support varies enough across
+# CI's compilers that autodetection is a determinism risk not worth taking
+# for a target nothing links.
+set(VULKAN_HEADERS_ENABLE_MODULE  OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(vulkan_headers)
+
+# volk's tag naming diverged from Vulkan-Headers' `vX.Y.Z` scheme -- it now
+# mirrors the LunarG Vulkan SDK's dotted-quad (`vulkan-sdk-X.Y.Z.W`), and
+# `1.3.296` (the tag the plan named) does not exist. `vulkan-sdk-1.3.296.0`
+# is the tag matching the exact header generation as Vulkan-Headers v1.3.296
+# pinned above -- same version, different spelling, not a downgrade.
+FetchContent_Declare(
+    volk
+    GIT_REPOSITORY https://github.com/zeux/volk.git
+    GIT_TAG        vulkan-sdk-1.3.296.0
+    GIT_SHALLOW    TRUE
+    UPDATE_DISCONNECTED TRUE
+)
+# volk's own CMakeLists otherwise tries find_package(Vulkan)/$ENV{VULKAN_SDK}
+# for headers -- OFF here and an explicit Vulkan::Headers link below keeps it
+# on the exact pinned headers instead of whatever is installed system-wide.
+set(VOLK_PULL_IN_VULKAN OFF CACHE BOOL "" FORCE)
+set(VOLK_INSTALL        OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(volk)
+target_link_libraries(volk PUBLIC Vulkan::Headers)
+# PUBLIC (not just on Onyx_Render): volk.c itself must be compiled with
+# VK_USE_PLATFORM_WIN32_KHR for the Win32 platform entry points (e.g.
+# vkGetPhysicalDeviceWin32PresentationSupportKHR) to exist as link symbols
+# at all -- a downstream-only define would leave volk.c compiled without
+# them while callers expect them, an unresolved-external at link time.
+target_compile_definitions(volk PUBLIC
+    VK_NO_PROTOTYPES
+    $<$<PLATFORM_ID:Windows>:VK_USE_PLATFORM_WIN32_KHR>)
+
+# imgui_lib's Vulkan backend (backends/imgui_impl_vulkan.cpp, wired in
+# above) resolves every Vulkan entry point through volk instead of a static
+# import library -- IMGUI_IMPL_VULKAN_USE_VOLK is imgui_impl_vulkan.h's own
+# configuration knob for that (see the "[Configuration] Convenience support
+# for Volk" block at that header's top). PUBLIC: Source/App/Window.cpp also
+# includes imgui_impl_vulkan.h directly (T9) and must see the same define,
+# or its Vulkan-include branch would disagree with the one the backend was
+# actually compiled against.
+target_compile_definitions(imgui_lib PUBLIC IMGUI_IMPL_VULKAN_USE_VOLK)
+target_link_libraries(imgui_lib PUBLIC volk::volk)
+
+# VulkanMemoryAllocator is header-only (INTERFACE target); it still needs
+# Vulkan's types, so it rides on the same pinned Vulkan::Headers.
+FetchContent_Declare(
+    vma
+    GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+    GIT_TAG        v3.1.0
+    GIT_SHALLOW    TRUE
+    UPDATE_DISCONNECTED TRUE
+)
+FetchContent_MakeAvailable(vma)
+target_link_libraries(VulkanMemoryAllocator INTERFACE Vulkan::Headers)
+
+# glslang: fetched here for T3 (runtime/offline shader compilation), not yet
+# linked by anything. ENABLE_GLSLANG_BINARIES is already ON by default but
+# forced explicitly since T3 depends on it existing: it builds the
+# `glslang-standalone` CLI target (binary OUTPUT_NAME `glslang`). The
+# library targets consumers link are `glslang::glslang` and `glslang::SPIRV`.
+# Requires a Python 3 interpreter on PATH at configure time (StandAlone's
+# code-gen step) -- present on this machine, noted for CI images.
+FetchContent_Declare(
+    glslang
+    GIT_REPOSITORY https://github.com/KhronosGroup/glslang.git
+    GIT_TAG        14.3.0
+    GIT_SHALLOW    TRUE
+    UPDATE_DISCONNECTED TRUE
+)
+set(ENABLE_OPT              OFF CACHE BOOL "" FORCE)
+set(GLSLANG_TESTS           OFF CACHE BOOL "" FORCE)
+set(ENABLE_GLSLANG_BINARIES ON  CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(glslang)
 
 # ── Generated version header ──────────────────────────────────────────────
 configure_file(
@@ -267,17 +368,49 @@ set(ONYX_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Vfs/TransformFile.cpp
 )
 
+set(ONYX_MEDIA_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/TexturePool.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/VideoPlayer.cpp
+)
+# Source/App/TexturePool.cpp is listed in BOTH ONYX_SHELL_SOURCES and
+# ONYX_MEDIA_SOURCES (T10) -- same precedent as JointPalette.cpp above: one
+# physical source file, compiled independently into each target's own
+# object directory. Necessary because Onyx_Shell already links Onyx_Media
+# (VideoPlayer.cpp -- see that target's own comment), so Onyx_Media linking
+# back to Onyx_Shell to reach a single shared TexturePool would be a real
+# link cycle, not just an ugly one. Nothing is actually shared between the
+# two compiled copies at runtime (each viewer owns its own TexturePool
+# instance either way -- see that file's header comment), so the only
+# process-wide resource in play (imgui_impl_vulkan's own descriptor pool,
+# T9's DescriptorPoolSize=64) stays correctly singular regardless of which
+# copy's code path calls into it.
+
+# Task 11 ("delete the GL renderer") folded the former GL-only
+# ONYX_RENDER_SOURCES into this list: Camera.cpp/AnimationPlayer.cpp move
+# in from there (physical paths unchanged -- Source/Rendering/ is the
+# established neutral home JointPalette.cpp and AxisGizmo.cpp already use;
+# smaller diff than a `git mv`, same precedent Task 6 set), and
+# RenderBatch.cpp is a genuinely new file (extracted from the deleted GL
+# SceneRenderer.cpp -- see Include/Onyx/Rendering/RenderBatch.h's top
+# comment). JointPalette.cpp no longer needs the dual-target compile trick
+# a prior version of this comment explained: that existed only so the GL
+# and Vulkan renderers could share one physical source file without
+# Onyx_Render linking Onyx_Render (GL's link libs); now that Onyx_Render
+# is gone, there is only one renderer target, so JointPalette.cpp has one
+# normal home like everything else here.
 set(ONYX_RENDER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/AnimationPlayer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/Camera.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/GpuMesh.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/GridRenderer.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/SceneRenderer.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/ShaderManager.cpp
-)
-
-set(ONYX_MEDIA_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/VideoPlayer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/JointPalette.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/RenderBatch.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/OffscreenTarget.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/Pipelines.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/RenderContext.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/SceneRendererVk.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/TexturePool.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VkContext.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VkResources.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/RenderVk/VmaImpl.cpp
 )
 
 set(ONYX_SHELL_SOURCES
@@ -321,6 +454,7 @@ set(ONYX_SHELL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/Appearance.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/ScaleManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Services/ThemeManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/TexturePool.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/DocumentWindow.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/ImageViewer.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/TextEditorViewer.cpp
@@ -340,8 +474,8 @@ endif()
 # error, not a silent omission.
 file(GLOB_RECURSE _onyx_all_cpp CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp")
-set(_onyx_listed ${ONYX_CORE_SOURCES} ${ONYX_RENDER_SOURCES}
-                 ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES})
+set(_onyx_listed ${ONYX_CORE_SOURCES}
+                 ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES} ${ONYX_RENDER_SOURCES})
 foreach(_f ${_onyx_all_cpp})
     if(NOT _f IN_LIST _onyx_listed)
         message(FATAL_ERROR "Source file not assigned to a layer: ${_f}")
@@ -373,11 +507,77 @@ add_library(Onyx::Core ALIAS Onyx_Core)
 onyx_apply_common(Onyx_Core)
 target_link_libraries(Onyx_Core PUBLIC glm::glm lz4_lib)
 
-# ── Onyx::Render — draws domain data; Core + GL loader only ──────────────
+# ── Onyx::Render — Vulkan 1.3 renderer; Core + volk + VMA only ───────────
+# T9 links this PUBLIC into Onyx::Shell below (Window.cpp owns the
+# VkContext/swapchain/RenderContext the whole app presents through). Task
+# 11 deleted Onyx::Render (GL), which used to be linked alongside this one
+# in every composition root (Shell, onyx-oracle, onyx_tests) -- this is now
+# the only renderer target in the tree. See
+# docs/design/2026-08-18-onyx-v1-architecture.md §8.
 add_library(Onyx_Render STATIC ${ONYX_RENDER_SOURCES})
 add_library(Onyx::Render ALIAS Onyx_Render)
 onyx_apply_common(Onyx_Render)
-target_link_libraries(Onyx_Render PUBLIC Onyx_Core glad)
+target_compile_definitions(Onyx_Render PUBLIC
+    VK_NO_PROTOTYPES
+    VMA_STATIC_VULKAN_FUNCTIONS=0)
+# T3's fixed camera convention (Include/Onyx/RenderVk/Pipelines.h's "Camera
+# convention" note): every source that builds a projection matrix via
+# <glm/gtc/matrix_transform.hpp> gets Vulkan's [0,1] clip-space Z instead of
+# GL's [-1,1].
+#
+# F3 fix-round (final review, post-Task-14): this used to be PRIVATE,
+# confined to Onyx_Render's own sources (SceneRendererVk.cpp/Camera.cpp/
+# RenderBatch.cpp/...), on the theory that every consumer outside this
+# target (Tools/OnyxOracle/CorpusScenes.cpp+Main.cpp, Examples/OnyxCli/
+# Render.cpp) built with plain glm::perspective() (GL's [-1,1] convention)
+# and converted explicitly via Onyx::Rendering::VulkanProjection() before
+# handing the matrix to SceneRendererVk::Render(). That theory was only
+# half true: VulkanProjection() (Pipelines.h) only ever negated proj[1][1]
+# (the Y-flip half of the contract) -- it never corrected the depth range,
+# so every one of those outside-the-target callers fed the renderer a
+# GL-depth-range matrix regardless. The GUI viewport (Camera.cpp, inside
+# this target, PRIVATE-macro-corrected) and the headless corpus/CLI paths
+# (outside it, never corrected) were rendering under two different clip
+# conventions, silently, because nothing checked the depth half of the
+# contract (SceneRendererVk.cpp's Debug assert only checks proj[1][1] < 0)
+# and the parity gate's frozen GL-depth goldens happened to still match a
+# GL-depth Vulkan render, canceling the bug out of that safety net too.
+#
+# PRIVATE was originally chosen because a PUBLIC definition, during the
+# original M4 Vulkan bring-up, was caught leaking into CorpusScenes.cpp's
+# own glm::perspective() calls and corrupting the GL renderer's frozen
+# golden corpus -- back when onyx-oracle linked GL's Onyx::Render alongside
+# this (then Vulkan-named-differently) target in the same executable. That
+# GL renderer, and the live GL corpus-generation path a PUBLIC macro could
+# corrupt, no longer exist (deleted at Task 11) -- Tests/Golden/corpus is a
+# static, already-baked PNG set now, not something any current build
+# regenerates through GL. With no GL target left for it to corrupt, PUBLIC
+# is the fix that makes the contract total: every TU that links Onyx::Render
+# (Onyx_Render's own sources, onyx-oracle, onyxbox-cli, onyx_tests) now
+# gets Vulkan's depth convention from glm::perspective() directly, so
+# Onyx::Rendering::VulkanProjection()'s existing Y-flip-only job is
+# sufficient and correct everywhere it is called, with no second,
+# per-call-site depth conversion needed. See Pipelines.h's "Camera
+# convention" note for the full, now-total contract.
+target_compile_definitions(Onyx_Render PUBLIC GLM_FORCE_DEPTH_ZERO_TO_ONE)
+target_link_libraries(Onyx_Render PUBLIC
+    Onyx_Core
+    volk::volk
+    Vulkan::Headers
+    GPUOpen::VulkanMemoryAllocator)
+# T3: compile Source/RenderVk/Shaders/*.vert|*.frag to embedded SPIR-V
+# headers (cmake/ShaderCompile.cmake) -- must run after the target and its
+# link libraries exist (onyx_add_spirv adds an include dir + a build-order
+# dependency onto Onyx_Render itself).
+onyx_add_spirv(Onyx_Render
+    Source/RenderVk/Shaders/scene.vert
+    Source/RenderVk/Shaders/scene.frag
+    Source/RenderVk/Shaders/grid.vert
+    Source/RenderVk/Shaders/grid.frag
+    Source/RenderVk/Shaders/background.vert
+    Source/RenderVk/Shaders/background.frag
+    Source/RenderVk/Shaders/overlay.vert
+    Source/RenderVk/Shaders/overlay.frag)
 
 # ── Onyx::Shell — the ImGui application framework ────────────────────────
 add_library(Onyx_Shell STATIC
@@ -400,12 +600,20 @@ target_link_libraries(Onyx_Shell PUBLIC
 # ── Onyx::Media — sole owner of the FFmpeg edge ──────────────────────────
 # Nothing in Shell references VideoPlayer symbols (verified 2026-08-18);
 # only consumers instantiate it, so OFF simply drops the code and the DLLs.
-option(ONYX_COMPONENT_MEDIA "Build the video player component (FFmpeg)" ON)
+# option(ONYX_COMPONENT_MEDIA ...) is declared near the top of this file now
+# (T12) -- the FFmpeg discovery block above needs it too, and option()
+# only takes effect on its first declaration.
 if(ONYX_COMPONENT_MEDIA)
     add_library(Onyx_Media STATIC ${ONYX_MEDIA_SOURCES})
     add_library(Onyx::Media ALIAS Onyx_Media)
     onyx_apply_common(Onyx_Media)
-    target_link_libraries(Onyx_Media PUBLIC Onyx_Core imgui_lib miniaudio ffmpeg_lib)
+    # Onyx_Render (T10): VideoPlayer's own compiled copy of
+    # Source/App/TexturePool.cpp (see ONYX_MEDIA_SOURCES' comment above)
+    # needs Onyx::Rendering::Resources/VkContext to upload frames as Vulkan
+    # textures -- Onyx_Media cannot link Onyx_Shell to reach the same
+    # symbols (that would be the real link cycle the dual-compile avoids),
+    # but linking the lower RenderVk layer directly is cycle-free.
+    target_link_libraries(Onyx_Media PUBLIC Onyx_Core Onyx_Render imgui_lib miniaudio ffmpeg_lib)
     target_link_libraries(Onyx_Shell PUBLIC Onyx_Media)
 endif()
 
@@ -417,20 +625,22 @@ add_library(Onyx::Onyx ALIAS Onyx)
 target_link_libraries(Onyx INTERFACE Onyx_Core Onyx_Render Onyx_Shell)
 
 # ── Platform libraries, homed on the layer that needs each ───────────────
+# opengl32/-framework OpenGL/GL (the GL renderer's own system link libs)
+# died with Onyx_Render at Task 11 -- imgui_lib's OpenGL3 backend was
+# already gone before that (imgui_impl_opengl3.cpp was never in its source
+# list, only imgui_impl_glfw.cpp/imgui_impl_vulkan.cpp), so nothing in the
+# tree links against a system GL library any more.
 if(WIN32)
-    target_link_libraries(Onyx_Render PUBLIC opengl32)
-    target_link_libraries(Onyx_Shell  PUBLIC comdlg32 dwmapi)
+    target_link_libraries(Onyx_Shell PUBLIC comdlg32 dwmapi)
 elseif(APPLE)
-    target_link_libraries(Onyx_Render PUBLIC "-framework OpenGL")
-    target_link_libraries(Onyx_Shell  PUBLIC
+    target_link_libraries(Onyx_Shell PUBLIC
         "-framework AudioToolbox"
         "-framework CoreAudio"
         "-framework Cocoa"
         "-framework IOKit"
         "-framework CoreFoundation")
 else()
-    target_link_libraries(Onyx_Core   PUBLIC dl pthread m)
-    target_link_libraries(Onyx_Render PUBLIC GL)
+    target_link_libraries(Onyx_Core PUBLIC dl pthread m)
 endif()
 
 # Provide the engine's runtime font dir to consumers
@@ -440,8 +650,10 @@ set(ONYX_FONTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts" CACHE INTERNA
 # add_test() -- CMake only emits a CTestTestfile.cmake for a subdirectory
 # that was added after testing was enabled in its parent scope. Hoisted here,
 # ahead of Examples/Tools/OnyxOracle, rather than left inside the
-# ONYX_BUILD_TESTS block below (where it used to live) so OracleGlSmoke
-# registers regardless of add_subdirectory order within this file.
+# ONYX_BUILD_TESTS block below (where it used to live) so Tools/OnyxOracle's
+# ctest entries (VkBootSmoke, VkOracleParity, ...; OracleGlSmoke itself
+# died with the GL renderer at Task 11) register regardless of
+# add_subdirectory order within this file.
 enable_testing()
 
 # Onyx_ExampleBox is unconditional (not gated by ONYX_BUILD_EXAMPLES): it is
@@ -456,8 +668,9 @@ if(ONYX_BUILD_EXAMPLES)
     add_subdirectory(Examples/OnyxCli)
 endif()
 
-# Tools/OnyxOracle -- the GL oracle renderer (M0). Unconditional: its
-# OracleGlSmoke ctest is part of the standard suite, not example-gated.
+# Tools/OnyxOracle -- the headless Vulkan oracle renderer (M0; GL deleted
+# at Task 11). Unconditional: its ctest entries (VkBootSmoke,
+# VkOracleParity, ...) are part of the standard suite, not example-gated.
 add_subdirectory(Tools/OnyxOracle)
 
 if(ONYX_BUILD_TESTS)
@@ -485,6 +698,17 @@ if(ONYX_BUILD_TESTS)
             list(APPEND _lg_core "${CMAKE_CURRENT_SOURCE_DIR}/Include/Onyx/${_rel}.h")
         endif()
     endforeach()
+    # Task 11: this list source switched from the deleted GL-era
+    # ONYX_RENDER_SOURCES to what was then ONYX_RENDERVK_SOURCES -- the
+    # Render layer LayerGuard now guards is the surviving (Vulkan) one.
+    # (7e58e95 later renamed ONYX_RENDERVK_SOURCES to ONYX_RENDER_SOURCES,
+    # folding RenderVk into the Render layer name now that Vulkan is the
+    # only renderer; both variables are named ONYX_RENDER_SOURCES at HEAD,
+    # this note just disambiguates which one Task 11 actually meant.) This
+    # is also why the forbidden pattern below widened to include glad/GL/:
+    # the deleted GL renderer was the only code that ever legitimately
+    # included them, so their reappearance in this layer would now always
+    # be a regression, not just a style choice.
     set(_lg_render "")
     foreach(_f ${ONYX_RENDER_SOURCES})
         list(APPEND _lg_render "${_f}")
@@ -501,9 +725,13 @@ if(ONYX_BUILD_TESTS)
         -DLISTFILE=${CMAKE_BINARY_DIR}/layerguard-core.txt
         "-DFORBIDDEN=imgui|implot|GLFW/|glad/"
         -P ${CMAKE_SOURCE_DIR}/cmake/LayerGuard.cmake)
+    # The swapchain lives in Shell (Window.cpp) -- GLFW must not appear in
+    # Render sources either, same as before Task 11. glad/GL/ join the
+    # forbidden set now that the Render layer this guards is Vulkan-only:
+    # any reappearance of either is a real GL regression, not a style nit.
     add_test(NAME LayerGuard.Render COMMAND ${CMAKE_COMMAND}
         -DLISTFILE=${CMAKE_BINARY_DIR}/layerguard-render.txt
-        "-DFORBIDDEN=imgui|implot|GLFW/"
+        "-DFORBIDDEN=imgui|implot|GLFW/|glad|GL/"
         -P ${CMAKE_SOURCE_DIR}/cmake/LayerGuard.cmake)
 
     add_subdirectory(Tests)
