@@ -698,12 +698,17 @@ if(ONYX_BUILD_TESTS)
             list(APPEND _lg_core "${CMAKE_CURRENT_SOURCE_DIR}/Include/Onyx/${_rel}.h")
         endif()
     endforeach()
-    # Task 11: this list source switched from the deleted ONYX_RENDER_SOURCES
-    # (GL) to ONYX_RENDER_SOURCES -- the Render layer LayerGuard now guards
-    # is the surviving (Vulkan) one, which is also why the forbidden pattern
-    # below widened to include glad/GL/: the deleted GL renderer was the only
-    # code that ever legitimately included them, so their reappearance in
-    # this layer would now always be a regression, not just a style choice.
+    # Task 11: this list source switched from the deleted GL-era
+    # ONYX_RENDER_SOURCES to what was then ONYX_RENDERVK_SOURCES -- the
+    # Render layer LayerGuard now guards is the surviving (Vulkan) one.
+    # (7e58e95 later renamed ONYX_RENDERVK_SOURCES to ONYX_RENDER_SOURCES,
+    # folding RenderVk into the Render layer name now that Vulkan is the
+    # only renderer; both variables are named ONYX_RENDER_SOURCES at HEAD,
+    # this note just disambiguates which one Task 11 actually meant.) This
+    # is also why the forbidden pattern below widened to include glad/GL/:
+    # the deleted GL renderer was the only code that ever legitimately
+    # included them, so their reappearance in this layer would now always
+    # be a regression, not just a style choice.
     set(_lg_render "")
     foreach(_f ${ONYX_RENDER_SOURCES})
         list(APPEND _lg_render "${_f}")

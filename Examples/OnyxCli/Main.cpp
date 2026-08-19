@@ -8,7 +8,7 @@
 // why `render` cannot live there):
 //   render <container> <entry> --out out.png [--width N] [--height N]
 //       Decodes `entry` through the Scene capability and rasterizes it
-//       headlessly via Onyx::Cli::CmdRender (Source/Cli/Render.cpp, linked
+//       headlessly via Onyx::Cli::CmdRender (Examples/OnyxCli/Render.cpp, linked
 //       into this executable's own target, which is the one place
 //       Onyx_Core and Onyx::Rendering may meet without a link cycle).
 //   write-render-fixture <path>

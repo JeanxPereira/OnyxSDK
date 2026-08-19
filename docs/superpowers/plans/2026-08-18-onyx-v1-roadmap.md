@@ -148,14 +148,28 @@ raw handles + `AddPass`). GL deleted after the gate.
   `ONYX_PARITY_ARGS` (a one-line change), not a verdict on the renderer.
   The "on hardware" half of this gate is proven; the "and on lavapipe"
   half is authored and ready to prove itself the moment a human pushes.
+- **macOS is unsupported for M4, not a formality gap.** Two concrete,
+  unstarted blockers: `Source/App/Platform/Window_macos.mm` and
+  `NativeWindow_macos.mm` still call `glfwMakeContextCurrent`/
+  `NSOpenGLContext` on what is now a `GLFW_NO_API` window (leftover
+  OpenGL-context calls from before the GL renderer was deleted, with
+  nothing left to attach to), and `VkContext` has no
+  `VK_KHR_portability_enumeration`/`VK_EXT_metal_surface` enablement
+  anywhere. Nobody on this milestone can build or test macOS, so the
+  `.mm` platform layer was left untouched rather than half-fixed; both
+  blockers are real engineering work for whenever macOS is prioritized,
+  not a checklist item.
 - **Known gaps carried out of this milestone, not blocking the gate:** no
   animation playback, no per-batch visibility culling, no outline/
   wireframe/matcap shading, four dead viewport color knobs, the parity
   gate's own detection floor (misses a defect confined to one small
-  object's silhouette), and `Viewport3D`'s blocking per-redraw GPU submit
-  (45 FPS observed on a trivial scene). Recorded in full in
-  `CHANGELOG.md`'s "Known gaps — M4 Vulkan renderer" so they outlive this
-  plan file's own SDD ledger, which is deleted at merge.
+  object's silhouette), `Viewport3D`'s blocking per-redraw GPU submit
+  (45 FPS observed on a trivial scene), a "Decoding…" placeholder tab's
+  close not cancelling the decode, all decoding serialized on one lane,
+  the CLI `render` command's failure modes collapsing onto one exit code,
+  and zero automated coverage of the swapchain frame path. Recorded in
+  full in `CHANGELOG.md`'s "Known gaps — M4 Vulkan renderer" so they
+  outlive this plan file's own SDD ledger, which is deleted at merge.
 - **Plan:** written at M3 gate.
 
 ## M5 — Generality (spec W5)

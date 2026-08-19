@@ -6,16 +6,30 @@
 - **M4 Vulkan renderer** (v1 spec §W4) — `Onyx::Render` rewritten on
   Vulkan 1.3 (dynamic rendering, VMA), offscreen-first, on two floors:
   `SceneRendererVk` (the ready-made PBR/skinning/grid/skeleton path
-  consumers use by default) and `Onyx::RenderVk::RenderContext` (raw
+  consumers use by default) and `Onyx::Rendering::RenderContext` (raw
   `VkDevice`/queue/command-buffer handles plus `AddPass`/`RemovePass`, for
   callers that need to record their own Vulkan work — a registered pass
   that throws is caught, logged and skipped without corrupting the frame
   or unregistering the pass). Device/instance/swapchain bootstrap
   (`VkContext`) supports headless (no surface) as the primary path, with
-  Win32/Linux presentation as the GUI's addition on top. PBR pipeline on
-  role-indexed materials, skinning via a joint-palette SSBO (shared with
-  the deleted GL renderer's own extraction, `Rendering::JointPalette`),
-  procedural grid + skeleton overlay.
+  presentation as the GUI's addition on top — platform status, honestly:
+  **Windows** is verified end to end (this is where the GUI has actually
+  been run). **Linux** is implemented (`VkContext::Init` takes the
+  caller's `glfwGetRequiredInstanceExtensions()` result and requests
+  those instance extensions) and builds green in CI (`linux-lavapipe`),
+  but nobody has run the GUI against a real Linux window in this
+  milestone — "implemented and builds" is not the same claim as
+  "verified," and earlier drafts of this entry conflated the two.
+  **macOS is unsupported** for M4: `Source/App/Platform/Window_macos.mm`
+  and `NativeWindow_macos.mm` still drive a `GLFW_NO_API` window through
+  `glfwMakeContextCurrent`/`NSOpenGLContext` (leftover OpenGL-context
+  calls with nothing to attach to now that the GL renderer is deleted),
+  and there is no `VK_KHR_portability_enumeration`/`VK_EXT_metal_surface`
+  enablement anywhere in `VkContext` -- both are real, unstarted work, not
+  a formality. PBR pipeline on role-indexed materials, skinning via a
+  joint-palette SSBO (shared with the deleted GL renderer's own
+  extraction, `Rendering::JointPalette`), procedural grid + skeleton
+  overlay.
 - **The parity gate ("the milestone's teeth")** — `onyx-oracle
   render-corpus --renderer vk` renders the M0 corpus through the Vulkan
   path; `onyx-oracle compare` checks it against the frozen GL goldens
@@ -61,9 +75,13 @@
   skinned cube posed rest-vs-bind, alpha-blend stack, 200-joint spiral);
   a fifth, ShadingMode::Textured sphere-grid variant pins the PBR
   role/metallic path Solid's shader never exercises. Golden references
-  live in `Tests/Golden/corpus` and ctest gates prove render-twice
-  byte-identity (`OracleReproducible`, `OracleMatchesGolden`,
-  `SKIP_RETURN_CODE 77` when no GL).
+  live in `Tests/Golden/corpus`; `OracleReproducible` proves two
+  independent Vulkan render-corpus runs are byte-identical
+  (`SKIP_RETURN_CODE 77` when no Vulkan-capable device is present) —
+  matching those goldens is `VkOracleParity`'s job (see "the milestone's
+  teeth" above), not this test's. `OracleMatchesGolden` (a GL-render
+  ctest) died at Task 11 along with the GL renderer it existed to gate;
+  it is not part of this suite anymore.
 - **Mounts at open** (v1 spec §5.2) -- a module's `MountSpec` now runs:
   the Workspace mounts matching archives at open, documents own a file
   table (slot 0 = the container) plus the mounted VFS, and module-thrown
@@ -216,6 +234,37 @@ would look, or both.
   the structurally right home for a frame-pipelined, non-blocking version
   of this; nothing beyond the 45 FPS single observation above has been
   measured, and no work here has started.
+- **macOS is unsupported this milestone**, not a formality gap.
+  `Source/App/Platform/Window_macos.mm` and `NativeWindow_macos.mm` still
+  call `glfwMakeContextCurrent`/`NSOpenGLContext` against what is now a
+  `GLFW_NO_API` window — leftover OpenGL-context calls with nothing left
+  to attach to now that the GL renderer is deleted — and `VkContext` has
+  no `VK_KHR_portability_enumeration`/`VK_EXT_metal_surface` enablement
+  anywhere. Nobody on this milestone has macOS hardware to build or test
+  against, so the `.mm` platform layer was left as-is rather than
+  half-fixed; both blockers are real, unstarted work.
+- **Closing a "Decoding…" placeholder tab does not cancel the decode.**
+  `ViewerOpening.cpp`'s cancellation only fires on `DocumentClosed`
+  (closing the whole document); closing just the placeholder tab the
+  decode is standing in for leaves the job running on the `JobQueue` —
+  the real viewer still opens seconds later even though the tab that was
+  going to show it is gone.
+- **All decoding is globally serialized on one lane (`kDecodeLane`).**
+  There is one decode lane, not one per document or one sized to
+  available cores — a second document's asset decode queues entirely
+  behind whatever large decode is already running on the lane, with no
+  way to jump the queue or run in parallel.
+- **The CLI `render` command collapses distinct failure modes onto
+  `kUsage`.** GPU-init failure, pipeline-build failure, framebuffer
+  readback failure, and PNG-write failure all currently exit with the
+  same usage-error code, so a calling script cannot tell "you passed a
+  bad argument" apart from "the disk is full" or "there is no
+  Vulkan-capable device" from the exit code alone.
+- **The swapchain frame path has zero automated coverage.** Every "0
+  validation messages" claim made for the Shell's actual windowed
+  presentation is a manual, timeout-bounded run of the GUI, not a ctest —
+  no test in this suite creates a real window and drives frames through
+  the swapchain.
 
 ## v0.6.0 - 2026-08-18
 

@@ -34,12 +34,27 @@ namespace Onyx::Rendering {
 class GpuMesh; // never defined after Task 11 -- see this header's top comment
 
 /// Viewport shading mode. Was declared in the now-deleted ShaderManager.h.
+///
+/// Matcap/Wireframe/TexturedWire have NO Vulkan implementation in this
+/// renderer -- SceneRendererVk has no code path for any of the three
+/// (Matcap was alias-only on the GL renderer even before Task 11 deleted
+/// it; Wireframe/TexturedWire never got a Vulkan port). The T11 fix round
+/// removed all three from the shading-mode UI (combo box and both toolbar
+/// cycle sites) so the picker never offers a choice with no visible
+/// effect, but the enumerators themselves stay in this public API --
+/// deleting them would be a breaking change to consumers pinned against
+/// this header for no rendering benefit, since Onyx::Rendering has no
+/// concept of "this enum value is UI-reachable." A caller that constructs
+/// one of these three directly (bypassing the UI) gets undefined shading
+/// behavior from SceneRendererVk, not a compile error or a runtime
+/// diagnostic -- see CHANGELOG.md's "Known gaps" for the UI-side account
+/// of this split.
 enum class ShadingMode {
     Solid,            // Blinn-Phong with textures + lighting
-    Matcap,           // View-space normal matcap (GL only -- no Vulkan path)
+    Matcap,           // Unimplemented in this (Vulkan) renderer -- see enum comment above
     Textured,         // Material preview (game textures, minimal lighting)
-    Wireframe,        // Matcap filled faces + Wireframe overlay
-    TexturedWire      // Textured filled faces + Wireframe overlay
+    Wireframe,        // Unimplemented in this (Vulkan) renderer -- see enum comment above
+    TexturedWire      // Unimplemented in this (Vulkan) renderer -- see enum comment above
 };
 
 /// A single renderable batch: one mesh part + its resolved material.
