@@ -409,7 +409,18 @@ ParseResult OnyxBoxModule::ParseContainer(ContainerContext& ctx) {
         // already dropped anything unparseable from its directory) is
         // skipped with a diag; one whose OBX1 header itself is bad still
         // gets a subtree, flagged Failed, rather than aborting the pak.
-        for (const std::string& name : ctx.mountedVfs->ListDirectory(std::string())) {
+        const std::vector<std::string> innerNames = ctx.mountedVfs->ListDirectory(std::string());
+        if (innerNames.empty()) {
+            // A mount that succeeded but named nothing (an empty OBP1 header,
+            // or one whose first record was truncated) is worth flagging --
+            // otherwise this looks silently identical to an intentionally
+            // empty pak. Still not a reason to fail the open: no roots is a
+            // valid (if useless) result.
+            ctx.diags.Report(Diag{Severity::Warning, "onyxbox.pak-empty",
+                                   "mounted archive lists no inner containers",
+                                   std::nullopt});
+        }
+        for (const std::string& name : innerNames) {
             std::unique_ptr<Onyx::Vfs::IFile> inner = ctx.mountedVfs->OpenFile(name);
             if (!inner) {
                 ctx.diags.Report(Diag{Severity::Warning, "obxpak.entry.open-failed",

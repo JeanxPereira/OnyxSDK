@@ -783,6 +783,37 @@ TEST_CASE("OnyxBox obxpak: mounted pak proven end to end through Cli::Commands")
     std::filesystem::remove(path);
 }
 
+// F6: a mount that succeeds but whose walk names nothing -- an empty OBP1
+// header (count 0) here -- must still surface a diag. Silently returning
+// zero roots would look identical to "this pak really has nothing", which
+// is exactly the confusing case this Warning exists to rule out.
+TEST_CASE("OnyxBox obxpak: an empty mounted pak reports exactly one Warning diag and zero roots") {
+    auto pakBytes = BuildObxPak({});  // magic + count(0), no inner files at all
+    auto path = write_temp_bytes("onyx_mounts_test_obxpak_empty.obxpak", pakBytes);
+
+    Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(std::make_unique<OnyxBox::OnyxBoxModule>());
+
+    DocumentId id = ws.Open(path);
+    REQUIRE(id != 0);
+    Document* doc = ws.Get(id);
+    REQUIRE(doc);
+    CHECK(doc->roots.empty());
+
+    auto diags = doc->diags.Drain();
+    int warnings = 0;
+    bool sawEmptyDiag = false;
+    for (auto& d : diags) {
+        if (d.severity == Onyx::Services::Severity::Warning) ++warnings;
+        if (d.code == "onyxbox.pak-empty") sawEmptyDiag = true;
+    }
+    CHECK(warnings == 1);
+    CHECK(sawEmptyDiag);
+
+    ws.Close(id);
+    std::filesystem::remove(path);
+}
+
 // Task 8 fix round 1: the (fileIndex, name) re-keying in FindTocEntry/
 // DecodeImage/DecodeText is correct by inspection but was unproven by the
 // e2e test above -- CmdDecode's name-only DFS (Commands.cpp's
