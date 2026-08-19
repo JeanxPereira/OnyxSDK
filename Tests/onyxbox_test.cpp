@@ -6,6 +6,7 @@
 #include <Onyx/Types/TypeCatalog.h>
 
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -23,6 +24,12 @@ void PutU32LE(std::vector<uint8_t>& buf, uint32_t v) {
     buf.push_back(uint8_t((v >> 8) & 0xFF));
     buf.push_back(uint8_t((v >> 16) & 0xFF));
     buf.push_back(uint8_t((v >> 24) & 0xFF));
+}
+
+void PutF32LE(std::vector<uint8_t>& buf, float v) {
+    uint32_t bits;
+    std::memcpy(&bits, &v, sizeof(bits));
+    PutU32LE(buf, bits);
 }
 
 void PutTocHeader(std::vector<uint8_t>& buf, const std::string& name, uint8_t kind,
@@ -223,6 +230,116 @@ TEST_CASE("onyxbox rejects an image whose payloadSize doesn't match the declared
     auto txt = reg.DecodeText(ctx2);
     REQUIRE(txt);
     CHECK(txt->text == safeText);
+
+    ws.Close(id);
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("onyxbox decodes a mesh entry into a single-part cube scene") {
+    std::vector<uint8_t> payload;
+    PutF32LE(payload, 0.8f); PutF32LE(payload, 0.2f); PutF32LE(payload, 0.1f); PutF32LE(payload, 1.0f); // baseColor
+    PutF32LE(payload, 5.0f); PutF32LE(payload, 6.0f); PutF32LE(payload, 7.0f);                          // position
+    PutF32LE(payload, 1.0f); PutF32LE(payload, 2.0f); PutF32LE(payload, 3.0f);                          // half-extents
+    PutF32LE(payload, 0.0f); PutF32LE(payload, 0.0f);                                                   // padding
+
+    const uint32_t headerSize = 4 + 4 + uint32_t(2 + 4 + 1 + 4 + 4); // "cube"
+    const uint32_t meshOffset = headerSize;
+    const uint32_t meshSize = uint32_t(payload.size());
+
+    std::vector<uint8_t> buf;
+    buf.insert(buf.end(), {uint8_t('O'), uint8_t('B'), uint8_t('X'), uint8_t('1')});
+    PutU32LE(buf, 1);
+    PutTocHeader(buf, "cube", 3, meshOffset, meshSize);
+    buf.insert(buf.end(), payload.begin(), payload.end());
+
+    auto path = std::filesystem::temp_directory_path() / "onyx_onyxbox_mesh.obx";
+    {
+        std::ofstream f(path, std::ios::binary);
+        f.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
+    }
+
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(std::make_unique<OnyxBox::OnyxBoxModule>());
+
+    auto id = ws.Open(path);
+    REQUIRE(id != 0);
+    auto* doc = ws.Get(id);
+    REQUIRE(doc);
+    REQUIRE(doc->roots.size() == 1);
+    CHECK(doc->roots[0].flags == Onyx::Domain::NodeFlags::None);
+
+    auto& reg = ws.Decoders();
+    REQUIRE(reg.HasScene(doc->roots[0].typeId));
+    Onyx::Services::Progress prog;
+    Onyx::Modules::DecodeContext ctx{*doc, doc->roots[0], doc->diags, prog};
+    auto scene = reg.DecodeScene(ctx);
+    REQUIRE(scene);
+    REQUIRE(scene->meshParts.size() == 1);
+    CHECK(scene->meshParts[0].vertices.size() == 24);  // 6 faces * 4 vertices, see BuildCubePart
+    CHECK(scene->meshParts[0].indices.size() == 36);   // 6 faces * 2 triangles * 3 indices
+    REQUIRE(scene->materials.size() == 1);
+    CHECK(scene->materials[0].baseColor[0] == doctest::Approx(0.8f));
+    CHECK(scene->materials[0].baseColor[1] == doctest::Approx(0.2f));
+    CHECK(scene->materials[0].baseColor[2] == doctest::Approx(0.1f));
+    CHECK(scene->materials[0].baseColor[3] == doctest::Approx(1.0f));
+
+    // Every vertex sits within [position - halfExtents, position + halfExtents].
+    for (const auto& v : scene->meshParts[0].vertices) {
+        CHECK(v.position.x >= doctest::Approx(4.0f));
+        CHECK(v.position.x <= doctest::Approx(6.0f));
+        CHECK(v.position.y >= doctest::Approx(4.0f));
+        CHECK(v.position.y <= doctest::Approx(8.0f));
+        CHECK(v.position.z >= doctest::Approx(4.0f));
+        CHECK(v.position.z <= doctest::Approx(10.0f));
+    }
+
+    ws.Close(id);
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("onyxbox flags a mesh entry Failed when the payload size is not 48 bytes") {
+    // 40 bytes (10 floats) instead of the required 12 -- a truncated or
+    // otherwise malformed mesh payload. ParseObxToc must never abort the
+    // whole container over this: the entry is kept in the tree, flagged
+    // Failed, with an Error diag -- salvage (spec sec7.1), same as every
+    // other TOC-level hardening check this module already has.
+    std::vector<uint8_t> payload(40, 0xAB);
+
+    const uint32_t headerSize = 4 + 4 + uint32_t(2 + 3 + 1 + 4 + 4); // "bad"
+    const uint32_t meshOffset = headerSize;
+    const uint32_t meshSize = uint32_t(payload.size());
+
+    std::vector<uint8_t> buf;
+    buf.insert(buf.end(), {uint8_t('O'), uint8_t('B'), uint8_t('X'), uint8_t('1')});
+    PutU32LE(buf, 1);
+    PutTocHeader(buf, "bad", 3, meshOffset, meshSize);
+    buf.insert(buf.end(), payload.begin(), payload.end());
+
+    auto path = std::filesystem::temp_directory_path() / "onyx_onyxbox_mesh_bad_size.obx";
+    {
+        std::ofstream f(path, std::ios::binary);
+        f.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
+    }
+
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(std::make_unique<OnyxBox::OnyxBoxModule>());
+
+    auto id = ws.Open(path);
+    REQUIRE(id != 0);
+    auto* doc = ws.Get(id);
+    REQUIRE(doc);
+    REQUIRE(doc->roots.size() == 1);   // never abort the container -- the entry is still in the tree
+    CHECK(doc->roots[0].flags == Onyx::Domain::NodeFlags::Failed);
+
+    auto diags = doc->diags.Drain();
+    bool sawSizeDiag = false;
+    for (auto& d : diags) {
+        if (d.code == "obx.mesh.size") {
+            sawSizeDiag = true;
+            CHECK(d.severity == Onyx::Services::Severity::Error);
+        }
+    }
+    CHECK(sawSizeDiag);
 
     ws.Close(id);
     std::filesystem::remove(path);

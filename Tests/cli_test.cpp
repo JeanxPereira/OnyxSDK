@@ -9,6 +9,7 @@
 #include <OnyxBoxModule.h>
 
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -39,6 +40,12 @@ void PutU32LE(std::vector<uint8_t>& buf, uint32_t v) {
     buf.push_back(uint8_t((v >> 8) & 0xFF));
     buf.push_back(uint8_t((v >> 16) & 0xFF));
     buf.push_back(uint8_t((v >> 24) & 0xFF));
+}
+
+void PutF32LE(std::vector<uint8_t>& buf, float v) {
+    uint32_t bits;
+    std::memcpy(&bits, &v, sizeof(bits));
+    PutU32LE(buf, bits);
 }
 
 void PutTocHeader(std::vector<uint8_t>& buf, const std::string& name, uint8_t kind,
@@ -214,6 +221,33 @@ std::filesystem::path WriteHugeSizeBox() {
     return path;
 }
 
+// One kind=3 (mesh) entry named "cube": a valid 48-byte (12-float) payload
+// -- base color, position, half-extents, 2 padding floats -- decoding to a
+// single-part cube (Examples/OnyxBox/OnyxBoxModule.h's top comment).
+std::filesystem::path WriteMeshBox() {
+    std::vector<uint8_t> payload;
+    PutF32LE(payload, 0.8f); PutF32LE(payload, 0.2f); PutF32LE(payload, 0.1f); PutF32LE(payload, 1.0f);
+    PutF32LE(payload, 0.0f); PutF32LE(payload, 0.0f); PutF32LE(payload, 0.0f);
+    PutF32LE(payload, 1.0f); PutF32LE(payload, 2.0f); PutF32LE(payload, 3.0f);
+    PutF32LE(payload, 0.0f); PutF32LE(payload, 0.0f);
+
+    const uint32_t headerSize = 4 + 4 + uint32_t(2 + 4 + 1 + 4 + 4); // 1 entry, name "mesh"
+    const uint32_t meshOffset = headerSize;
+    const uint32_t meshSize = uint32_t(payload.size());
+
+    std::vector<uint8_t> buf;
+    buf.insert(buf.end(), {uint8_t('O'), uint8_t('B'), uint8_t('X'), uint8_t('1')});
+    PutU32LE(buf, 1);
+    PutTocHeader(buf, "mesh", 3, meshOffset, meshSize);
+    buf.insert(buf.end(), payload.begin(), payload.end());
+
+    auto path = std::filesystem::temp_directory_path() / "onyx_cli_mesh.obx";
+    std::ofstream f(path, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
+    f.close();
+    return path;
+}
+
 std::unique_ptr<OnyxBox::OnyxBoxModule> MakeModule() {
     return std::make_unique<OnyxBox::OnyxBoxModule>();
 }
@@ -380,6 +414,21 @@ TEST_CASE("cli decode strict returns kStrictErrors when the document carries an 
     // surface that even though this particular decode succeeded.
     int rc = Onyx::Cli::CmdDecode(ws, path, "txt", /*strict=*/true, out);
     CHECK(rc == Onyx::Cli::kStrictErrors);
+
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("cli decode scene entry prints parts materials vertices summary and returns kOk") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+    auto path = WriteMeshBox();
+
+    std::ostringstream out;
+    int rc = Onyx::Cli::CmdDecode(ws, path, "mesh", /*strict=*/false, out);
+    CHECK(rc == Onyx::Cli::kOk);
+    // One cube part (24 vertices -- 6 faces * 4 vertices each, see
+    // OnyxBoxModule.cpp's BuildCubePart), one material.
+    CHECK(out.str().find("scene mesh parts=1 materials=1 vertices=24") != std::string::npos);
 
     std::filesystem::remove(path);
 }

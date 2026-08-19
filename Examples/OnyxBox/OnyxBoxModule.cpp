@@ -6,7 +6,9 @@
 #include <Onyx/Vfs/OsFile.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 
@@ -45,6 +47,25 @@ bool ReadU32LE(Onyx::Vfs::IFile& f, uint32_t& out) {
     out = uint32_t(b[0]) | (uint32_t(b[1]) << 8) | (uint32_t(b[2]) << 16) | (uint32_t(b[3]) << 24);
     return true;
 }
+
+// Mesh payload floats (kind=3) are stored the same little-endian way as
+// every other multi-byte field in this format -- read as raw bits, then
+// reinterpreted, rather than a direct `file.Read(&f, 4)` that would trust
+// the host's own float byte order (harmless on every platform this repo
+// targets today, but ReadU16LE/ReadU32LE above already made that
+// endian-explicit choice for integers, so this mirrors it for floats too).
+bool ReadF32LE(Onyx::Vfs::IFile& f, float& out) {
+    uint32_t bits = 0;
+    if (!ReadU32LE(f, bits)) return false;
+    std::memcpy(&out, &bits, sizeof(out));
+    return true;
+}
+
+// kind=3 (mesh) payload size: baseColor RGBA (4) + position xyz (3) +
+// half-extents xyz (3) + 2 padding floats = 12 f32 = 48 bytes, exactly.
+// Shared between the ParseObxToc hardening check and DecodeMesh's own
+// (redundant but cheap) re-check against the live TocEntry.
+constexpr uint32_t kMeshPayloadSize = 12 * 4;
 
 bool ReadU32LEFromBuffer(const std::vector<uint8_t>& buf, size_t pos, uint32_t& out) {
     if (pos + 4 > buf.size()) return false;
@@ -210,6 +231,65 @@ std::shared_ptr<Onyx::Vfs::IVirtualFileSystem> MountObxPak(const std::filesystem
     return std::make_shared<ObxPakVfs>(std::move(bytes), std::move(entries));
 }
 
+// Builds a single-part axis-aligned box centered at `center` with the given
+// per-axis `halfExtents`: 6 faces * 4 vertices (24 total, not the 8-vertex
+// shared-corner shortcut) so every face gets a correct outward flat normal
+// and its own 0..1 UV square, matching how a real "cube" primitive is
+// conventionally authored (shared vertices would average adjacent faces'
+// normals into a smoothed, visually wrong result for a box). Object-space
+// (no instanceTransform applied -- SceneData::instanceTransform stays
+// identity for this decoder).
+Onyx::Parsers::MeshPart BuildCubePart(const glm::vec3& center, const glm::vec3& halfExtents) {
+    using Onyx::Domain::GpuVertex;
+
+    Onyx::Parsers::MeshPart part;
+    part.name = "cube";
+    part.materialId = 0;
+    part.useBindToJoint = false; // static geometry, no skeleton
+
+    struct Face { glm::vec3 normal, uAxis, vAxis; };
+    // uAxis/vAxis are unit basis directions (scaled by halfExtents below,
+    // per-face) chosen so every face's 4 corners wind counter-clockwise
+    // when viewed from outside along -normal (consistent front-face
+    // winding, even though the scene pipelines currently render with
+    // VK_CULL_MODE_NONE -- Source/RenderVk/Pipelines.cpp -- so this does
+    // not yet affect visibility, only correctness-by-convention).
+    const std::array<Face, 6> kFaces = {{
+        {{ 1, 0, 0}, {0, 0,-1}, {0, 1, 0}},  // +X
+        {{-1, 0, 0}, {0, 0, 1}, {0, 1, 0}},  // -X
+        {{ 0, 1, 0}, {1, 0, 0}, {0, 0,-1}},  // +Y
+        {{ 0,-1, 0}, {1, 0, 0}, {0, 0, 1}},  // -Y
+        {{ 0, 0, 1}, {1, 0, 0}, {0, 1, 0}},  // +Z
+        {{ 0, 0,-1}, {-1, 0, 0}, {0, 1, 0}}, // -Z
+    }};
+    const glm::vec2 kFaceUv[4] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+
+    for (const Face& face : kFaces) {
+        const glm::vec3 faceCenter = center + face.normal * halfExtents;
+        const glm::vec3 uAxis = face.uAxis * halfExtents;
+        const glm::vec3 vAxis = face.vAxis * halfExtents;
+        const glm::vec3 corners[4] = {
+            faceCenter - uAxis - vAxis,
+            faceCenter + uAxis - vAxis,
+            faceCenter + uAxis + vAxis,
+            faceCenter - uAxis + vAxis,
+        };
+
+        const uint32_t base = uint32_t(part.vertices.size());
+        for (int i = 0; i < 4; ++i) {
+            GpuVertex vert{};
+            vert.position = corners[i];
+            vert.normal = face.normal;
+            vert.uv = kFaceUv[i];
+            part.vertices.push_back(vert);
+        }
+        part.indices.insert(part.indices.end(), {base + 0, base + 1, base + 2,
+                                                   base + 0, base + 2, base + 3});
+    }
+
+    return part;
+}
+
 } // namespace
 
 ModuleInfo OnyxBoxModule::Info() const {
@@ -261,11 +341,18 @@ void OnyxBoxModule::RegisterTypes(Onyx::Types::TypeRegistrar& r) {
     blob.label = "Blob";
     blob.media = Onyx::Domain::MediaKind::Raw;
     m_blobType = r.Add(blob);
+
+    Onyx::Types::TypeInfo mesh;
+    mesh.key = "mesh";
+    mesh.label = "Mesh";
+    mesh.media = Onyx::Domain::MediaKind::Mesh;
+    m_meshType = r.Add(mesh);
 }
 
 void OnyxBoxModule::RegisterDecoders(DecoderRegistry& reg) {
     reg.Image(m_imageType, &OnyxBoxModule::DecodeImage);
     reg.Text(m_textType, &OnyxBoxModule::DecodeText);
+    reg.Scene(m_meshType, &OnyxBoxModule::DecodeMesh);
 }
 
 std::vector<Onyx::Modules::MountSpec> OnyxBoxModule::Mounts() const {
@@ -374,6 +461,10 @@ bool OnyxBoxModule::ParseObxToc(Onyx::Vfs::IFile& file, uint32_t fileIndex,
                 entry.typeId = m_textType;
                 entry.kind = Onyx::Domain::MediaKind::Unknown;
                 break;
+            case 3:
+                entry.typeId = m_meshType;
+                entry.kind = Onyx::Domain::MediaKind::Mesh;
+                break;
             default:
                 entry.typeId = m_blobType;
                 entry.kind = Onyx::Domain::MediaKind::Raw;
@@ -388,6 +479,21 @@ bool OnyxBoxModule::ParseObxToc(Onyx::Vfs::IFile& file, uint32_t fileIndex,
             entry.flags = Onyx::Domain::NodeFlags::Failed;
             diags.Report(Diag{Severity::Error, "obx.entry.range",
                                "payload out of bounds", std::nullopt});
+        } else if (kind == 3 && payloadSize != kMeshPayloadSize) {
+            // Task 14 hardening: a mesh entry's payload must be exactly 12
+            // little-endian floats (48 bytes -- see this file's top
+            // comment for the layout). Caught here, at TOC-walk time, not
+            // inside DecodeMesh: DecodeContext::entry is a const reference
+            // into this same tree node, so only parse time can ever mark
+            // it Failed (mirrors the outOfBounds branch above). The walk
+            // never aborts -- this entry is flagged and kept, the next TOC
+            // record still parses normally (salvage, spec sec7.1).
+            entry.flags = Onyx::Domain::NodeFlags::Failed;
+            diags.Report(Diag{Severity::Error, "obx.mesh.size",
+                               "mesh payload must be exactly " +
+                                   std::to_string(kMeshPayloadSize) + " bytes (12 floats), got " +
+                                   std::to_string(payloadSize),
+                               std::nullopt});
         }
 
         outEntries.push_back(std::move(entry));
@@ -549,6 +655,70 @@ std::optional<TextOut> OnyxBoxModule::DecodeText(DecodeContext& ctx) {
     }
 
     return TextOut{text, ""};
+}
+
+std::unique_ptr<Onyx::Parsers::SceneData> OnyxBoxModule::DecodeMesh(DecodeContext& ctx) {
+    const uint32_t fileIndex = ctx.entry.source.fileIndex;
+    const TocEntry* te = FindTocEntry(ctx.doc, ctx.entry.name, fileIndex);
+    if (!te) {
+        ctx.diags.Report(Diag{Severity::Error, "obx.mesh.no-toc-entry",
+                               "no TOC entry for " + ctx.entry.name, std::nullopt});
+        return nullptr;
+    }
+    if (fileIndex >= ctx.doc.fileTable.size() || !ctx.doc.fileTable[fileIndex]) return nullptr;
+
+    Onyx::Vfs::IFile& file = *ctx.doc.fileTable[fileIndex];
+    const uint64_t fileSize = file.Size();
+
+    // Same hardening ParseObxToc already applied at parse time (which would
+    // have flagged this entry Failed and kept CmdDecode/CmdRender from ever
+    // reaching here through the normal tree-walk path) -- re-checked here
+    // too since a decoder must never trust its caller to have gone through
+    // that exact path (spec sec7.1: a decoder is its own last line of
+    // defense against a hostile/malformed payload).
+    if (uint64_t(te->payloadOffset) + uint64_t(te->payloadSize) > fileSize ||
+        te->payloadSize != kMeshPayloadSize) {
+        ctx.diags.Report(Diag{Severity::Error, "obx.mesh.size",
+                               ctx.entry.name + ": mesh payload must be exactly " +
+                                   std::to_string(kMeshPayloadSize) + " bytes (12 floats), got " +
+                                   std::to_string(te->payloadSize),
+                               std::nullopt});
+        return nullptr;
+    }
+
+    file.Seek(int64_t(te->payloadOffset), SEEK_SET);
+    float values[12];
+    for (float& v : values) {
+        if (!ReadF32LE(file, v)) {
+            ctx.diags.Report(Diag{Severity::Error, "obx.mesh.truncated",
+                                   "mesh payload truncated", std::nullopt});
+            return nullptr;
+        }
+    }
+
+    // values[0..3] = baseColor RGBA, [4..6] = position xyz, [7..9] =
+    // half-extents xyz, [10..11] = padding (unused). Half-extents are
+    // clamped to their absolute value -- a negative half-extent has no
+    // sane geometric meaning and would otherwise flip the box inside out.
+    const glm::vec3 center(values[4], values[5], values[6]);
+    const glm::vec3 halfExtents(std::fabs(values[7]), std::fabs(values[8]), std::fabs(values[9]));
+
+    auto scene = std::make_unique<Onyx::Parsers::SceneData>();
+    // Synthetic format, not a real game's legacy axis convention -- no
+    // scale(1,1,-1) correction needed (mirrors Tools/OnyxOracle/
+    // CorpusScenes.cpp's synthetic scenes, which set this false for the
+    // same reason).
+    scene->flipZ = false;
+    scene->meshParts.push_back(BuildCubePart(center, halfExtents));
+
+    Onyx::Parsers::MaterialDesc mat;
+    mat.baseColor[0] = values[0];
+    mat.baseColor[1] = values[1];
+    mat.baseColor[2] = values[2];
+    mat.baseColor[3] = values[3];
+    scene->materials.push_back(mat);
+
+    return scene;
 }
 
 } // namespace OnyxBox

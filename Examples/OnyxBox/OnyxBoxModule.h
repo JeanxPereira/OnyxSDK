@@ -17,6 +17,15 @@
 //     image: u16 width | u16 height | width*height*4 raw RGBA8 bytes
 //     text:  raw UTF-8 bytes (no terminator)
 //     blob:  opaque bytes, not decoded
+//     mesh:  12 little-endian f32 (48 bytes, exactly -- see the Task 14
+//            hardening note below): baseColor RGBA (4) | position xyz (3) |
+//            half-extents xyz (3) | 2 unused padding floats. Decodes to a
+//            single-part axis-aligned cube (Parsers::SceneData, one
+//            MeshPart of 24 vertices/6 faces with outward per-face normals,
+//            one MaterialDesc at index 0 carrying baseColor) -- the
+//            minimal honest Scene capability this synthetic format needs
+//            to exercise the M4 CLI Scene branch and `render` command
+//            without depending on any real game format's mesh layout.
 //
 // All multi-byte integers are little-endian. The TOC walk is defensive: any
 // entry whose payload range [payloadOffset, payloadOffset+payloadSize)
@@ -65,7 +74,7 @@ namespace OnyxBox {
 // obxpak mount (see FindTocEntry in the .cpp).
 struct TocEntry {
     std::string name;
-    uint8_t     kind = 0;          // 0=blob, 1=image, 2=text
+    uint8_t     kind = 0;          // 0=blob, 1=image, 2=text, 3=mesh
     uint32_t    payloadOffset = 0;
     uint32_t    payloadSize = 0;
     uint32_t    fileIndex = 0;     // slot into the Document's file table
@@ -85,6 +94,10 @@ private:
         DecodeImage(Onyx::Modules::DecodeContext&);
     static std::optional<Onyx::Modules::TextOut>
         DecodeText(Onyx::Modules::DecodeContext&);
+    // kind=3 (mesh) -- see this file's top comment for the payload layout
+    // and the single-part cube it decodes to.
+    static std::unique_ptr<Onyx::Parsers::SceneData>
+        DecodeMesh(Onyx::Modules::DecodeContext&);
 
     // Walks one OBX1 container's TOC starting at `file`'s current position
     // 0, appending every entry it finds to outEntries/outToc (stamped with
@@ -102,6 +115,7 @@ private:
     Onyx::Types::TypeId m_imageType;
     Onyx::Types::TypeId m_textType;
     Onyx::Types::TypeId m_blobType;
+    Onyx::Types::TypeId m_meshType;
 };
 
 } // namespace OnyxBox

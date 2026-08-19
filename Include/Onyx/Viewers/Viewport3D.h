@@ -59,6 +59,16 @@ public:
     int                GetFboHeight() const { return m_fboHeight; }
     void               RequestRedraw()       { m_needsRedraw = true; }
 
+    // The ImGui texture handle Draw() last registered for the resolved
+    // frame -- ImTextureID_Invalid (0) until a scene has actually rendered
+    // and been registered via TexturePool (see Draw()'s own display gate,
+    // Source/Viewers/Viewport3D.cpp). Exists so a caller outside this class
+    // can verify, headlessly, that a Vulkan-backed Viewport3D produced a
+    // real sample-able texture without needing any private access --
+    // MinimalViewer's --open-first-scene debug flag (M4 Task 14) is the
+    // first such caller.
+    ImTextureID DisplayTexture() const { return m_displayTexId; }
+
     // Render settings
     bool showGrid       = true;
     bool showOutline    = true;
