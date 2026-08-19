@@ -19,9 +19,16 @@
 # Examples/ is outside the glob, which is exactly the boundary this file
 # needs. This executable is the one place Onyx_Core and Onyx::Render may
 # meet -- see Include/Onyx/Cli/Render.h's top comment for the full writeup.
+# Gltf.cpp (M5 Task 5) -- MakeGltfExportFn, the CmdRender-shaped bridge
+# `decode --to gltf` needs between Onyx_Core (Commands.cpp, which cannot
+# link Onyx_Exchange for the identical reason it cannot link Onyx::Render
+# -- see Include/Onyx/Cli/Gltf.h's top comment) and Onyx::Exchange. Lives
+# here for the same reason Render.cpp does: this executable is the one
+# place the cycle-avoiding link can happen at all.
 add_executable(onyxbox-cli
     ${CMAKE_CURRENT_SOURCE_DIR}/Main.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Render.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/Gltf.cpp
 )
 target_include_directories(onyxbox-cli PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb)
 # Task 11 closed the link-completeness gap this comment used to document:
@@ -43,7 +50,7 @@ target_include_directories(onyxbox-cli PRIVATE ${CMAKE_SOURCE_DIR}/third_party/s
 # class that actually owns both a Camera and AppConfig. The renderer links
 # standalone now with zero stubs, and is the only renderer left in the
 # tree, so there is nothing left to link here but Onyx::Render itself.
-target_link_libraries(onyxbox-cli PRIVATE Onyx_Core Onyx_ExampleBox Onyx::Render)
+target_link_libraries(onyxbox-cli PRIVATE Onyx_Core Onyx_ExampleBox Onyx::Render Onyx::Exchange)
 
 # OnyxCliRender (Task 14): device-gated (SKIP 77, same convention as every
 # onyx-oracle Vk* ctest) -- writes a mesh fixture via `write-render-fixture`,

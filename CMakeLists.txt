@@ -212,6 +212,23 @@ FetchContent_Declare(tomlplusplus
     SOURCE_SUBDIR  _skip_add_subdirectory)
 FetchContent_MakeAvailable(tomlplusplus)
 
+# ── cgltf (header-only glTF 2.0 read/write) via FetchContent ───────────────
+# Populate only (SOURCE_SUBDIR points at a non-existent dir); cgltf.h and
+# cgltf_write.h are both header-only single-file libraries living at the
+# repo root -- no CMakeLists of its own to add_subdirectory. v1.15 is the
+# tag at HEAD of upstream's default branch as of this pin (verified via
+# `git ls-remote --tags` before writing this block, plus a scratch shallow
+# clone confirming both cgltf.h and cgltf_write.h exist at that tag) -- no
+# substitution needed, unlike M4's volk pin (Vulkan-Headers' `1.3.296` vs
+# volk's `vulkan-sdk-1.3.296.0` divergent tag scheme).
+FetchContent_Declare(cgltf
+    GIT_REPOSITORY https://github.com/jkuhlmann/cgltf.git
+    GIT_TAG        v1.15
+    GIT_SHALLOW    TRUE
+    UPDATE_DISCONNECTED TRUE
+    SOURCE_SUBDIR  _skip_add_subdirectory)
+FetchContent_MakeAvailable(cgltf)
+
 # ── Vulkan (RenderVk: Vulkan-Headers + volk + VMA + glslang) ───────────────
 # Vulkan-Headers pins the API surface every other Vulkan dep below builds
 # against; declared first so volk and VMA link against these exact headers
@@ -374,6 +391,17 @@ set(ONYX_TESTKIT_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/TestKit/RenderCompare.cpp
 )
 
+# ── Onyx::Exchange — exporters, domain-data-out (spec §9) ────────────────
+# T5 (M5): glTF export of Parsers::SceneData via cgltf. Core-only, same as
+# TestKit above -- an exporter has no more business touching the renderer
+# than a test harness does; the whole point (spec §9's own words) is that
+# glTF opened in Blender is validation NOT written by us, independent of
+# our renderer, which only holds if this layer cannot smuggle renderer
+# state into the file it writes.
+set(ONYX_EXCHANGE_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source/Exchange/GltfExport.cpp
+)
+
 set(ONYX_MEDIA_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/App/TexturePool.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/VideoPlayer.cpp
@@ -482,7 +510,7 @@ file(GLOB_RECURSE _onyx_all_cpp CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp")
 set(_onyx_listed ${ONYX_CORE_SOURCES}
                  ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES} ${ONYX_RENDER_SOURCES}
-                 ${ONYX_TESTKIT_SOURCES})
+                 ${ONYX_TESTKIT_SOURCES} ${ONYX_EXCHANGE_SOURCES})
 foreach(_f ${_onyx_all_cpp})
     if(NOT _f IN_LIST _onyx_listed)
         message(FATAL_ERROR "Source file not assigned to a layer: ${_f}")
@@ -530,6 +558,27 @@ add_library(Onyx::TestKit ALIAS Onyx_TestKit)
 onyx_apply_common(Onyx_TestKit)
 target_link_libraries(Onyx_TestKit PUBLIC Onyx_Core)
 target_include_directories(Onyx_TestKit PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
+
+# ── Onyx::Exchange — glTF export; Core ONLY, never the renderer ─────────
+# T5 (M5, spec §9). Links Onyx_Core alone -- NOT Onyx_Render, deliberately:
+# Onyx_Render already links Onyx_Core PUBLIC (below), so the reverse link
+# would be a real CMake cycle (the exact reason CmdRender lives outside
+# Onyx_Core in Examples/OnyxCli/Render.cpp instead of Source/Cli/
+# Commands.cpp -- see Include/Onyx/Cli/Render.h's top comment for the
+# fully-written-out precedent this target's own placement in Source/Cli/
+# Gltf.h follows). GltfExport.cpp reads Parsers::SceneData/ObjectData
+# fields directly (the same ones Source/Rendering/JointPalette.cpp reads
+# to skin the mesh at draw time) and re-derives the rest-pose local TRS +
+# reuses the file's own inverse-bind matrices verbatim -- see that file's
+# top comment for the derivation and its citation of JointPalette.cpp as
+# the oracle it must not silently diverge from.
+add_library(Onyx_Exchange STATIC ${ONYX_EXCHANGE_SOURCES})
+add_library(Onyx::Exchange ALIAS Onyx_Exchange)
+onyx_apply_common(Onyx_Exchange)
+target_link_libraries(Onyx_Exchange PUBLIC Onyx_Core)
+target_include_directories(Onyx_Exchange PRIVATE
+    ${cgltf_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb)
 
 # ── Onyx::Render — Vulkan 1.3 renderer; Core + volk + VMA only ───────────
 # T9 links this PUBLIC into Onyx::Shell below (Window.cpp owns the
@@ -757,6 +806,13 @@ if(ONYX_BUILD_TESTS)
         -DLISTFILE=${CMAKE_BINARY_DIR}/layerguard-render.txt
         "-DFORBIDDEN=imgui|implot|GLFW/|glad|GL/"
         -P ${CMAKE_SOURCE_DIR}/cmake/LayerGuard.cmake)
+    # Onyx::Exchange (T5, M5) has no LayerGuard ctest entry of its own --
+    # CMake's own target graph already makes the forbidden dependency
+    # impossible to build (Onyx_Exchange links Onyx_Core only; linking
+    # Onyx_Render from here would be the real cycle Include/Onyx/Cli/
+    # Render.h's top comment documents, not just a style smell a grep-based
+    # guard would need to catch). GltfExport.cpp's own top comment records
+    # the same constraint for a human reader.
 
     add_subdirectory(Tests)
 endif()

@@ -41,12 +41,13 @@ add_executable(onyx_tests
     oracle_corpus_test.cpp
     rendervk_test.cpp
     testkit_test.cpp
+    gltf_test.cpp
     ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle/CorpusTextures.cpp
     ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle/CorpusScenes.cpp
     ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle/RenderReport.cpp
 )
-target_link_libraries(onyx_tests PRIVATE Onyx::Onyx Onyx::Render Onyx::TestKit Onyx_ExampleBox doctest::doctest imgui_lib)
-target_include_directories(onyx_tests PRIVATE ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle)
+target_link_libraries(onyx_tests PRIVATE Onyx::Onyx Onyx::Render Onyx::TestKit Onyx::Exchange Onyx_ExampleBox doctest::doctest imgui_lib)
+target_include_directories(onyx_tests PRIVATE ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle ${cgltf_SOURCE_DIR})
 # rendervk_test.cpp is pure (no VkContext/device touched) but needs the
 # generated *_spv.h headers on its include path -- linking Onyx::Render
 # brings that PUBLIC include dir transitively (onyx_add_spirv,
@@ -58,6 +59,13 @@ add_dependencies(onyx_tests Onyx_Render_spirv)
 if(MSVC)
     target_compile_options(onyx_tests PRIVATE /utf-8)
 endif()
+# ONYX_BUILD_DIR (T5, M5): gltf_test.cpp's human-gate fixture case writes
+# to a fixed build/gltf-check/ regardless of ctest's own working directory
+# (ctest defaults a test's CWD to the CMakeLists.txt directory that called
+# add_test -- Tests/, not the top-level build/ this brief names) -- an
+# absolute path baked in at configure time is simpler than trying to
+# out-guess that per invocation.
+target_compile_definitions(onyx_tests PRIVATE ONYX_BUILD_DIR="${CMAKE_BINARY_DIR}")
 
 add_test(NAME OnyxUnit          COMMAND onyx_tests)
 add_test(NAME OnyxLogger        COMMAND onyx_tests "--test-case=*Logger*")
@@ -90,7 +98,7 @@ add_test(NAME OnyxDocumentWindow  COMMAND onyx_tests "--test-case=*DocumentWindo
 add_test(NAME OnyxViewport3DBounds COMMAND onyx_tests "--test-case=*Viewport3D::LoadScene frames bounds*")
 add_test(NAME OnyxBox            COMMAND onyx_tests "--test-case=*onyxbox end to end*,*onyxbox types are minted*,*onyxbox clamps a lying TOC count*,*onyxbox rejects an image whose payloadSize*,*onyxbox decodes a mesh entry*,*onyxbox flags a mesh entry Failed*")
 add_test(NAME OnyxMaterialDesc    COMMAND onyx_tests "--test-case=*ResolveRoleIndices*")
-add_test(NAME OnyxCli             COMMAND onyx_tests "--test-case=*cli probe prints a table*,*cli list json contains type key*,*cli extract writes payloadSize*,*cli extract skips unsafe entry names*,*cli decode text entry prints hello box*,*cli decode strict returns kStrictErrors*,*cli decode scene entry prints parts materials vertices summary*,*cli decode unknown entry name*,*cli list returns kNoModule*,*cli Run dispatches probe list extract*,*cli Run returns kUsage to err*,*cli probe returns kNoModule when the ranking*,*cli decode returns kOk when a capability exists*,*cli Run --game hint overrides ranking*,*cli parse keeps a 0xFFFFFFFF*")
+add_test(NAME OnyxCli             COMMAND onyx_tests "--test-case=*cli probe prints a table*,*cli list json contains type key*,*cli extract writes payloadSize*,*cli extract skips unsafe entry names*,*cli decode text entry prints hello box*,*cli decode strict returns kStrictErrors*,*cli decode scene entry prints parts materials vertices summary*,*cli decode --to gltf exports the mesh entry*,*cli decode --to gltf with no exporter registered*,*cli decode --to gltf on a non-Scene entry*,*cli Run parses --to and --out*,*cli decode unknown entry name*,*cli list returns kNoModule*,*cli Run dispatches probe list extract*,*cli Run returns kUsage to err*,*cli probe returns kNoModule when the ranking*,*cli decode returns kOk when a capability exists*,*cli Run --game hint overrides ranking*,*cli parse keeps a 0xFFFFFFFF*")
 add_test(NAME OnyxStatusBarFormat COMMAND onyx_tests "--test-case=*StatusBarFormat:*")
 add_test(NAME OnyxInfoTabFilter   COMMAND onyx_tests "--test-case=*InfoTabFilter:*")
 add_test(NAME OnyxOracleCorpus    COMMAND onyx_tests "--test-case=*OracleCorpus:*")
@@ -98,6 +106,7 @@ add_test(NAME OnyxTestKit         COMMAND onyx_tests "--test-case=*TestKit:*")
 add_test(NAME OnyxRenderVkSpirv   COMMAND onyx_tests "--test-case=*RenderVkSpirv:*")
 add_test(NAME OnyxRenderContext   COMMAND onyx_tests "--test-case=*RenderContext:*")
 add_test(NAME OnyxDeferredDestroyQueue COMMAND onyx_tests "--test-case=*DeferredDestroyQueue:*")
+add_test(NAME OnyxGltf              COMMAND onyx_tests "--test-case=*GltfExport:*")
 
 add_test(NAME MinimalViewer_SelfTest
     COMMAND MinimalViewer --selftest $<TARGET_FILE:MinimalViewer>)

@@ -328,7 +328,9 @@ int CmdExtract(Workspace& ws, const std::filesystem::path& path,
 }
 
 int CmdDecode(Workspace& ws, const std::filesystem::path& path, std::string_view entryName,
-              bool strict, std::ostream& out, std::string_view moduleHint) {
+              bool strict, std::ostream& out, std::string_view moduleHint,
+              std::string_view toFormat, const std::filesystem::path& toOut,
+              const SceneExportFn& exportFn) {
     DocumentId id = ws.Open(path, moduleHint);
     if (id == 0) {
         out << "no module accepts " << path.string() << "\n";
@@ -348,6 +350,19 @@ int CmdDecode(Workspace& ws, const std::filesystem::path& path, std::string_view
     DecoderRegistry& reg = ws.Decoders();
     Progress progress;
     bool hadCapability = false;
+
+    // `decode --to <format>` (T5, M5) only makes sense for Scene entries
+    // (spec §9: glTF export of SceneData) -- reject up front, same
+    // kUsage/diag shape as "unknown entry" above, rather than silently
+    // falling through to an Image/Text summary that ignores --to.
+    if (!toFormat.empty() && !reg.HasScene(entry->typeId)) {
+        out << "cannot decode --to " << toFormat << ": entry '" << entryName
+            << "' has no Scene decode capability\n";
+        std::vector<Diag> diags = doc->diags.Drain();
+        PrintDiags(out, diags);
+        ws.Close(id);
+        return kUsage;
+    }
 
     // Scene > Image > Text -- mirrors Onyx::App::RouteForType's priority
     // exactly (Include/Onyx/App/ViewerRouting.h/.cpp, spec sec11: CLI and
@@ -370,7 +385,38 @@ int CmdDecode(Workspace& ws, const std::filesystem::path& path, std::string_view
         hadCapability = true;
         DecodeContext ctx{*doc, *entry, doc->diags, progress};
         auto scene = reg.DecodeScene(ctx);
-        if (scene) {
+        if (scene && !toFormat.empty()) {
+            // Export instead of the usual summary line. See Commands.h's
+            // SceneExportFn doc comment: this file never links a specific
+            // exporter (Onyx_Core cannot link Onyx_Exchange -- the reverse
+            // link already exists and the cycle would be real), so the
+            // actual Onyx::Exchange::ExportSceneData call lives in whatever
+            // composition root supplied `exportFn` (Examples/OnyxCli/
+            // Gltf.cpp, via Include/Onyx/Cli/Gltf.h's CmdDecodeGltf).
+            if (toFormat != "gltf") {
+                out << "unsupported --to format: " << toFormat << " (only 'gltf' as of v1)\n";
+                std::vector<Diag> diags = doc->diags.Drain();
+                PrintDiags(out, diags);
+                ws.Close(id);
+                return kUsage;
+            }
+            if (!exportFn) {
+                out << "no exporter available for --to gltf\n";
+                std::vector<Diag> diags = doc->diags.Drain();
+                PrintDiags(out, diags);
+                ws.Close(id);
+                return kUsage;
+            }
+            std::string exportErr;
+            if (!exportFn(*scene, toOut, exportErr)) {
+                out << "export failed: " << exportErr << "\n";
+                std::vector<Diag> diags = doc->diags.Drain();
+                PrintDiags(out, diags);
+                ws.Close(id);
+                return kUsage;
+            }
+            out << "exported " << entry->name << " to " << toOut.string() << " (" << toFormat << ")\n";
+        } else if (scene) {
             size_t totalVertices = 0;
             for (const auto& part : scene->meshParts) totalVertices += part.vertices.size();
             out << "scene " << entry->name << " parts=" << scene->meshParts.size()
@@ -414,7 +460,8 @@ int CmdDecode(Workspace& ws, const std::filesystem::path& path, std::string_view
     return strictFail ? kStrictErrors : kOk;
 }
 
-int Run(Workspace& ws, int argc, char** argv, std::ostream& out, std::ostream& err) {
+int Run(Workspace& ws, int argc, char** argv, std::ostream& out, std::ostream& err,
+        const SceneExportFn& exportFn) {
     if (argc < 2) {
         err << "usage: onyxbox-cli <probe|list|extract|decode> <file> [options]\n";
         return kUsage;
@@ -425,6 +472,8 @@ int Run(Workspace& ws, int argc, char** argv, std::ostream& out, std::ostream& e
     bool json = false;
     bool strict = false;
     std::string gameHint;
+    std::string toFormat;
+    std::string toOut;
     for (int i = 2; i < argc; ++i) {
         const std::string a = argv[i];
         if (a == "--json") {
@@ -437,6 +486,17 @@ int Run(Workspace& ws, int argc, char** argv, std::ostream& out, std::ostream& e
             // silently ignored (hint stays empty -- ranking applies).
             if (i + 1 < argc) {
                 gameHint = argv[++i];
+            }
+        } else if (a == "--to") {
+            // decode-only (see CmdDecode's own doc comment); "--to" on any
+            // other subcommand is silently accepted here and just ignored
+            // downstream, same as --json is for probe/extract/decode today.
+            if (i + 1 < argc) {
+                toFormat = argv[++i];
+            }
+        } else if (a == "--out") {
+            if (i + 1 < argc) {
+                toOut = argv[++i];
             }
         } else {
             args.push_back(a);
@@ -466,10 +526,11 @@ int Run(Workspace& ws, int argc, char** argv, std::ostream& out, std::ostream& e
     }
     if (cmd == "decode") {
         if (args.size() < 2) {
-            err << "usage: decode <file> <entryName> [--strict] [--game <hint>]\n";
+            err << "usage: decode <file> <entryName> [--strict] [--game <hint>] "
+                   "[--to gltf --out <path>]\n";
             return kUsage;
         }
-        return CmdDecode(ws, args[0], args[1], strict, out, gameHint);
+        return CmdDecode(ws, args[0], args[1], strict, out, gameHint, toFormat, toOut, exportFn);
     }
 
     err << "unknown command: " << cmd << "\n";

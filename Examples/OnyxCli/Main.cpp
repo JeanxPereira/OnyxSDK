@@ -18,8 +18,19 @@
 //       (Core-only, no Vulkan) rather than a checked-in binary fixture so
 //       the exact bytes are visible in this file and never go stale
 //       relative to OnyxBoxModule's TOC format.
+//
+// M5 Task 5 adds `decode ... --to gltf --out <path>` -- unlike `render`
+// this one DOES go through Onyx::Cli::Run() below (Commands.cpp's own
+// CmdDecode already parses `--to`/`--out`, see Commands.h), just with an
+// `exportFn` hook passed in: Onyx::Cli::MakeGltfExportFn (Include/Onyx/
+// Cli/Gltf.h, implemented in Examples/OnyxCli/Gltf.cpp, this executable's
+// own home for the identical Onyx_Core/Onyx_Exchange link-cycle reason
+// `render`/CmdRender lives here instead of Source/Cli/). Passed on every
+// invocation, not just ones that use --to: CmdDecode only ever calls the
+// hook when --to was actually given, so there is nothing to gate here.
 
 #include <Onyx/Cli/Commands.h>
+#include <Onyx/Cli/Gltf.h>
 #include <Onyx/Cli/Render.h>
 #include <Onyx/Modules/Workspace.h>
 #include <Onyx/Types/TypeCatalog.h>
@@ -155,5 +166,6 @@ int main(int argc, char** argv) {
         return RunRender(ws, argc, argv);
     }
 
-    return Onyx::Cli::Run(ws, argc, argv, std::cout, std::cerr);
+    return Onyx::Cli::Run(ws, argc, argv, std::cout, std::cerr,
+                          Onyx::Cli::MakeGltfExportFn(/*embedBuffers=*/true, /*includeSkin=*/true));
 }

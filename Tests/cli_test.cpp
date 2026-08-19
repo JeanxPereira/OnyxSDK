@@ -3,6 +3,7 @@
 #include <Onyx/Cli/Commands.h>
 #include <Onyx/Domain/ByteRange.h>
 #include <Onyx/Domain/Entry.h>
+#include <Onyx/Exchange/GltfExport.h>
 #include <Onyx/Modules/Workspace.h>
 #include <Onyx/Types/TypeCatalog.h>
 
@@ -430,6 +431,115 @@ TEST_CASE("cli decode scene entry prints parts materials vertices summary and re
     // OnyxBoxModule.cpp's BuildCubePart), one material.
     CHECK(out.str().find("scene mesh parts=1 materials=1 vertices=24") != std::string::npos);
 
+    std::filesystem::remove(path);
+}
+
+// `decode --to gltf` (T5, M5): CmdDecode's export path, exercised through
+// Onyx::Cli::CmdDecode directly (same "through Cli::Commands" shape every
+// other case in this file uses) with a real Onyx::Exchange::
+// ExportSceneData bound as the SceneExportFn hook -- exactly what
+// Examples/OnyxCli/Gltf.cpp's MakeGltfExportFn wires in for the real CLI
+// binary (Include/Onyx/Cli/Gltf.h), just constructed inline here since
+// onyx_tests links Onyx::Exchange directly and has no reason to go
+// through that indirection. Uses the same OnyxBox mesh fixture
+// (WriteMeshBox, the `render-fixture` shape Examples/OnyxCli/Main.cpp's
+// WriteRenderFixture also builds) as the scene-summary test above --
+// static (no skeleton), so this only proves the CLI wiring end to end,
+// not skin export (Tests/gltf_test.cpp's GltfExport:* cases own that).
+TEST_CASE("cli decode --to gltf exports the mesh entry and returns kOk") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+    auto path = WriteMeshBox();
+    auto outPath = std::filesystem::temp_directory_path() / "onyx_cli_decode_to_gltf.glb";
+    std::filesystem::remove(outPath);
+
+    Onyx::Exchange::GltfOptions gltfOpts;
+    Onyx::Cli::SceneExportFn exportFn = [gltfOpts](const Onyx::Parsers::SceneData& scene,
+                                                     const std::filesystem::path& out,
+                                                     std::string& err) {
+        return Onyx::Exchange::ExportSceneData(scene, out, gltfOpts, err);
+    };
+
+    std::ostringstream out;
+    int rc = Onyx::Cli::CmdDecode(ws, path, "mesh", /*strict=*/false, out, /*moduleHint=*/{},
+                                   "gltf", outPath, exportFn);
+    CHECK(rc == Onyx::Cli::kOk);
+    CHECK(out.str().find("exported mesh to") != std::string::npos);
+    REQUIRE(std::filesystem::exists(outPath));
+    CHECK(std::filesystem::file_size(outPath) > 0);
+
+    std::filesystem::remove(outPath);
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("cli decode --to gltf with no exporter registered returns kUsage") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+    auto path = WriteMeshBox();
+
+    std::ostringstream out;
+    int rc = Onyx::Cli::CmdDecode(ws, path, "mesh", /*strict=*/false, out, /*moduleHint=*/{},
+                                   "gltf", "unused.glb", /*exportFn=*/{});
+    CHECK(rc == Onyx::Cli::kUsage);
+    CHECK(out.str().find("no exporter available") != std::string::npos);
+
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("cli decode --to gltf on a non-Scene entry returns kUsage") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+    auto path = WriteSampleBox();
+
+    Onyx::Exchange::GltfOptions gltfOpts;
+    Onyx::Cli::SceneExportFn exportFn = [gltfOpts](const Onyx::Parsers::SceneData& scene,
+                                                     const std::filesystem::path& out,
+                                                     std::string& err) {
+        return Onyx::Exchange::ExportSceneData(scene, out, gltfOpts, err);
+    };
+
+    std::ostringstream out;
+    int rc = Onyx::Cli::CmdDecode(ws, path, "txt", /*strict=*/false, out, /*moduleHint=*/{},
+                                   "gltf", "unused.glb", exportFn);
+    CHECK(rc == Onyx::Cli::kUsage);
+    CHECK(out.str().find("no Scene decode capability") != std::string::npos);
+
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("cli Run parses --to and --out and forwards them through CmdDecode") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+    auto path = WriteMeshBox();
+    const std::string pathStr = path.string();
+    auto outPath = std::filesystem::temp_directory_path() / "onyx_cli_run_to_gltf.glb";
+    const std::string outPathStr = outPath.string();
+    std::filesystem::remove(outPath);
+
+    Onyx::Exchange::GltfOptions gltfOpts;
+    Onyx::Cli::SceneExportFn exportFn = [gltfOpts](const Onyx::Parsers::SceneData& scene,
+                                                     const std::filesystem::path& out,
+                                                     std::string& err) {
+        return Onyx::Exchange::ExportSceneData(scene, out, gltfOpts, err);
+    };
+
+    std::ostringstream out, err;
+    char argv0[] = "onyxbox-cli";
+    char argv1[] = "decode";
+    std::vector<char> argv2(pathStr.begin(), pathStr.end());
+    argv2.push_back('\0');
+    char argv3[] = "mesh";
+    char argv4[] = "--to";
+    char argv5[] = "gltf";
+    char argv6[] = "--out";
+    std::vector<char> argv7(outPathStr.begin(), outPathStr.end());
+    argv7.push_back('\0');
+    char* argv[] = {argv0, argv1, argv2.data(), argv3, argv4, argv5, argv6, argv7.data()};
+    int rc = Onyx::Cli::Run(ws, 8, argv, out, err, exportFn);
+    CHECK(rc == Onyx::Cli::kOk);
+    REQUIRE(std::filesystem::exists(outPath));
+
+    std::filesystem::remove(outPath);
     std::filesystem::remove(path);
 }
 
