@@ -29,6 +29,24 @@ bool DeviceExtensionAvailable(VkPhysicalDevice pd, const char* name) {
     return false;
 }
 
+// F5 fix: VK_EXT_debug_utils and VK_EXT_validation_features were being
+// requested purely on LayerAvailable("VK_LAYER_KHRONOS_validation"), with
+// no check that the INSTANCE actually carries either extension. The
+// validation layer usually brings both along, but "usually" is not a
+// guarantee vkCreateInstance honors -- requesting an absent extension is
+// VK_ERROR_EXTENSION_NOT_PRESENT, a hard Init failure, which would have
+// contradicted the very next comment's "never turns a working Init into a
+// failing one" promise the moment a driver/layer combo omitted either.
+bool InstanceExtensionAvailable(const char* name) {
+    uint32_t count = 0;
+    vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr);
+    std::vector<VkExtensionProperties> exts(count);
+    if (count) vkEnumerateInstanceExtensionProperties(nullptr, &count, exts.data());
+    for (const VkExtensionProperties& e : exts)
+        if (std::strcmp(e.extensionName, name) == 0) return true;
+    return false;
+}
+
 // A family is suitable when it supports graphics and, if presentSupport was
 // requested, the platform windowing system. The Win32 presentation query
 // takes no VkSurfaceKHR -- it answers "could this queue family ever present
@@ -46,9 +64,19 @@ bool DeviceExtensionAvailable(VkPhysicalDevice pd, const char* name) {
 // against the actual surface right after creating it and logs (does not
 // yet hard-fail) a mismatch. That is later than device/queue-family
 // selection would ideally catch it, but it is the earliest point in the
-// boot sequence that does not require leaking GLFW into this file. Only
-// verified on Windows so far (T9's build/test environment); the Linux
-// branch below compiles but is untested.
+// boot sequence that does not require leaking GLFW into this file.
+//
+// There never was a Linux branch here -- the #else two lines below
+// QueueFamilySuitable's body is (and always was) the permissive no-op
+// fall-through documented above, not a platform-specific implementation.
+// What Linux/GUI presentation actually lacked, until the F1 fix round,
+// was the INSTANCE-level VK_KHR_surface + platform surface extension
+// (VK_KHR_xcb_surface/VK_KHR_wayland_surface, whichever GLFW picks) --
+// see Init's extraInstanceExtensions parameter below and Window.cpp's
+// glfwGetRequiredInstanceExtensions() call feeding it. Verified end to
+// end on Windows only (this build/test environment has no Linux GPU);
+// the Linux path is implemented and builds in CI (linux-lavapipe) but
+// has never been run against a real window.
 bool QueueFamilySuitable(VkPhysicalDevice pd, uint32_t family,
                          const VkQueueFamilyProperties& props, bool presentSupport) {
     if (!(props.queueFlags & VK_QUEUE_GRAPHICS_BIT)) return false;
@@ -65,7 +93,8 @@ bool QueueFamilySuitable(VkPhysicalDevice pd, uint32_t family,
 
 } // namespace
 
-bool VkContext::Init(bool presentSupport, std::string& err) {
+bool VkContext::Init(bool presentSupport, std::string& err,
+                      const std::vector<const char*>& extraInstanceExtensions) {
     if (m_device != VK_NULL_HANDLE) {
         err = "VkContext::Init called on an already-initialised context";
         return false;
@@ -99,6 +128,27 @@ bool VkContext::Init(bool presentSupport, std::string& err) {
         instanceExtensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
     }
 #endif
+    // F1 fix: on any platform other than Win32, the two extensions above
+    // were never requested at all -- the instance was created with no
+    // surface extension, so a caller's later glfwCreateWindowSurface()
+    // (Window.cpp) failed VK_ERROR_EXTENSION_NOT_PRESENT and the process
+    // exited. VkContext itself must never link GLFW (this file's own
+    // rule, see QueueFamilySuitable's comment above), so it cannot ask
+    // GLFW what the current platform's surface needs; the caller passes
+    // that list in here instead (Window.cpp: glfwGetRequiredInstanceExtensions()
+    // before calling Init). De-duplicated against what VkContext already
+    // queued (on Win32, glfwGetRequiredInstanceExtensions() returns
+    // exactly VK_KHR_surface + VK_KHR_win32_surface -- the same two
+    // pushed above -- so without this check Windows would ask for each
+    // twice) and against itself, since vkCreateInstance rejects a
+    // duplicated extension name.
+    for (const char* ext : extraInstanceExtensions) {
+        bool alreadyRequested = false;
+        for (const char* existing : instanceExtensions) {
+            if (std::strcmp(existing, ext) == 0) { alreadyRequested = true; break; }
+        }
+        if (!alreadyRequested) instanceExtensions.push_back(ext);
+    }
 
     // Validation is an if-available convenience, never a requirement --
     // enabling it never turns a working Init into a failing one.
@@ -109,18 +159,36 @@ bool VkContext::Init(bool presentSupport, std::string& err) {
 #endif
     std::vector<const char*> instanceLayers;
     bool validationEnabled = false;
+    bool validationFeaturesEnabled = false;
     if (wantValidation && LayerAvailable("VK_LAYER_KHRONOS_validation")) {
         instanceLayers.push_back("VK_LAYER_KHRONOS_validation");
         validationEnabled = true;
         // VK_EXT_debug_utils is what lets the messenger below exist at all;
         // only requested alongside the layer that would actually emit
-        // anything to it.
-        instanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+        // anything to it. F5 fix: LayerAvailable() above only proves the
+        // LAYER exists, not that this INSTANCE extension does too -- they
+        // usually travel together but nothing guarantees it, and
+        // requesting an absent extension is VK_ERROR_EXTENSION_NOT_PRESENT,
+        // a hard vkCreateInstance failure that would have contradicted
+        // this very function's "never turns a working Init into a
+        // failing one" promise (a few lines up) the moment a driver/SDK
+        // combo omitted it. Guarded the same way DeviceExtensionAvailable()
+        // already guards the device-level asks below.
+        if (InstanceExtensionAvailable(VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
+            instanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         // VK_EXT_validation_features is what makes the VkValidationFeaturesEXT
         // chained onto instInfo.pNext below (sync validation) actually take
         // effect -- the layer honors the pNext chain either way on most
         // drivers, but declaring the extension is what the spec requires.
-        instanceExtensions.push_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
+        // Same availability guard; validationFeaturesEnabled gates whether
+        // that pNext chain gets built at all below, since chaining a
+        // struct for an extension the instance never declared is itself
+        // exactly the kind of validation complaint this codebase treats
+        // as a build-breaking regression.
+        if (InstanceExtensionAvailable(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME)) {
+            instanceExtensions.push_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
+            validationFeaturesEnabled = true;
+        }
     }
 
     VkInstanceCreateInfo instInfo{};
@@ -141,10 +209,16 @@ bool VkContext::Init(bool presentSupport, std::string& err) {
     // as the layer/debug-messenger above); enabling it never turns a
     // working Init into a failing one, and it costs nothing when the layer
     // is absent (Release, or a machine without LunarG's SDK installed).
+    // F5 fix: gated on validationFeaturesEnabled, not just validationEnabled
+    // -- chaining this struct onto instInfo.pNext when
+    // VK_EXT_validation_features was never actually requested (the layer
+    // was present but the extension wasn't, per the availability check
+    // above) would itself be a validation complaint about an undeclared
+    // extension, or worse on a driver that enforces it strictly.
     VkValidationFeaturesEXT validationFeatures{};
     const VkValidationFeatureEnableEXT syncValidationFeature =
         VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT;
-    if (validationEnabled) {
+    if (validationFeaturesEnabled) {
         validationFeatures.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
         validationFeatures.enabledValidationFeatureCount = 1;
         validationFeatures.pEnabledValidationFeatures = &syncValidationFeature;

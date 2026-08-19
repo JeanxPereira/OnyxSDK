@@ -335,8 +335,28 @@ void Window::initVulkan() {
     m_vkContext = std::make_unique<Onyx::Rendering::VkContext>();
     m_renderContext = std::make_unique<Onyx::Rendering::RenderContext>();
 
+    // F1 fix: VkContext must never link GLFW (RenderVk's own binding rule
+    // -- see VkContext.h's include-order comment), so it cannot ask GLFW
+    // what the current platform's surface needs; this is the one place
+    // that both has a live GLFWwindow and is about to request
+    // presentSupport=true, so it is the one place that can ask. On
+    // Windows this returns exactly the two extensions VkContext already
+    // hardcodes for VK_USE_PLATFORM_WIN32_KHR (VK_KHR_surface +
+    // VK_KHR_win32_surface) -- Init de-duplicates against its own list, so
+    // passing them again here is harmless and keeps Windows behavior
+    // identical to before this fix. On Linux this is the extension pair
+    // (VK_KHR_surface + VK_KHR_xcb_surface/wayland_surface, whichever
+    // windowing backend GLFW was built against) that was previously never
+    // requested at all, which is why glfwCreateWindowSurface() below used
+    // to fail VK_ERROR_EXTENSION_NOT_PRESENT before this exit(-1) ever had
+    // a real chance to report anything else.
+    uint32_t glfwExtCount = 0;
+    const char** glfwExts = glfwGetRequiredInstanceExtensions(&glfwExtCount);
+    std::vector<const char*> requiredInstanceExtensions;
+    if (glfwExts) requiredInstanceExtensions.assign(glfwExts, glfwExts + glfwExtCount);
+
     std::string err;
-    if (!m_vkContext->Init(/*presentSupport=*/true, err)) {
+    if (!m_vkContext->Init(/*presentSupport=*/true, err, requiredInstanceExtensions)) {
         fprintf(stderr, "Failed to initialize Vulkan context: %s\n", err.c_str());
         LOG_ERR("[Vulkan] VkContext::Init failed: %s", err.c_str());
         std::exit(-1);

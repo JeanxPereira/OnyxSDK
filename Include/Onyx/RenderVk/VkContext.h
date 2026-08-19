@@ -20,6 +20,7 @@
 #include <atomic>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace Onyx::Rendering {
 
@@ -53,7 +54,25 @@ public:
     /// Returns false and fills err on any failure. Every object created
     /// before the failing step is torn down before returning -- a failed
     /// Init leaves nothing to Shutdown().
-    bool Init(bool presentSupport, std::string& err);
+    ///
+    /// extraInstanceExtensions: instance extensions the caller needs beyond
+    /// what VkContext requests on its own (validation/debug-utils above,
+    /// platform surface extensions below). Defaulted to empty so every
+    /// existing headless caller (onyx-oracle, onyxbox-cli, the Tests
+    /// target -- none of them pass presentSupport=true) is unaffected by
+    /// this parameter's existence. A GUI caller that DOES pass
+    /// presentSupport=true is the one that must supply
+    /// glfwGetRequiredInstanceExtensions()'s result here -- VkContext
+    /// itself must never link GLFW (see this header's include-order rule
+    /// and every RenderVk task's binding "no GLFW in Onyx_Render" rule),
+    /// so it cannot ask GLFW what a surface needs; the caller that already
+    /// has a GLFWwindow is the only one that can. Entries are
+    /// de-duplicated against VkContext's own list (and each other) before
+    /// vkCreateInstance sees them -- requesting the same extension twice
+    /// is a validation-layer complaint, not a hard error, but there is no
+    /// reason to risk it.
+    bool Init(bool presentSupport, std::string& err,
+              const std::vector<const char*>& extraInstanceExtensions = {});
 
     /// Idempotent; safe to call on a context that never Init'd or already
     /// shut down.
