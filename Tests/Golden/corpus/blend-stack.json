@@ -1,0 +1,60 @@
+{
+  "scene": "blend-stack",
+  "width": 512,
+  "height": 512,
+  "pixelHash": 3906600891000560312,
+  "batches": [
+    {
+      "name": "floor",
+      "vertexCount": 4,
+      "triangleCount": 2,
+      "blendMode": "Normal",
+      "hasTexture": true,
+      "hasEnvmap": false,
+      "hasSkeleton": false,
+      "metallic": 0.000000,
+      "materialColor": [1.000000, 1.000000, 1.000000, 1.000000],
+      "roleTexturesBound": 1,
+      "paletteJointCount": 0
+    },
+    {
+      "name": "quad_normal",
+      "vertexCount": 4,
+      "triangleCount": 2,
+      "blendMode": "Normal",
+      "hasTexture": true,
+      "hasEnvmap": false,
+      "hasSkeleton": false,
+      "metallic": 0.000000,
+      "materialColor": [1.000000, 1.000000, 1.000000, 0.500000],
+      "roleTexturesBound": 1,
+      "paletteJointCount": 0
+    },
+    {
+      "name": "quad_additive",
+      "vertexCount": 4,
+      "triangleCount": 2,
+      "blendMode": "Additive",
+      "hasTexture": true,
+      "hasEnvmap": false,
+      "hasSkeleton": false,
+      "metallic": 0.000000,
+      "materialColor": [1.000000, 1.000000, 1.000000, 1.000000],
+      "roleTexturesBound": 1,
+      "paletteJointCount": 0
+    },
+    {
+      "name": "quad_subtractive",
+      "vertexCount": 4,
+      "triangleCount": 2,
+      "blendMode": "Subtractive",
+      "hasTexture": true,
+      "hasEnvmap": false,
+      "hasSkeleton": false,
+      "metallic": 0.000000,
+      "materialColor": [1.000000, 1.000000, 1.000000, 1.000000],
+      "roleTexturesBound": 1,
+      "paletteJointCount": 0
+    }
+  ]
+}
