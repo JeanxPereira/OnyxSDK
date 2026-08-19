@@ -2,6 +2,7 @@
 #include "imgui.h"
 #include <Onyx/Services/Events.h>
 #include <Onyx/App/Widgets.h>
+#include <cassert>
 
 namespace Onyx::Viewers {
 
@@ -31,6 +32,31 @@ void DocumentWindow::AddTab(std::shared_ptr<IDocumentContent> tab, uint64_t docI
 }
 
 void DocumentWindow::Shutdown() {
+    // T14-review rider (b): the "a viewer's content outlives what Shutdown
+    // was supposed to guarantee" lifetime bug class has recurred in this
+    // codebase before this call site (TexturePool's own shutdown-order
+    // guard comment, Viewport3D's destructor guard) -- make the third
+    // occurrence loud instead of a silent leak/use-after-teardown waiting
+    // to happen. use_count() > 1 here means something OUTSIDE these
+    // containers still holds a shared_ptr to a tab's content, so clearing
+    // the vector below will NOT actually destroy it (and will not run its
+    // destructor's GPU-resource cleanup) -- exactly the class of bug this
+    // asserts against, debug-only since it never changes production
+    // behavior, only surfaces the violation immediately instead of letting
+    // it manifest as a mysterious later crash/leak.
+#ifndef NDEBUG
+    for (const auto& content : m_pendingDelete) {
+        assert((!content || content.use_count() <= 1) &&
+               "DocumentWindow::Shutdown: a pending-delete tab's content is still "
+               "externally shared -- clearing m_pendingDelete will not destroy it");
+    }
+    for (const auto& tab : m_tabs) {
+        assert((!tab.content || tab.content.use_count() <= 1) &&
+               "DocumentWindow::Shutdown: a tab's content is still externally "
+               "shared -- clearing m_tabs will not destroy it");
+    }
+#endif
+
     // Order doesn't matter between the two -- both are just shared_ptr
     // vectors going to zero refcount, destroying every IDocumentContent
     // they hold right here, synchronously, on this call.
