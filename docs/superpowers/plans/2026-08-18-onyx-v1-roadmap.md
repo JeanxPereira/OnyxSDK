@@ -22,16 +22,21 @@ The GL renderer's reference output against which the Vulkan renderer is
 proven. v1 is SDK-first (decision 2026-08-18: the GoWToolkit port follows
 v1 rather than gating it), so the corpus is **synthetic and SDK-side**: an
 oracle tool built on the GL SceneRenderer renders programmatic scenes — a
-skinned cube mid-pose, a PBR sphere grid with every texture role bound, an
-alpha-blend stack, a 200-joint palette — to PNG + per-batch JSON.
+skinned cube mid-pose, a PBR sphere grid, an alpha-blend stack, a
+200-joint palette — to PNG + per-batch JSON. Four scenes render in
+ShadingMode::Solid and pin geometry/skinning/blend; a fifth,
+ShadingMode::Textured sphere-grid variant pins the PBR role/metallic path
+Solid's shader never exercises.
 
 - **Deliverables:** the oracle tool (Examples/ or Tools/), the synthetic
   corpus generator (deterministic, no game data), reference images
   committed (small, synthetic — no licensing concern).
 - Carried from M3: mount-aware `extract` in the generic CLI, `ByteRange`
   file identity, and uint32 offset widening — land here, where the first
-  mounted module and the oracle tool need them; the CLI `render` command
-  (moved out of M3's deliverable list) ships with the oracle tool.
+  mounted module and the oracle tool need them. The corpus renderer
+  (`onyx-oracle render-corpus`) covers M0's needs; a per-container
+  `render <path> <node>` command in the generic CLI needs a Scene decoder
+  first and lands with M4's pixel-compare harness instead.
 - **Gate:** corpus renders reproducibly twice with byte-identical reports
   and pixel-identical PNGs on the same machine.
 - A real-game corpus via the GoWToolkit headless harness is a post-v1
@@ -105,7 +110,12 @@ raw handles + `AddPass`). GL deleted after the gate.
   `DocumentClosed` (today no per-document close path exists, so the
   regression is inert); async decode via JobQueue for heavy assets; a
   Scene branch in CLI `decode` so CLI and GUI routing cannot diverge
-  (spec §11) once the first scene decoder exists.
+  (spec §11) once the first scene decoder exists; the per-container CLI
+  `render <path> <node>` command (moved out of M0, which the corpus
+  renderer already covers); and making `Onyx_Render` link-complete
+  standalone — today it is not (unresolved `AppConfig::Get()`, defined
+  only in Shell; stubbed in Tools/OnyxOracle/AppConfigStub.cpp) — resolve
+  when the GL renderer is replaced.
 - **Gate:** corpus matches GL oracle within tolerance (`maxChannelDelta`,
   `%differingPixels` tuned on the corpus) on hardware **and** on lavapipe;
   GL is gone from the tree; CI runs the render compare on every PR.
