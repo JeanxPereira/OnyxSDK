@@ -98,7 +98,7 @@ target_link_libraries(MyApp PRIVATE Onyx::Onyx)
 
 ### Targets
 
-All under the `Onyx::` namespace. Never link the raw `Onyx_*` names — those are implementation detail, and `Examples/` follows the same `Onyx::*`-only rule.
+All under the `Onyx::` namespace. Never link the raw `Onyx_*` names — those are implementation detail. `Examples/` follows the same rule for every SDK target; the one raw name it still spells is `Onyx_ExampleBox`, which is an example-local library defined in `Examples/OnyxBox/` rather than part of the SDK, so it has no `Onyx::` alias to use.
 
 | Target | What it is |
 |---|---|

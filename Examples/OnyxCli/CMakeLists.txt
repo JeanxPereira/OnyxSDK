@@ -46,8 +46,8 @@ add_executable(onyxbox-cli
 # belt-and-suspenders, not strictly required -- kept explicit for the same
 # reason this target has always spelled out its own link set in full.
 target_link_libraries(onyxbox-cli PRIVATE
-    Onyx_Core
-    Onyx_ExampleBox
+    Onyx::Core
+    Onyx_ExampleBox      # example-local, not an SDK target: no Onyx:: alias
     Onyx::CliRender
     Onyx::Exchange)
 

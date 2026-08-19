@@ -122,8 +122,8 @@ below and `.github/workflows/ci.yml`'s own header comment).
   v1.0 — see "Known gaps" below:** `Services/PathUtils.h` still declares
   `namespace PathUtils` at global scope (the other half of G5; only its
   `AssetEntry`/`AssetContainer`-alias half was closed, see "Removed"
-  below), and `Examples/**` still link raw `Onyx_*` target names instead
-  of the `Onyx::` aliases (G6).
+  below). G6 (`Examples/**` linking raw `Onyx_*` names) is fixed for every
+  SDK target — see "Changed" below.
 - **M4 Vulkan renderer** (v1 spec §W4) — `Onyx::Render` rewritten on
   Vulkan 1.3 (dynamic rendering, VMA), offscreen-first, on two floors:
   `SceneRendererVk` (the ready-made PBR/skinning/grid/skeleton path
@@ -282,6 +282,16 @@ below and `.github/workflows/ci.yml`'s own header comment).
   compilable, and still reachable by its own `#include`. Caught by the
   final whole-branch review before the tag was pushed, so no released
   version ever carried the trap.
+- **`Examples/` links the `Onyx::` aliases** (M5, final review, audit gap
+  G6) — `Examples/OnyxBox/CMakeLists.txt` and `Examples/OnyxCli/
+  CMakeLists.txt` linked raw `Onyx_Core` while README's "Targets" section
+  told every other consumer never to name a raw `Onyx_*` target and claimed
+  `Examples/` followed that rule. Now they do, for every SDK target. The one
+  raw name left, `Onyx_ExampleBox`, is an example-local library rather than
+  an SDK target and has no alias to use; the README sentence says so rather
+  than an alias being invented to make the old sentence true. In-tree build
+  behaviour is identical — an `ALIAS` target and its aliasee are the same
+  target to CMake.
 - **The cold-start exam compiles AND links** (M5, final review) — the
   checked-in exam TU (`Tools/ColdStart/ColdStartOnyx.cpp`) was
   `#include <Onyx/Onyx.h>` plus `int main(){}`, compiled with `cl /c` and
@@ -594,12 +604,15 @@ or both.
   rather than something nested under `Onyx::`. Cosmetic, audit-ranked, not
   touched this milestone; carries past v1.0, so fixing it later is a
   MAJOR-class rename under this tag's own stability policy.
-- **`Examples/**` still link raw `Onyx_*` target names**
-  (`Onyx_Core`/`Onyx_ExampleBox`/etc.) in places, not the `Onyx::` aliases
-  the README's "Targets" table tells every other consumer to use (audit
-  G6). Breaks the moment a future `install()`/`export()` ships namespaced
-  names only (G4, above, is documented but not built this milestone).
-  Cosmetic, audit-ranked, not touched this milestone.
+- **`Examples/**` still names one raw `Onyx_*` target: `Onyx_ExampleBox`**
+  (the remainder of audit G6). Every SDK target the examples link is now
+  spelled `Onyx::` (fixed at the final review, see "Changed"), but
+  `Onyx_ExampleBox` is defined in `Examples/OnyxBox/` — an example-local
+  library, not part of the SDK — and has no `Onyx::` alias. Inventing one
+  purely to satisfy a README sentence would advertise an SDK target that
+  does not exist, so the sentence says what is true instead. Nothing here
+  breaks under a future `install()`/`export()` (G4), which would export SDK
+  targets only.
 
 ## v0.6.0 - 2026-08-18
 

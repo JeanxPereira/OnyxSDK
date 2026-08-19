@@ -6,5 +6,5 @@
 add_library(Onyx_ExampleBox STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/OnyxBoxModule.cpp
 )
-target_link_libraries(Onyx_ExampleBox PUBLIC Onyx_Core)
+target_link_libraries(Onyx_ExampleBox PUBLIC Onyx::Core)
 target_include_directories(Onyx_ExampleBox PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
