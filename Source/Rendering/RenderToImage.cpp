@@ -13,8 +13,6 @@
 #include <Onyx/RenderVk/VkContext.h>
 #include <Onyx/RenderVk/VkResources.h>
 
-#include <cassert>
-
 namespace Onyx::Rendering {
 
 namespace {
@@ -33,17 +31,25 @@ bool RenderToImage(VkContext& ctx, const RenderRequest& request, std::vector<uin
                     std::string& err) {
     if (!ValidateRequest(request, err)) return false;
 
-    // See this header's top comment ("the projection-convention decision")
-    // -- request.proj must arrive PLAIN (not yet VulkanProjection()'d).
-    // proj[1][1] is always positive out of glm::perspective(); catching a
-    // caller that already flipped it here, rather than only via
-    // SceneRendererVk::Render()'s own downstream assert, points the
-    // failure at the actual mistake (this call site) instead of one layer
-    // removed from it.
-    assert(request.proj[1][1] > 0.0f &&
-           "RenderToImage: request.proj looks already Vulkan-converted (proj[1][1] <= 0) -- pass a "
-           "plain projection straight out of glm::perspective(); RenderToImage applies "
-           "Onyx::Rendering::VulkanProjection() internally. See RenderRequest's doc comment.");
+    // Fix round 1 (review finding, MEDIUM): this used to be an assert(),
+    // which compiles out entirely under NDEBUG -- and this project's
+    // default configure carries no CMAKE_BUILD_TYPE, i.e. Release (root
+    // CMakeLists.txt), so the guard was silently absent in the common
+    // case. This entry point's stated audience is "callers with zero
+    // Vulkan knowledge" (RenderToImage.h's own top comment); a caller who
+    // copies the raw-floor pattern and pre-flips proj themselves (exactly
+    // what Source/Viewers/Viewport3D.cpp:352's VulkanProjection() call
+    // looks like, out of context) must not get silent upside-down output
+    // with no crash and no error string. So this is now a real runtime
+    // check, enforced in EVERY build configuration -- not an assert. See
+    // this header's own top comment for exactly what is enforced where.
+    if (request.proj[1][1] <= 0.0f) {
+        err = "RenderToImage: request.proj looks already Vulkan-converted (proj[1][1] <= 0) -- pass "
+              "a plain projection straight out of glm::perspective(); RenderToImage applies "
+              "Onyx::Rendering::VulkanProjection() internally, exactly once. See RenderRequest's "
+              "doc comment (RenderToImage.h).";
+        return false;
+    }
 
     ScenePipelines scenePipes;
     if (!Pipelines::CreateScene(ctx, scenePipes, err)) return false;

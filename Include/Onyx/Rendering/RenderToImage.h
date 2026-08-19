@@ -37,14 +37,31 @@
 // an entire milestone before T7's pixel-vs-golden comparison caught it
 // (Pipelines.h's own incident writeup). A caller of THIS entry point cannot
 // reproduce that failure by omission, because there is no separate flip
-// step left to omit. The residual failure mode -- a caller pre-flips
-// anyway, so RenderToImage's own internal flip cancels it back to GL
-// convention -- is caught immediately in Debug builds, not silently: this
-// header's implementation asserts request.proj still looks unconverted
-// (proj[1][1] > 0) on entry, and SceneRendererVk::Render() itself
-// separately asserts the opposite (proj[1][1] < 0) on the matrix
-// RenderToImage hands it downstream -- either assert firing means a caller
-// touched a convention this API exists specifically so they never have to.
+// step left to omit.
+//
+// WHAT IS ENFORCED, AND WHERE (fix round 1, review finding): the residual
+// failure mode -- a caller pre-flips proj anyway (a plausible mistake for
+// someone copying the raw-floor pattern Source/Viewers/Viewport3D.cpp:352
+// legitimately uses), so RenderToImage's own internal flip cancels it back
+// to GL convention -- is caught by a REAL RUNTIME CHECK inside
+// RenderToImage's implementation (Source/Rendering/RenderToImage.cpp): if
+// request.proj[1][1] is already <= 0 on entry, RenderToImage returns
+// false with err explaining exactly this mistake, in EVERY build
+// configuration, Release included. This is deliberately NOT an assert()
+// (an earlier version of this file used one): this project's default
+// configure carries no CMAKE_BUILD_TYPE, i.e. Release (root
+// CMakeLists.txt), where assert() compiles out entirely -- for an entry
+// point whose whole stated audience is "callers with zero Vulkan
+// knowledge," a guard that silently vanishes in the default build
+// configuration is not a guarantee. SceneRendererVk::Render() itself
+// separately keeps its own OWN, PRE-EXISTING Debug-only assert
+// (Source/RenderVk/SceneRendererVk.cpp, checking proj[1][1] < 0 on the
+// already-flipped matrix RenderToImage hands it downstream) -- left
+// unchanged on purpose, because it guards the RAW floor, a different
+// audience (every direct SceneRendererVk::Render() caller) that is
+// already expected to understand this convention; RenderToImage's own
+// runtime check exists so ITS callers never have to reach that layer at
+// all, in any build.
 //
 // ── background (disclosed, deliberate extension beyond the brief's literal
 // three-field RenderRequest sketch) ──
@@ -125,7 +142,10 @@ struct RenderRequest {
 
     /// PLAIN (non-Vulkan-converted) projection matrix -- see this header's
     /// top comment for the full contract. Do not call
-    /// Onyx::Rendering::VulkanProjection() on this yourself.
+    /// Onyx::Rendering::VulkanProjection() on this yourself: both
+    /// RenderToImage overloads reject a request whose proj[1][1] is
+    /// already <= 0 (a real runtime check, every build configuration --
+    /// see the top comment's "WHAT IS ENFORCED, AND WHERE").
     glm::mat4 proj{1.0f};
 
     Rendering::ShadingMode mode = Rendering::ShadingMode::Solid;
