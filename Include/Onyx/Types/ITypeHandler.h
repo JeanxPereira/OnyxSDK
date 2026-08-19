@@ -54,12 +54,22 @@ public:
 } // namespace Onyx::Types
 
 // ── File-level self-registration (identified by extension, not magic) ────────
-// Usage at the bottom of a handler .cpp: REGISTER_FILE_TYPE(VagAudioHandler);
-#define _GOW_REG_CONCAT2(a, b) a##b
-#define _GOW_REG_CONCAT(a, b) _GOW_REG_CONCAT2(a, b)
+// Usage at the bottom of a handler .cpp:
+//   ONYX_REGISTER_FILE_TYPE(VagAudioHandler);
+//
+// Named ONYX_*, not the GOW_*/underscore-prefixed form this macro carried
+// through v0.6.0, for two reasons that are both v1.0-or-never under the
+// stability policy in README.md: a game's name has no business on the main
+// registration macro of a deliberately game-agnostic SDK (spec 13's intent,
+// reaching the one place its letter -- Core/Render headers -- did not), and
+// an identifier beginning with an underscore followed by a capital letter
+// is reserved to the implementation in every scope, so the old spelling was
+// undefined behaviour a conforming standard library was free to break.
+#define ONYX_REG_CONCAT2(a, b) a##b
+#define ONYX_REG_CONCAT(a, b) ONYX_REG_CONCAT2(a, b)
 
-#define REGISTER_FILE_TYPE(HandlerClass)                                       \
-  static bool _GOW_REG_CONCAT(_reg_ft_##HandlerClass##_, __LINE__) = [] {      \
+#define ONYX_REGISTER_FILE_TYPE(HandlerClass)                                       \
+  static bool ONYX_REG_CONCAT(onyx_reg_ft_##HandlerClass##_, __LINE__) = [] {      \
     ::Onyx::Types::TypeRegistry::Get().RegisterByTypeId(                       \
         std::make_unique<HandlerClass>());                                     \
     return true;                                                               \

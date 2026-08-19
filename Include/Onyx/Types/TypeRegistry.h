@@ -10,7 +10,7 @@
 namespace Onyx::Types {
 
 /// Central registry for asset type handlers, keyed by TypeId.
-/// Handlers self-register at static init via REGISTER_FILE_TYPE (or, in
+/// Handlers self-register at static init via ONYX_REGISTER_FILE_TYPE (or, in
 /// app-level code, via app-specific registration macros).
 class TypeRegistry {
 public:
