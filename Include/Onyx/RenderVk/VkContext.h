@@ -17,6 +17,7 @@
 #include <volk.h>
 #include <vk_mem_alloc.h>
 
+#include <atomic>
 #include <cstdint>
 #include <string>
 
@@ -75,7 +76,21 @@ public:
     // overwrite the last message. Both persist across Shutdown() (only Init
     // resets them) so a caller can inspect them right after tearing the
     // context down, catching messages raised during teardown itself.
-    uint32_t         ValidationMessageCount() const { return m_validationMessageCount; }
+    //
+    // T4-review rider #1: the count is std::atomic<uint32_t> -- the
+    // validation layer is free to invoke DebugCallback from a thread it
+    // owns (not necessarily the thread that issued the Vulkan call being
+    // validated), so a caller polling ValidationMessageCount() from
+    // another thread must see a consistent value, not a torn read.
+    // LastValidationMessage() is NOT similarly guarded: std::string has no
+    // safe concurrent read/write, and only one thread reads it today
+    // (right after Shutdown(), in every caller in this codebase so far).
+    // TODO(later task): if a caller ever needs to read
+    // LastValidationMessage() while validation is still active on another
+    // thread, guard it (mutex or a second atomic<std::string>-shaped
+    // scheme) -- documented-single-threaded is not a substitute for that
+    // once such a caller exists.
+    uint32_t         ValidationMessageCount() const { return m_validationMessageCount.load(); }
     const std::string& LastValidationMessage() const { return m_lastValidationMessage; }
 
 private:
@@ -93,7 +108,7 @@ private:
     ContextInfo      m_info;
 
     VkDebugUtilsMessengerEXT m_debugMessenger = VK_NULL_HANDLE;
-    uint32_t         m_validationMessageCount = 0;
+    std::atomic<uint32_t> m_validationMessageCount{0};
     std::string      m_lastValidationMessage;
 };
 

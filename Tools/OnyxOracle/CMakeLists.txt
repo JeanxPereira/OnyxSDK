@@ -7,6 +7,7 @@
 add_executable(onyx-oracle
     Main.cpp
     HeadlessGL.cpp
+    PngWrite.cpp
     AppConfigStub.cpp
     CorpusTextures.cpp
     CorpusScenes.cpp
@@ -24,6 +25,18 @@ set_tests_properties(OracleGlSmoke PROPERTIES SKIP_RETURN_CODE 77 LABELS "render
 # Exit 77 (SKIP, not FAIL) when no Vulkan-capable device/driver is present.
 add_test(NAME VkBootSmoke COMMAND onyx-oracle --vk-smoke)
 set_tests_properties(VkBootSmoke PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")
+
+# VkValidationSelfTest (T2-review rider #2): a Debug-only, deliberate-error
+# path proving VkContext's validation-message counter actually fires --
+# copies a live Buffer struct, destroys the original, then destroys the
+# stale copy (a validation-layer-catchable stale-handle destroy), and
+# asserts ValidationMessageCount() > 0. Isolated in its own CLI mode so
+# VkBootSmoke's normal "zero validation messages" assertion is never
+# touched by this deliberately-broken path. SKIP (77) on a Release build
+# or wherever the validation layer isn't available -- nothing to
+# self-test there.
+add_test(NAME VkValidationSelfTest COMMAND onyx-oracle --vk-validation-selftest)
+set_tests_properties(VkValidationSelfTest PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")
 
 # OracleReproducible: renders the corpus twice (WORK/a, WORK/b) and verifies
 # the two runs are byte-identical -- see ReproTest.cmake for the exit-77

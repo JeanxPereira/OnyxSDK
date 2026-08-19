@@ -1,8 +1,10 @@
 #include "HeadlessGL.h"
+#include "PngWrite.h"
 #include "CorpusScenes.h"
 #include "RenderReport.h"
 
 #include <Onyx/Rendering/SceneRenderer.h>
+#include <Onyx/RenderVk/OffscreenTarget.h>
 #include <Onyx/RenderVk/VkContext.h>
 #include <Onyx/RenderVk/VkResources.h>
 
@@ -34,10 +36,23 @@ void PrintHelp() {
         "      Boots a headless Vulkan 1.3 instance/device/VMA allocator via\n"
         "      VkContext, prints the picked device name, creates a 64x64 RGBA\n"
         "      image, uploads a checker pattern to it via a staged upload,\n"
-        "      destroys it, tears down, exits 0 on success. Exit 1 if any\n"
-        "      validation message was captured (Debug builds with the\n"
-        "      validation layer present). Exit 77 if no Vulkan-capable\n"
-        "      device/driver is found.\n"
+        "      destroys it; creates a 64x64 OffscreenTarget (T4), renders and\n"
+        "      reads back a full-clear frame asserting every pixel is\n"
+        "      byte-exact, renders and reads back a TOP/BOTTOM-split frame\n"
+        "      asserting the readback is top-down, writes both as PNGs, tears\n"
+        "      everything down. Exits 0 on success. Exit 1 if any validation\n"
+        "      message was captured (Debug builds with the validation layer\n"
+        "      present) or any of the above assertions fail. Exit 77 if no\n"
+        "      Vulkan-capable device/driver is found.\n"
+        "\n"
+        "  onyx-oracle --vk-validation-selftest\n"
+        "      Debug-only: deliberately destroys an already-destroyed VkBuffer\n"
+        "      (via a stale copy of its handle) to prove VkContext's\n"
+        "      validation-message counter fires, then exits 0 if the counter\n"
+        "      is nonzero afterward. Exit 1 if the counter stayed zero. Exit\n"
+        "      77 if no Vulkan-capable device/driver is found, or the\n"
+        "      validation layer isn't active (Release build or the layer is\n"
+        "      unavailable) -- nothing to self-test in either case.\n"
         "\n"
         "  onyx-oracle render-corpus --out DIR\n"
         "      Renders all 5 corpus scenes to DIR/<name>.png + DIR/<name>.json,\n"
@@ -126,7 +141,7 @@ int RunRenderCorpus(const fs::path& outDir) {
             uint64_t pixelHash = Onyx::OracleTool::Fnv1a(rgba.data(), rgba.size());
 
             fs::path pngPath = outDir / (cs.name + ".png");
-            if (!HeadlessGL::WritePng(pngPath, cs.width, cs.height, rgba, err)) {
+            if (!Onyx::OracleTool::WritePng(pngPath, cs.width, cs.height, rgba, err)) {
                 std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
                 return 1;
             }
@@ -269,6 +284,168 @@ int main(int argc, char** argv) {
         }
 
         Onyx::RenderVk::Resources::Destroy(ctx, img);
+
+        // T4 smoke: OffscreenTarget's byte-exact readback, plus the
+        // orientation assertion the task-4 brief demands be VERIFIED, not
+        // assumed. Two renders against one 64x64 target:
+        //   1) full-clear -- every readback pixel must equal the clear
+        //      color exactly (no MSAA-resolve blending should survive a
+        //      uniform clear).
+        //   2) a background split into a distinct TOP color (rows
+        //      0..31) vs BOTTOM color (rows 32..63) -- OffscreenTarget's
+        //      BeginFrame only exposes a single full-target clear, so the
+        //      top half is painted via a direct vkCmdClearAttachments
+        //      sub-rect on the command buffer the caller already owns
+        //      (the same thing a real draw would do between BeginFrame/
+        //      EndFrame). Readback row 0 must be the TOP color for this
+        //      target to be usable top-down by T7's byte comparisons
+        //      against the GL goldens.
+        {
+            Onyx::RenderVk::OffscreenTarget target;
+            constexpr int kW = 64, kH = 64;
+            if (!target.Create(ctx, kW, kH, err)) {
+                std::fprintf(stderr, "%s\n", err.c_str());
+                ctx.Shutdown();
+                return 1;
+            }
+
+            // -- 1) full-clear byte-exactness --
+            const float clearColor[4] = {0.20f, 0.40f, 0.60f, 1.0f};
+            bool ok = Onyx::RenderVk::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
+                target.BeginFrame(cmd, clearColor);
+                target.EndFrame(cmd);
+            }, err);
+            if (!ok) {
+                std::fprintf(stderr, "%s\n", err.c_str());
+                target.Destroy(ctx);
+                ctx.Shutdown();
+                return 1;
+            }
+
+            std::vector<uint8_t> rgba;
+            if (!target.Readback(ctx, rgba, err)) {
+                std::fprintf(stderr, "%s\n", err.c_str());
+                target.Destroy(ctx);
+                ctx.Shutdown();
+                return 1;
+            }
+            if (rgba.size() != static_cast<size_t>(kW) * kH * 4) {
+                std::fprintf(stderr, "vk-smoke: readback size %zu != %dx%dx4\n", rgba.size(), kW,
+                             kH);
+                target.Destroy(ctx);
+                ctx.Shutdown();
+                return 1;
+            }
+
+            const uint8_t expected[4] = {
+                static_cast<uint8_t>(clearColor[0] * 255.0f + 0.5f),
+                static_cast<uint8_t>(clearColor[1] * 255.0f + 0.5f),
+                static_cast<uint8_t>(clearColor[2] * 255.0f + 0.5f),
+                static_cast<uint8_t>(clearColor[3] * 255.0f + 0.5f),
+            };
+            for (size_t i = 0; i < rgba.size(); i += 4) {
+                if (rgba[i + 0] != expected[0] || rgba[i + 1] != expected[1] ||
+                    rgba[i + 2] != expected[2] || rgba[i + 3] != expected[3]) {
+                    std::fprintf(stderr,
+                                 "vk-smoke: clear readback not byte-exact at pixel %zu: got "
+                                 "(%u,%u,%u,%u) want (%u,%u,%u,%u)\n",
+                                 i / 4, rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3],
+                                 expected[0], expected[1], expected[2], expected[3]);
+                    target.Destroy(ctx);
+                    ctx.Shutdown();
+                    return 1;
+                }
+            }
+
+            std::string pngErr;
+            if (!Onyx::OracleTool::WritePng("vk-smoke-clear.png", kW, kH, rgba, pngErr)) {
+                std::fprintf(stderr, "%s\n", pngErr.c_str());
+                target.Destroy(ctx);
+                ctx.Shutdown();
+                return 1;
+            }
+
+            // -- 2) orientation: TOP distinct from BOTTOM --
+            const uint8_t kTopColor[4] = {255, 0, 0, 255};
+            const uint8_t kBottomColor[4] = {0, 0, 255, 255};
+            const float bottomClear[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+
+            ok = Onyx::RenderVk::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
+                target.BeginFrame(cmd, bottomClear);
+
+                VkClearAttachment clearAttach{};
+                clearAttach.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                clearAttach.colorAttachment = 0;
+                clearAttach.clearValue.color.float32[0] = 1.0f;
+                clearAttach.clearValue.color.float32[1] = 0.0f;
+                clearAttach.clearValue.color.float32[2] = 0.0f;
+                clearAttach.clearValue.color.float32[3] = 1.0f;
+
+                VkClearRect clearRect{};
+                clearRect.rect.offset = {0, 0};
+                clearRect.rect.extent = {static_cast<uint32_t>(kW), static_cast<uint32_t>(kH / 2)};
+                clearRect.baseArrayLayer = 0;
+                clearRect.layerCount = 1;
+
+                vkCmdClearAttachments(cmd, 1, &clearAttach, 1, &clearRect);
+
+                target.EndFrame(cmd);
+            }, err);
+            if (!ok) {
+                std::fprintf(stderr, "%s\n", err.c_str());
+                target.Destroy(ctx);
+                ctx.Shutdown();
+                return 1;
+            }
+
+            std::vector<uint8_t> rgba2;
+            if (!target.Readback(ctx, rgba2, err)) {
+                std::fprintf(stderr, "%s\n", err.c_str());
+                target.Destroy(ctx);
+                ctx.Shutdown();
+                return 1;
+            }
+
+            bool row0IsTop = true;
+            for (int x = 0; x < kW; ++x) {
+                const size_t i = static_cast<size_t>(x) * 4;
+                if (rgba2[i + 0] != kTopColor[0] || rgba2[i + 1] != kTopColor[1] ||
+                    rgba2[i + 2] != kTopColor[2] || rgba2[i + 3] != kTopColor[3]) {
+                    row0IsTop = false;
+                    break;
+                }
+            }
+            const size_t lastRowOff = static_cast<size_t>(kH - 1) * kW * 4;
+            bool lastRowIsBottom = true;
+            for (int x = 0; x < kW; ++x) {
+                const size_t i = lastRowOff + static_cast<size_t>(x) * 4;
+                if (rgba2[i + 0] != kBottomColor[0] || rgba2[i + 1] != kBottomColor[1] ||
+                    rgba2[i + 2] != kBottomColor[2] || rgba2[i + 3] != kBottomColor[3]) {
+                    lastRowIsBottom = false;
+                    break;
+                }
+            }
+            if (!row0IsTop || !lastRowIsBottom) {
+                std::fprintf(stderr,
+                             "vk-smoke: readback orientation mismatch (row0IsTop=%d "
+                             "lastRowIsBottom=%d) -- expected top-down (row 0 = TOP color)\n",
+                             row0IsTop ? 1 : 0, lastRowIsBottom ? 1 : 0);
+                target.Destroy(ctx);
+                ctx.Shutdown();
+                return 1;
+            }
+            std::printf("readback orientation: top-down (row 0 = TOP color) -- verified\n");
+
+            if (!Onyx::OracleTool::WritePng("vk-smoke-orientation.png", kW, kH, rgba2, pngErr)) {
+                std::fprintf(stderr, "%s\n", pngErr.c_str());
+                target.Destroy(ctx);
+                ctx.Shutdown();
+                return 1;
+            }
+
+            target.Destroy(ctx);
+        }
+
         ctx.Shutdown();
 
         if (ctx.ValidationMessageCount() != 0) {
@@ -276,6 +453,75 @@ int main(int argc, char** argv) {
                         ctx.ValidationMessageCount(), ctx.LastValidationMessage().c_str());
             return 1;
         }
+        return 0;
+    }
+
+    if (argc >= 2 && std::strcmp(argv[1], "--vk-validation-selftest") == 0) {
+        // T2-review rider #2: a Debug-only, deliberate-error path proving
+        // VkContext's validation-message counter actually fires, isolated
+        // in its own CLI mode (never folded into --vk-smoke above) so the
+        // ordinary smoke's "zero validation messages" assertion is never
+        // touched by this deliberately-broken path.
+        Onyx::RenderVk::VkContext ctx;
+        std::string err;
+        if (!ctx.Init(/*presentSupport=*/false, err)) {
+            std::fprintf(stderr, "skip: %s\n", err.c_str());
+            return 77;
+        }
+        if (!ctx.Info().validation) {
+            std::fprintf(stderr,
+                         "skip: validation layer not active (Release build, or "
+                         "VK_LAYER_KHRONOS_validation unavailable) -- nothing to self-test\n");
+            ctx.Shutdown();
+            return 77;
+        }
+
+        Onyx::RenderVk::Buffer original = Onyx::RenderVk::Resources::CreateBuffer(
+            ctx, 64, VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_GPU_ONLY, err);
+        if (original.buf == VK_NULL_HANDLE) {
+            std::fprintf(stderr, "%s\n", err.c_str());
+            ctx.Shutdown();
+            return 1;
+        }
+
+        // Reviewer-confirmed UB-free pattern for provoking a validation
+        // message deterministically: copy the struct (both copies now
+        // name the same live VkBuffer/VmaAllocation), destroy the
+        // original the normal way (Resources::Destroy -- vkDestroyBuffer
+        // + vmaFreeMemory, resets `original` to its default state), then
+        // deliberately call raw vkDestroyBuffer directly on the STALE
+        // copy's now-invalid VkBuffer handle.
+        //
+        // Deliberately NOT Resources::Destroy(ctx, staleCopy) here: that
+        // would also call vmaFreeMemory a second time on the same
+        // VmaAllocation, which is a real double-free inside VMA's own
+        // allocator bookkeeping -- it crashes before any Vulkan call is
+        // even made, nothing the validation layer gets a chance to
+        // intercept (confirmed empirically: that version segfaults,
+        // 0xC0000005, well before printing anything). A bare
+        // vkDestroyBuffer on the stale handle touches only the Vulkan
+        // object-lifetime-tracking validation layer, which detects the
+        // already-destroyed handle, records the error via DebugCallback,
+        // and does not forward the call to the driver -- no VMA state is
+        // touched a second time, so nothing crashes.
+        Onyx::RenderVk::Buffer staleCopy = original;
+        Onyx::RenderVk::Resources::Destroy(ctx, original);
+        vkDestroyBuffer(ctx.Device(), staleCopy.buf, nullptr);
+
+        ctx.Shutdown();
+
+        const uint32_t count = ctx.ValidationMessageCount();
+        if (count == 0) {
+            std::fprintf(stderr,
+                         "vk-validation-selftest: expected >=1 validation message from the "
+                         "stale-handle destroy, got 0 -- the counter did not fire\n");
+            return 1;
+        }
+        std::printf("vk-validation-selftest: counter fired (%u message(s)); last: %s\n", count,
+                    ctx.LastValidationMessage().c_str());
+        // RESET expectations: this mode's whole point is a deliberate
+        // error, so a nonzero count here is PASS -- the opposite polarity
+        // of every other smoke path in this binary.
         return 0;
     }
 

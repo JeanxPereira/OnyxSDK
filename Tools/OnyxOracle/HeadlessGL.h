@@ -18,7 +18,6 @@
 // session.
 
 #include <cstdint>
-#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -45,11 +44,8 @@ public:
     /// Resolves MSAA and reads the frame back as tightly packed top-down RGBA.
     bool EndFrame(std::vector<uint8_t>& rgbaOut, std::string& err);
 
-    /// Writes tightly packed top-down RGBA as a PNG.
-    static bool WritePng(const std::filesystem::path& path,
-                         int width, int height,
-                         const std::vector<uint8_t>& rgba,
-                         std::string& err);
+    // PNG writing moved to the shared Tools/OnyxOracle/PngWrite.h (task 4)
+    // -- use Onyx::OracleTool::WritePng directly.
 
     int Width()  const { return m_width; }
     int Height() const { return m_height; }
