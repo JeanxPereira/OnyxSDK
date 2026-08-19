@@ -478,8 +478,18 @@ void App::drawMenuItems() {
       NativeMenuBar::menuItemToggle(std::string(p->getName()).c_str(), nullptr,
                                     &p->visible);
     }
-    if (NativeMenuBar::menuItem("Reset Layout"))
+    // No programmatic default layout exists to rebuild into (m_defaultLayout
+    // is never set by any caller -- SetDefaultLayout exists on App but
+    // nothing calls it), so this is the honest minimal version: delete the
+    // saved dock layout (DockBuilderRemoveNode below recursively removes
+    // dockspace_id's whole node tree, including any orphan empty central
+    // node an old imgui.ini accumulated) and let ImGui start fresh next
+    // frame, same as a first run with no imgui.ini at all.
+    if (NativeMenuBar::menuItem("Reset Layout")) {
       m_resetLayout = true;   // triggers DockBuilderRemoveNode + default-layout rebuild next frame
+      LOG_INFO("[App] View > Reset Layout: dock layout cleared; ImGui will re-lay out panels "
+               "next frame");
+    }
     NativeMenuBar::endMenu();
   }
 }
