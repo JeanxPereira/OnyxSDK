@@ -44,7 +44,7 @@ void StatusBar::DrawWorkspaceStatus() {
         // DocumentOpened/TreeReady lines) -- proof this branch actually
         // ran on a slow open, since a fast one can finish between two
         // polls and never be observed any other way.
-        LOG_INFO("[StatusBar] progress id=%llu frac=%.2f label=%s",
+        LOG_DEBUG("[StatusBar] progress id=%llu frac=%.2f label=%s",
                  (unsigned long long)doc.id, snap.fraction, snap.label.c_str());
         ImGui::TextUnformatted(FormatOpeningLine(filename, snap.fraction, snap.label).c_str());
     }

@@ -37,7 +37,8 @@ struct ViewerOpener {
 // Resolves `sel.path` against `sel.doc`, decodes it on the caller's
 // thread, and invokes the matching `opener` callback. Returns the
 // ViewerKind that WAS opened (or attempted):
-//   - the path does not resolve (stale/out-of-range)        -> None, no callback
+//   - the document is not ready (still mid-parse)              -> None, no callback
+//   - the path does not resolve (stale/out-of-range)          -> None, no callback
 //   - the resolved entry is Failed                           -> None, no callback,
 //     logs the document's error diag count instead of decoding
 //   - RouteForType finds no capability for the entry's type   -> None, no callback,

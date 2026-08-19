@@ -19,10 +19,16 @@ ViewerKind OpenSelection(Workspace& ws, const SelectionChanged& sel, const Viewe
     Document* doc = ws.Get(sel.doc);
     if (!doc) return ViewerKind::None;
 
+    // Thread rule (Workspace.h): a document's roots are unsafe to resolve
+    // against before its parse finishes -- `ready` is the only field safe
+    // to poll on a document that might still be mid-parse on a worker
+    // thread (same guard as InfoTab::Draw()).
+    if (!doc->ready.load()) return ViewerKind::None;
+
     const AssetEntry* entry = Onyx::Modules::Resolve(*doc, sel.path);
     if (!entry) return ViewerKind::None;
 
-    if (entry->flags == NodeFlags::Failed) {
+    if ((static_cast<uint8_t>(entry->flags) & static_cast<uint8_t>(NodeFlags::Failed)) != 0) {
         LOG_WARN("%s: not decoding a Failed node (%zu error diag(s))", entry->name.c_str(),
                  doc->diags.Count(Severity::Error));
         return ViewerKind::None;

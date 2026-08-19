@@ -96,7 +96,7 @@ void PrintTree(std::ostream& out, const std::vector<Domain::AssetEntry>& entries
     for (const auto& e : entries) {
         out << std::string(size_t(depth) * 2, ' ') << e.name << "  " << cat.KeyOf(e.typeId)
             << "  " << e.size << " bytes";
-        if (e.flags == Domain::NodeFlags::Failed) out << " [FAILED]";
+        if ((static_cast<uint8_t>(e.flags) & static_cast<uint8_t>(Domain::NodeFlags::Failed)) != 0) out << " [FAILED]";
         out << "\n";
         PrintTree(out, e.children, cat, depth + 1);
     }
@@ -106,7 +106,7 @@ void WriteEntryJson(std::ostream& out, const Domain::AssetEntry& e, Types::TypeC
     out << "{\"name\":\"" << JsonEscape(e.name) << "\","
         << "\"type\":\"" << JsonEscape(cat.KeyOf(e.typeId)) << "\","
         << "\"size\":" << e.size << ","
-        << "\"failed\":" << (e.flags == Domain::NodeFlags::Failed ? "true" : "false") << ","
+        << "\"failed\":" << ((static_cast<uint8_t>(e.flags) & static_cast<uint8_t>(Domain::NodeFlags::Failed)) != 0 ? "true" : "false") << ","
         << "\"children\":[";
     for (size_t i = 0; i < e.children.size(); ++i) {
         if (i) out << ",";
@@ -169,7 +169,7 @@ void ExtractEntries(std::ostream& out, const std::vector<Domain::AssetEntry>& en
             ExtractEntries(out, e.children, outDir, file);
             continue;
         }
-        if (e.flags == Domain::NodeFlags::Failed) continue;
+        if ((static_cast<uint8_t>(e.flags) & static_cast<uint8_t>(Domain::NodeFlags::Failed)) != 0) continue;
 
         if (!IsSafeEntryName(e.name)) {
             out << "skipped '" << e.name << "': unsafe name\n";

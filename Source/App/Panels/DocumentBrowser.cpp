@@ -111,7 +111,7 @@ void DocumentBrowser::Draw() {
 void DocumentBrowser::DrawEntry(Onyx::Modules::Document& doc, const Onyx::Domain::AssetEntry& entry,
                                  Onyx::Modules::NodePath& path) {
     const std::string& label = entry.displayName.empty() ? entry.name : entry.displayName;
-    const bool failed = entry.flags == Onyx::Domain::NodeFlags::Failed;
+    const bool failed = (static_cast<uint8_t>(entry.flags) & static_cast<uint8_t>(Onyx::Domain::NodeFlags::Failed)) != 0;
 
     const char* icon = m_workspace.Catalog().Icon(entry.typeId);
     ImVec4 color;

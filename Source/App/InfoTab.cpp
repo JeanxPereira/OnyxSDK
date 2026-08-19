@@ -73,7 +73,7 @@ void InfoTab::Draw() {
         return;
     }
 
-    const bool failed = entry->flags == Onyx::Domain::NodeFlags::Failed;
+    const bool failed = (static_cast<uint8_t>(entry->flags) & static_cast<uint8_t>(Onyx::Domain::NodeFlags::Failed)) != 0;
     const std::string& label = entry->displayName.empty() ? entry->name : entry->displayName;
 
     if (ImGui::BeginTable("##wsprops", 2,
