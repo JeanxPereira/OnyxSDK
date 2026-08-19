@@ -47,6 +47,16 @@ struct FrameHandles {
 /// other registered pass still runs, in registration order, regardless of
 /// where in the sequence one throws.
 ///
+/// "Skipped" describes what happens AFTER the throw, not before: any
+/// command the pass already recorded into `handles.cmd` before throwing is
+/// NOT rolled back -- Vulkan has no such mechanism, and this class does not
+/// attempt to fake one (e.g. via a secondary command buffer it could discard
+/// on failure). Containment guarantees the frame and every other registered
+/// pass survive; it does not guarantee the throwing pass's own partial
+/// recording never happened. A pass that mutates `cmd` state before its
+/// throw point (binds a pipeline, writes a push constant, etc.) leaves that
+/// state in place for whatever runs after it this frame.
+///
 /// Not copyable: matches every other RenderVk class's convention
 /// (OffscreenTarget, SceneRendererVk) even though this one owns no GPU
 /// resource itself, just registered callbacks -- there is no use case for
@@ -75,7 +85,10 @@ public:
     /// `handles`. Called once per frame by the frame owner (the Shell, from
     /// T9), while `handles.cmd` is still inside the scene's dynamic-
     /// rendering pass, after the scene draw and before UI. See the class
-    /// doc comment for the exception-containment contract.
+    /// doc comment for the exception-containment contract -- in particular,
+    /// a throwing pass's commands already recorded into `handles.cmd`
+    /// before the throw are NOT rolled back; only the frame and the other
+    /// passes are guaranteed to survive.
     void Execute(const FrameHandles& handles);
 
 private:
