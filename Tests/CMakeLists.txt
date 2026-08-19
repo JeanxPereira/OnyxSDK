@@ -37,6 +37,7 @@ add_executable(onyx_tests
     infotabfilter_test.cpp
     oracle_corpus_test.cpp
     ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle/CorpusTextures.cpp
+    ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle/CorpusScenes.cpp
 )
 target_link_libraries(onyx_tests PRIVATE Onyx::Onyx Onyx_ExampleBox doctest::doctest imgui_lib)
 target_include_directories(onyx_tests PRIVATE ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle)
