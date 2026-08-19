@@ -12,6 +12,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cstdio>       // SEEK_SET
+#include <exception>    // std::exception, contains module IFile calls in ExtractEntries
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -202,39 +203,52 @@ void ExtractEntries(std::ostream& out, const std::vector<Domain::AssetEntry>& en
         }
         Vfs::IFile& file = *fileTable[e.source.fileIndex];
 
-        std::vector<uint8_t> buf(e.source.size);
-        size_t got = 0;
-        if (e.source.size > 0) {
-            file.Seek(int64_t(e.source.offset), SEEK_SET);
-            got = file.Read(buf.data(), e.source.size);
-        }
-
-        const std::filesystem::path targetDir = e.source.fileIndex == 0
-                ? outDir
-                : outDir / std::to_string(e.source.fileIndex);
-        if (targetDir != outDir) {
-            std::error_code mkec;
-            std::filesystem::create_directories(targetDir, mkec);
-        }
-        const std::filesystem::path outPath = targetDir / e.name;
-        {
-            std::ofstream ofs(outPath, std::ios::binary);
-            if (!buf.empty()) {
-                ofs.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
+        // The alloc/Seek/Read/write below runs module-supplied IFile code
+        // for fileIndex >= 1 (a mounted inner file) -- exactly the kind of
+        // third-party code the module boundary must contain (spec §7.1). A
+        // throwing mount/VFS implementation must salvage this one entry,
+        // never abort the whole extract.
+        try {
+            std::vector<uint8_t> buf(e.source.size);
+            size_t got = 0;
+            if (e.source.size > 0) {
+                file.Seek(int64_t(e.source.offset), SEEK_SET);
+                got = file.Read(buf.data(), e.source.size);
             }
-        }
 
-        if (got != e.source.size) {
-            // A short/failed read means the bytes on disk are truncated or
-            // garbage -- never leave a zero-padded file behind for the
-            // caller to mistake for a real payload.
-            std::error_code ec;
-            std::filesystem::remove(outPath, ec);
-            out << "error '" << e.name << "': short read\n";
+            const std::filesystem::path targetDir = e.source.fileIndex == 0
+                    ? outDir
+                    : outDir / std::to_string(e.source.fileIndex);
+            if (targetDir != outDir) {
+                std::error_code mkec;
+                std::filesystem::create_directories(targetDir, mkec);
+            }
+            const std::filesystem::path outPath = targetDir / e.name;
+            {
+                std::ofstream ofs(outPath, std::ios::binary);
+                if (!buf.empty()) {
+                    ofs.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
+                }
+            }
+
+            if (got != e.source.size) {
+                // A short/failed read means the bytes on disk are truncated or
+                // garbage -- never leave a zero-padded file behind for the
+                // caller to mistake for a real payload.
+                std::error_code ec;
+                std::filesystem::remove(outPath, ec);
+                out << "error '" << e.name << "': short read\n";
+                continue;
+            }
+
+            out << "extracted " << e.name << " (" << e.source.size << " bytes)\n";
+        } catch (const std::exception& ex) {
+            out << "error '" << e.name << "': " << ex.what() << "\n";
+            continue;
+        } catch (...) {
+            out << "error '" << e.name << "': unknown exception during read\n";
             continue;
         }
-
-        out << "extracted " << e.name << " (" << e.source.size << " bytes)\n";
     }
 }
 

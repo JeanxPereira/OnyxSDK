@@ -245,6 +245,88 @@ struct MountFake : Onyx::Modules::IGameModule {
     }
 };
 
+// In-memory IFile whose Read() always throws -- stands in for a hostile or
+// buggy mounted VFS implementation. ExtractEntries (Source/Cli/Commands.cpp)
+// runs module-supplied IFile code (Seek/Read) for every fileIndex >= 1
+// entry; that call must be contained at the module boundary (spec §7.1),
+// salvaging just this one entry, never letting the exception reach
+// CmdExtract's caller.
+class ThrowingReadFile : public Onyx::Vfs::IFile {
+public:
+    size_t Read(void*, size_t) override { throw std::runtime_error("Read() boom"); }
+    bool Seek(int64_t, int) override { return true; }
+    int64_t Tell() override { return 0; }
+    size_t Size() const override { return 4; }
+    bool IsEOF() const override { return false; }
+    bool IsValid() const override { return true; }
+};
+
+// VFS handing back one normal file ("good") and one whose Read() throws
+// ("bad") -- backs MountThrowingReadFake below.
+class ThrowingReadVfs : public Onyx::Vfs::IVirtualFileSystem {
+public:
+    bool IsValid() const override { return true; }
+    std::vector<std::string> ListDirectory(const std::string&) override { return {"good", "bad"}; }
+    std::unique_ptr<Onyx::Vfs::IFile> OpenFile(const std::string& path) override {
+        if (path == "good") {
+            static const std::string kPayload = "GOOD-BYTES";
+            return std::make_unique<MemFile>(std::vector<uint8_t>(kPayload.begin(), kPayload.end()));
+        }
+        if (path == "bad") return std::make_unique<ThrowingReadFile>();
+        return nullptr;
+    }
+    bool Exists(const std::string& path) override { return path == "good" || path == "bad"; }
+};
+
+// Mounts ThrowingReadVfs and pushes both "good" (fileIndex 1) and "bad"
+// (fileIndex 2) into the file table with entries pointing at each --
+// exercises extract salvaging a throwing mounted-file read alongside a
+// normal one, same shape as MountFake's out-of-range case above.
+struct MountThrowingReadFake : Onyx::Modules::IGameModule {
+    Onyx::Modules::ModuleInfo Info() const override {
+        return Onyx::Modules::ModuleInfo{"mountthrowread", "MountThrowingRead", {}, {}};
+    }
+
+    Onyx::Modules::ProbeResult Probe(const Onyx::Modules::ProbeInput&) const override {
+        return Onyx::Modules::ProbeResult{90, "always"};
+    }
+
+    void RegisterTypes(Onyx::Types::TypeRegistrar&) override {}
+    void RegisterDecoders(Onyx::Modules::DecoderRegistry&) override {}
+
+    std::vector<Onyx::Modules::MountSpec> Mounts() const override {
+        Onyx::Modules::MountSpec spec;
+        spec.label = "ThrowPak";
+        spec.extensions = {"pak"};
+        spec.mount = [](const std::filesystem::path&)
+                -> std::shared_ptr<Onyx::Vfs::IVirtualFileSystem> {
+            return std::make_shared<ThrowingReadVfs>();
+        };
+        return {spec};
+    }
+
+    Onyx::Modules::ParseResult ParseContainer(Onyx::Modules::ContainerContext& ctx) override {
+        Onyx::Domain::AssetEntry root;
+        root.name = "root";
+
+        if (ctx.mountedVfs && ctx.fileTable) {
+            for (const char* name : {"good", "bad"}) {
+                auto inner = ctx.mountedVfs->OpenFile(name);
+                if (!inner) continue;
+                Onyx::Domain::AssetEntry child;
+                child.name = std::string(name) + ".bin";
+                child.source.fileIndex = uint32_t(ctx.fileTable->size());
+                child.source.size = uint64_t(inner->Size());
+                ctx.fileTable->push_back(std::shared_ptr<Onyx::Vfs::IFile>(std::move(inner)));
+                root.children.push_back(std::move(child));
+            }
+        }
+
+        ctx.roots.push_back(std::move(root));
+        return Onyx::Modules::ParseResult{true};
+    }
+};
+
 // Fix round 1: Mounts() throwing must be contained the same way a throwing
 // ParseContainer already is -- an Error diag, then a flat-file parse, never
 // an exception escaping Open()/OpenAsync().
@@ -430,6 +512,32 @@ TEST_CASE("Extract: an out-of-range fileIndex is skipped with an error line, oth
     // The other, valid entry (fileIndex 1) was still extracted despite the
     // bogus one -- a salvage failure on one entry never aborts the extract.
     REQUIRE(std::filesystem::exists(outDir / "1" / "inner.bin"));
+
+    std::filesystem::remove_all(outDir);
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("Extract: fileIndex 1 succeeds while fileIndex 2's throwing Read is contained "
+          "with an error line, not aborted") {
+    auto path = write_temp_file("onyx_mounts_test_extract_throw.pak", "ROOT-FILE-CONTENT");
+    auto outDir = std::filesystem::temp_directory_path() / "onyx_mounts_extract_throw_out";
+    std::filesystem::remove_all(outDir);
+
+    Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(std::make_unique<MountThrowingReadFake>());
+
+    std::ostringstream out;
+    int rc = Onyx::Cli::CmdExtract(ws, path, outDir, out);
+    CHECK(rc == Onyx::Cli::kOk);   // the throwing entry never escapes as an exception
+
+    // fileIndex 1 ("good") extracts normally with the right bytes, despite
+    // fileIndex 2 ("bad") throwing from Read() right after it.
+    REQUIRE(std::filesystem::exists(outDir / "1" / "good.bin"));
+    CHECK(read_file_string(outDir / "1" / "good.bin") == "GOOD-BYTES");
+
+    // The throwing entry is error-lined and left no file behind.
+    CHECK_FALSE(std::filesystem::exists(outDir / "2" / "bad.bin"));
+    CHECK(out.str().find("error 'bad.bin'") != std::string::npos);
 
     std::filesystem::remove_all(outDir);
     std::filesystem::remove(path);
