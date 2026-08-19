@@ -8,6 +8,7 @@
 
 #include <CorpusScenes.h>
 #include <CorpusTextures.h>
+#include <RenderReport.h>
 
 #include <cmath>
 #include <cstring>
@@ -228,4 +229,116 @@ TEST_CASE("OracleCorpus: BuildCorpus is deterministic across repeated calls") {
         REQUIRE(v1.size() == v2.size());
         CHECK(std::memcmp(v1.data(), v2.data(), v1.size() * sizeof(v1[0])) == 0);
     }
+}
+
+// ── RenderReport tests (doctest) ───────────────────────────────────────────
+//
+// RenderReport is also pure (GL-free): Fnv1a/FormatFloat/BuildReport only
+// touch plain data (RenderBatch's non-GL fields; gpuMesh/GL ids are never
+// dereferenced, just compared to zero), so this exercises the exact string
+// BuildReport produces without a GL context. The BuildReport test below IS
+// the format spec: any future change to the report layout must update this
+// verbatim string deliberately, not accidentally.
+
+using Onyx::Rendering::RenderBatch;
+
+TEST_CASE("OracleCorpus: Fnv1a matches the reference vectors for empty and \"a\"") {
+    CHECK(Fnv1a("", 0) == 14695981039346656037ull);
+    CHECK(Fnv1a("a", 1) == 0xaf63dc4c8601ec8cull);
+}
+
+TEST_CASE("OracleCorpus: FormatFloat renders six decimals and normalizes negative zero") {
+    CHECK(FormatFloat(1.0f) == "1.000000");
+    CHECK(FormatFloat(-0.0f) == "0.000000");
+    CHECK(FormatFloat(0.0f) == "0.000000");
+    CHECK(FormatFloat(-1.5f) == "-1.500000");
+}
+
+TEST_CASE("OracleCorpus: BuildReport matches the canonical report format byte-for-byte") {
+    RenderBatch alpha;
+    alpha.name = "batch_alpha";
+    alpha.vertexCount = 100;
+    alpha.triangleCount = 40;
+    alpha.blendMode = BlendMode::Additive;
+    alpha.hasTexture = true;
+    alpha.hasEnvmap = false;
+    alpha.hasSkeleton = true;
+    alpha.metallic = 0.25f;
+    alpha.materialColor[0] = 0.1f;
+    alpha.materialColor[1] = 0.2f;
+    alpha.materialColor[2] = 0.3f;
+    alpha.materialColor[3] = 0.4f;
+    alpha.texture0 = 5;    // bound
+    alpha.texture1 = 0;    // unbound
+    alpha.texNormal = 7;   // bound
+    alpha.texAO = 0;       // unbound
+    alpha.texGloss = 0;    // unbound
+    alpha.texScatter = 0;  // unbound -> roleTexturesBound == 2
+
+    RenderBatch beta;
+    beta.name = "batch_beta";
+    beta.metallic = -0.0f; // exercises the FormatFloat -0 normalization end-to-end
+    // Everything else (vertexCount/triangleCount/blendMode/hasTexture/
+    // hasEnvmap/hasSkeleton/materialColor/all texture ids) stays at
+    // RenderBatch's own defaults: 0, 0, Normal, false, false, false,
+    // {1,1,1,1}, 0 -> roleTexturesBound == 0.
+
+    std::vector<RenderBatch> batches = {alpha, beta};
+    std::vector<size_t> paletteJointCounts = {12, 0};
+
+    std::string report = BuildReport("test-scene", 64, 32, 0xDEADBEEFCAFEBABEull,
+                                      batches, paletteJointCounts);
+
+    const std::string expected =
+        "{\n"
+        "  \"scene\": \"test-scene\",\n"
+        "  \"width\": 64,\n"
+        "  \"height\": 32,\n"
+        "  \"pixelHash\": 16045690984503098046,\n"
+        "  \"batches\": [\n"
+        "    {\n"
+        "      \"name\": \"batch_alpha\",\n"
+        "      \"vertexCount\": 100,\n"
+        "      \"triangleCount\": 40,\n"
+        "      \"blendMode\": \"Additive\",\n"
+        "      \"hasTexture\": true,\n"
+        "      \"hasEnvmap\": false,\n"
+        "      \"hasSkeleton\": true,\n"
+        "      \"metallic\": 0.250000,\n"
+        "      \"materialColor\": [0.100000, 0.200000, 0.300000, 0.400000],\n"
+        "      \"roleTexturesBound\": 2,\n"
+        "      \"paletteJointCount\": 12\n"
+        "    },\n"
+        "    {\n"
+        "      \"name\": \"batch_beta\",\n"
+        "      \"vertexCount\": 0,\n"
+        "      \"triangleCount\": 0,\n"
+        "      \"blendMode\": \"Normal\",\n"
+        "      \"hasTexture\": false,\n"
+        "      \"hasEnvmap\": false,\n"
+        "      \"hasSkeleton\": false,\n"
+        "      \"metallic\": 0.000000,\n"
+        "      \"materialColor\": [1.000000, 1.000000, 1.000000, 1.000000],\n"
+        "      \"roleTexturesBound\": 0,\n"
+        "      \"paletteJointCount\": 0\n"
+        "    }\n"
+        "  ]\n"
+        "}\n";
+
+    CHECK(report == expected);
+    CHECK(report.find('\r') == std::string::npos);
+}
+
+TEST_CASE("OracleCorpus: BuildReport is byte-identical across repeated calls") {
+    RenderBatch batch;
+    batch.name = "solo";
+    batch.vertexCount = 3;
+    batch.triangleCount = 1;
+    std::vector<RenderBatch> batches = {batch};
+    std::vector<size_t> paletteJointCounts = {0};
+
+    std::string report1 = BuildReport("solo-scene", 8, 8, 42ull, batches, paletteJointCounts);
+    std::string report2 = BuildReport("solo-scene", 8, 8, 42ull, batches, paletteJointCounts);
+
+    CHECK(report1 == report2);
 }

@@ -10,7 +10,7 @@ add_executable(onyx-oracle
     AppConfigStub.cpp
     CorpusTextures.cpp
     CorpusScenes.cpp
-    # Task 4 appends RenderReport.cpp
+    RenderReport.cpp
 )
 target_include_directories(onyx-oracle PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb)
 target_link_libraries(onyx-oracle PRIVATE Onyx::Render glfw)
