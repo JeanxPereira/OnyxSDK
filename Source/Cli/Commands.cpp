@@ -12,8 +12,10 @@
 #include <cctype>
 #include <cstdint>
 #include <cstdio>       // SEEK_SET
+#include <exception>    // std::exception, contains module IFile calls in ExtractEntries
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <string_view>
@@ -95,7 +97,7 @@ void PrintTree(std::ostream& out, const std::vector<Domain::AssetEntry>& entries
                Types::TypeCatalog& cat, int depth) {
     for (const auto& e : entries) {
         out << std::string(size_t(depth) * 2, ' ') << e.name << "  " << cat.KeyOf(e.typeId)
-            << "  " << e.size << " bytes";
+            << "  " << e.source.size << " bytes";
         if ((static_cast<uint8_t>(e.flags) & static_cast<uint8_t>(Domain::NodeFlags::Failed)) != 0) out << " [FAILED]";
         out << "\n";
         PrintTree(out, e.children, cat, depth + 1);
@@ -105,7 +107,7 @@ void PrintTree(std::ostream& out, const std::vector<Domain::AssetEntry>& entries
 void WriteEntryJson(std::ostream& out, const Domain::AssetEntry& e, Types::TypeCatalog& cat) {
     out << "{\"name\":\"" << JsonEscape(e.name) << "\","
         << "\"type\":\"" << JsonEscape(cat.KeyOf(e.typeId)) << "\","
-        << "\"size\":" << e.size << ","
+        << "\"size\":" << e.source.size << ","
         << "\"failed\":" << ((static_cast<uint8_t>(e.flags) & static_cast<uint8_t>(Domain::NodeFlags::Failed)) != 0 ? "true" : "false") << ","
         << "\"children\":[";
     for (size_t i = 0; i < e.children.size(); ++i) {
@@ -158,15 +160,33 @@ bool IsSafeEntryName(std::string_view name) {
     return true;
 }
 
-// Writes every non-Failed leaf entry's payload bytes to outDir/<entry-name>.
-// A "leaf" is an entry with no children -- container/branch nodes carry no
-// payload of their own to copy. Failed entries are skipped: their declared
-// range is known-bad (that is exactly why the parser flagged them).
+// Writes every non-Failed leaf entry's payload bytes to outDir/<entry-name>
+// -- or, for an entry whose bytes come from a mounted inner file
+// (fileIndex != 0), to outDir/<fileIndex>/<entry-name>. A "leaf" is an
+// entry with no children -- container/branch nodes carry no payload of
+// their own to copy. Failed entries are skipped: their declared range is
+// known-bad (that is exactly why the parser flagged them).
+//
+// `fileTable` is the owning Document's file table (Task 7): slot 0 is
+// always the root container file; slot 1+ are inner files a mount-aware
+// module opened while parsing. Each entry's payload is read from
+// fileTable[e.source.fileIndex] -- an out-of-range index is a salvage
+// failure for that one entry (an error line, then keep going), never a
+// reason to abort the whole extract.
+//
+// The per-fileIndex subdirectory (Task 8) exists because a mount can hand
+// back several inner files whose entries reuse the same name (e.g. two
+// inner containers inside an obxpak, each with a "shared.txt"): writing
+// both flat into outDir would let the second overwrite the first. A plain
+// single-file container (fileIndex 0 on every entry, e.g. flat .obx) is
+// unaffected -- its entries still land directly in outDir, exactly as
+// before this scoping was added.
 void ExtractEntries(std::ostream& out, const std::vector<Domain::AssetEntry>& entries,
-                     const std::filesystem::path& outDir, Vfs::IFile& file) {
+                     const std::filesystem::path& outDir,
+                     const std::vector<std::shared_ptr<Vfs::IFile>>& fileTable) {
     for (const auto& e : entries) {
         if (!e.children.empty()) {
-            ExtractEntries(out, e.children, outDir, file);
+            ExtractEntries(out, e.children, outDir, fileTable);
             continue;
         }
         if ((static_cast<uint8_t>(e.flags) & static_cast<uint8_t>(Domain::NodeFlags::Failed)) != 0) continue;
@@ -176,32 +196,59 @@ void ExtractEntries(std::ostream& out, const std::vector<Domain::AssetEntry>& en
             continue;
         }
 
-        std::vector<uint8_t> buf(e.size);
-        size_t got = 0;
-        if (e.size > 0) {
-            file.Seek(int64_t(e.offset), SEEK_SET);
-            got = file.Read(buf.data(), e.size);
-        }
-
-        const std::filesystem::path outPath = outDir / e.name;
-        {
-            std::ofstream ofs(outPath, std::ios::binary);
-            if (!buf.empty()) {
-                ofs.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
-            }
-        }
-
-        if (got != e.size) {
-            // A short/failed read means the bytes on disk are truncated or
-            // garbage -- never leave a zero-padded file behind for the
-            // caller to mistake for a real payload.
-            std::error_code ec;
-            std::filesystem::remove(outPath, ec);
-            out << "error '" << e.name << "': short read\n";
+        if (e.source.fileIndex >= fileTable.size() || !fileTable[e.source.fileIndex]) {
+            out << "error '" << e.name << "': file index " << e.source.fileIndex
+                << " out of range\n";
             continue;
         }
+        Vfs::IFile& file = *fileTable[e.source.fileIndex];
 
-        out << "extracted " << e.name << " (" << e.size << " bytes)\n";
+        // The alloc/Seek/Read/write below runs module-supplied IFile code
+        // for fileIndex >= 1 (a mounted inner file) -- exactly the kind of
+        // third-party code the module boundary must contain (spec §7.1). A
+        // throwing mount/VFS implementation must salvage this one entry,
+        // never abort the whole extract.
+        try {
+            std::vector<uint8_t> buf(e.source.size);
+            size_t got = 0;
+            if (e.source.size > 0) {
+                file.Seek(int64_t(e.source.offset), SEEK_SET);
+                got = file.Read(buf.data(), e.source.size);
+            }
+
+            const std::filesystem::path targetDir = e.source.fileIndex == 0
+                    ? outDir
+                    : outDir / std::to_string(e.source.fileIndex);
+            if (targetDir != outDir) {
+                std::error_code mkec;
+                std::filesystem::create_directories(targetDir, mkec);
+            }
+            const std::filesystem::path outPath = targetDir / e.name;
+            {
+                std::ofstream ofs(outPath, std::ios::binary);
+                if (!buf.empty()) {
+                    ofs.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
+                }
+            }
+
+            if (got != e.source.size) {
+                // A short/failed read means the bytes on disk are truncated or
+                // garbage -- never leave a zero-padded file behind for the
+                // caller to mistake for a real payload.
+                std::error_code ec;
+                std::filesystem::remove(outPath, ec);
+                out << "error '" << e.name << "': short read\n";
+                continue;
+            }
+
+            out << "extracted " << e.name << " (" << e.source.size << " bytes)\n";
+        } catch (const std::exception& ex) {
+            out << "error '" << e.name << "': " << ex.what() << "\n";
+            continue;
+        } catch (...) {
+            out << "error '" << e.name << "': unknown exception during read\n";
+            continue;
+        }
     }
 }
 
@@ -269,8 +316,8 @@ int CmdExtract(Workspace& ws, const std::filesystem::path& path,
     std::error_code ec;
     std::filesystem::create_directories(outDir, ec);
 
-    if (doc->file) {
-        ExtractEntries(out, doc->roots, outDir, *doc->file);
+    if (!doc->fileTable.empty()) {
+        ExtractEntries(out, doc->roots, outDir, doc->fileTable);
     }
 
     std::vector<Diag> diags = doc->diags.Drain();

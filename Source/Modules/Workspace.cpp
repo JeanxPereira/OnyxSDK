@@ -4,6 +4,7 @@
 #include <Onyx/Vfs/OsFile.h>
 
 #include <algorithm>
+#include <cctype>
 #include <exception>
 
 namespace Onyx::Modules {
@@ -95,6 +96,7 @@ std::shared_ptr<Document> Workspace::PrepareDocument(const std::filesystem::path
     doc->path = path;
     doc->module = module;
     doc->file = std::make_shared<Vfs::OsFile>(path.string());
+    doc->fileTable.push_back(doc->file);   // slot 0: the root container file
     doc->ready = false;
 
     m_documents.push_back(doc);
@@ -114,8 +116,65 @@ ParseResult Workspace::RunParse(Document& doc, IGameModule& module,
         return ParseResult{false};
     }
 
+    // Mount processing at open (spec §5.2, Task 7). Runs here -- on the
+    // same thread as ParseContainer below (the OpenAsync worker, or the
+    // caller's own thread for synchronous Open) -- so it obeys the same
+    // thread contract Document documents for roots/diags/state: nothing
+    // written here is safe to read via Get() until TreeReady fires.
+    // Extension match is case-insensitive against MountSpec::extensions
+    // (lowercase, no dot); the first matching spec wins. A factory that
+    // returns nullptr is a refused mount, not a parse failure: fall
+    // through to a plain-file parse (ctx.mountedVfs/fileTable stay null)
+    // with a Warning diag instead of aborting the open.
+    std::string ext = doc.path.extension().string();
+    if (!ext.empty() && ext.front() == '.') ext.erase(ext.begin());
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                    [](unsigned char c) { return char(std::tolower(c)); });
+
+    // Mounts() and the chosen spec's factory are module-supplied callables,
+    // exactly like ParseContainer below -- spec §7.1 forbids letting either
+    // throw across the module boundary. Contained the same way: an Error
+    // diag, then fall through to a flat-file parse (never abort the open).
+    // Without this, a throw here would escape Open() uncontained and, on
+    // the OpenAsync path, strand doc.ready == false forever -- only
+    // JobQueue's own generic catch would ever see it.
+    try {
+        for (const MountSpec& spec : module.Mounts()) {
+            if (std::find(spec.extensions.begin(), spec.extensions.end(), ext) ==
+                spec.extensions.end()) {
+                continue;
+            }
+            if (auto vfs = spec.mount(doc.path)) {
+                doc.mountedVfs = std::move(vfs);
+            } else {
+                doc.diags.Report(Services::Diag{
+                    Services::Severity::Warning,
+                    module.Info().id + ".mount-refused",
+                    "mount refused, parsing as flat file",
+                    std::nullopt});
+            }
+            break;
+        }
+    } catch (const std::exception& e) {
+        doc.mountedVfs.reset();
+        doc.diags.Report(Services::Diag{
+            Services::Severity::Error,
+            module.Info().id + ".mount-threw",
+            std::string("Mounts()/mount threw: ") + e.what(),
+            std::nullopt});
+    } catch (...) {
+        doc.mountedVfs.reset();
+        doc.diags.Report(Services::Diag{
+            Services::Severity::Error,
+            module.Info().id + ".mount-threw",
+            "Mounts()/mount threw",
+            std::nullopt});
+    }
+
     ContainerContext ctx{*doc.file, m_settings, doc.diags, progress,
-                          doc.state, doc.roots};
+                          doc.state, doc.roots,
+                          doc.mountedVfs.get(),
+                          doc.mountedVfs ? &doc.fileTable : nullptr};
     ParseResult result;
     try {
         result = module.ParseContainer(ctx);

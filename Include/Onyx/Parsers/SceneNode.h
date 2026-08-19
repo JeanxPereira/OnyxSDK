@@ -35,6 +35,7 @@ struct MaterialDesc {
     float       blendColor[4] = {1, 1, 1, 1};      // tint
     BlendMode   blendMode     = BlendMode::Normal;
     float       uvOffset[2]   = {0, 0};            // UV scroll offset
+    float       metallic      = 0.0f;              // PBR metallic factor
     // role -> index into SceneData::textures; absent role = no map.
     std::map<TextureRole, int> textures;
 };

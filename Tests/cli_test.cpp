@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include <Onyx/Cli/Commands.h>
+#include <Onyx/Domain/ByteRange.h>
 #include <Onyx/Domain/Entry.h>
 #include <Onyx/Modules/Workspace.h>
 #include <Onyx/Types/TypeCatalog.h>
@@ -15,6 +16,12 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+// spec §5.4: AssetEntry::source is a 24-byte value type (uint32_t fileIndex
+// + uint64_t offset + uint64_t size) -- widening it must never silently
+// grow the struct beyond that (padding creep, an accidental extra field).
+static_assert(sizeof(Onyx::Domain::ByteRange) == 24,
+              "ByteRange must stay a tight 24-byte value type");
 
 // Local onyxbox fixtures (adapted from Tests/onyxbox_test.cpp's
 // WriteSampleBox pattern -- not included here so this file's TEST_CASE
@@ -172,6 +179,35 @@ std::filesystem::path WriteLyingImageBox() {
     for (uint32_t i = 0; i < padding; ++i) buf.push_back(uint8_t(0xEE));
 
     auto path = std::filesystem::temp_directory_path() / "onyx_cli_lying_image.obx";
+    std::ofstream f(path, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
+    f.close();
+    return path;
+}
+
+// One entry ("huge") whose TOC-declared payloadSize is 0xFFFFFFFF (uint32
+// max) -- spec §5.4's widening case. The file itself is just the header
+// (no payload bytes follow), so the declared range is trivially beyond
+// EOF and ParseContainer must flag the entry Failed via the existing
+// bounds check -- but the declared size must still land in
+// AssetEntry::source.size un-truncated, proving the uint32 TOC value
+// widens cleanly into the 64-bit in-memory field the whole way through
+// (TOC parse -> AssetEntry assignment), even though the on-disk TOC
+// column itself stays uint32 (this fixture never changes that).
+std::filesystem::path WriteHugeSizeBox() {
+    const std::string name = "huge";
+    const uint32_t headerSize = 4 + 4 + uint32_t(2 + name.size() + 1 + 4 + 4);
+    const uint32_t payloadOffset = headerSize;
+    const uint32_t payloadSize = 0xFFFFFFFF;
+
+    std::vector<uint8_t> buf;
+    buf.insert(buf.end(), {uint8_t('O'), uint8_t('B'), uint8_t('X'), uint8_t('1')});
+    PutU32LE(buf, 1);
+    PutTocHeader(buf, name, 0, payloadOffset, payloadSize);
+    // Deliberately no payload bytes -- the file ends right after the TOC,
+    // so payloadOffset + payloadSize (huge) is always beyond EOF.
+
+    auto path = std::filesystem::temp_directory_path() / "onyx_cli_huge_size.obx";
     std::ofstream f(path, std::ios::binary);
     f.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
     f.close();
@@ -490,6 +526,25 @@ TEST_CASE("cli Run --game hint overrides ranking to pick the correct module") {
         CHECK(out.str().find("\"type\":\"obx.image\"") != std::string::npos);
     }
 
+    std::filesystem::remove(path);
+}
+
+TEST_CASE("cli parse keeps a 0xFFFFFFFF declared size un-truncated in source.size and flags the entry Failed") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(MakeModule());
+    auto path = WriteHugeSizeBox();
+
+    Onyx::Modules::DocumentId id = ws.Open(path);
+    REQUIRE(id != 0);
+    Onyx::Modules::Document* doc = ws.Get(id);
+    REQUIRE(doc != nullptr);
+    REQUIRE(doc->roots.size() == 1);
+
+    const Onyx::Domain::AssetEntry& e = doc->roots[0];
+    CHECK(e.source.size == 0xFFFFFFFFull);
+    CHECK((static_cast<uint8_t>(e.flags) & static_cast<uint8_t>(Onyx::Domain::NodeFlags::Failed)) != 0);
+
+    ws.Close(id);
     std::filesystem::remove(path);
 }
 

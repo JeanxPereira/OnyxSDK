@@ -2,6 +2,8 @@
 
 #include <Onyx/Modules/Workspace.h>
 #include <Onyx/Vfs/IFile.h>
+#include <Onyx/Vfs/IVirtualFileSystem.h>
+#include <Onyx/Vfs/OsFile.h>
 
 #include <algorithm>
 #include <cctype>
@@ -44,15 +46,168 @@ bool ReadU32LE(Onyx::Vfs::IFile& f, uint32_t& out) {
     return true;
 }
 
-// Looks up the parsed TOC entry matching `name`, stashed as ModuleState by
-// ParseContainer -- the decoder never re-walks the file to find it.
-const TocEntry* FindTocEntry(Document& doc, const std::string& name) {
+bool ReadU32LEFromBuffer(const std::vector<uint8_t>& buf, size_t pos, uint32_t& out) {
+    if (pos + 4 > buf.size()) return false;
+    out = uint32_t(buf[pos]) | (uint32_t(buf[pos + 1]) << 8) |
+          (uint32_t(buf[pos + 2]) << 16) | (uint32_t(buf[pos + 3]) << 24);
+    return true;
+}
+
+// Looks up the parsed TOC entry matching `name` in file-table slot
+// `fileIndex`, stashed as ModuleState by ParseContainer -- the decoder
+// never re-walks the file to find it. Filtering by fileIndex (not just
+// name) matters once an obxpak mount is in play: two inner OBX containers
+// are free to reuse the same entry name with different bytes, and only
+// the (fileIndex, name) pair identifies one unambiguously.
+const TocEntry* FindTocEntry(Document& doc, const std::string& name, uint32_t fileIndex) {
     if (!doc.state) return nullptr;
     auto* toc = static_cast<std::vector<TocEntry>*>(doc.state.get());
     for (const auto& e : *toc) {
-        if (e.name == name) return &e;
+        if (e.fileIndex == fileIndex && e.name == name) return &e;
     }
     return nullptr;
+}
+
+// ── OBXPAK mount machinery (Task 8) ─────────────────────────────────────────
+// One inner file's location within the pak's byte buffer.
+struct ObxPakEntry {
+    std::string name;
+    size_t      offset = 0;   // start of its raw OBX1 bytes within the pak
+    size_t      size = 0;
+};
+
+// In-memory IFile serving a fixed slice [offset, offset+size) of a shared
+// pak byte buffer -- backs each inner OBX container an obxpak mount hands
+// out through ObxPakVfs::OpenFile.
+class ObxPakFile : public Onyx::Vfs::IFile {
+public:
+    ObxPakFile(std::shared_ptr<const std::vector<uint8_t>> bytes, size_t offset, size_t size)
+        : m_bytes(std::move(bytes)), m_offset(offset), m_size(size) {}
+
+    size_t Read(void* dest, size_t bytes) override {
+        size_t avail = m_pos < int64_t(m_size) ? m_size - size_t(m_pos) : 0;
+        size_t n = bytes < avail ? bytes : avail;
+        if (n > 0) std::memcpy(dest, m_bytes->data() + m_offset + size_t(m_pos), n);
+        m_pos += int64_t(n);
+        return n;
+    }
+    bool Seek(int64_t offset, int origin) override {
+        int64_t base = 0;
+        if (origin == SEEK_CUR) base = m_pos;
+        else if (origin == SEEK_END) base = int64_t(m_size);
+        int64_t next = base + offset;
+        if (next < 0 || next > int64_t(m_size)) return false;
+        m_pos = next;
+        return true;
+    }
+    int64_t Tell() override { return m_pos; }
+    size_t Size() const override { return m_size; }
+    bool IsEOF() const override { return m_pos >= int64_t(m_size); }
+    bool IsValid() const override { return true; }
+
+private:
+    std::shared_ptr<const std::vector<uint8_t>> m_bytes;
+    size_t m_offset;
+    size_t m_size;
+    int64_t m_pos = 0;
+};
+
+// In-memory VFS over a parsed obxpak's directory: ListDirectory returns the
+// inner OBX1 container names in TOC order, OpenFile hands back an
+// ObxPakFile view over each one's byte range within the pak.
+class ObxPakVfs : public Onyx::Vfs::IVirtualFileSystem {
+public:
+    ObxPakVfs(std::shared_ptr<const std::vector<uint8_t>> bytes, std::vector<ObxPakEntry> entries)
+        : m_bytes(std::move(bytes)), m_entries(std::move(entries)) {}
+
+    bool IsValid() const override { return true; }
+
+    std::vector<std::string> ListDirectory(const std::string&) override {
+        std::vector<std::string> names;
+        names.reserve(m_entries.size());
+        for (const auto& e : m_entries) names.push_back(e.name);
+        return names;
+    }
+
+    std::unique_ptr<Onyx::Vfs::IFile> OpenFile(const std::string& path) override {
+        for (const auto& e : m_entries) {
+            if (e.name == path) return std::make_unique<ObxPakFile>(m_bytes, e.offset, e.size);
+        }
+        return nullptr;
+    }
+
+    bool Exists(const std::string& path) override {
+        for (const auto& e : m_entries) {
+            if (e.name == path) return true;
+        }
+        return false;
+    }
+
+private:
+    std::shared_ptr<const std::vector<uint8_t>> m_bytes;
+    std::vector<ObxPakEntry> m_entries;
+};
+
+// Mount factory for MountSpec{"obxpak"}: parses the OBXPAK header (magic
+// "OBP1", u32 count, then per file u32 nameLen | name | u32 size | raw OBX1
+// bytes) and returns a VFS listing every inner container. MountSpec::mount
+// takes only a path -- no diag channel reaches this far -- so hardening
+// here is silent and conservative: any header-level failure (bad magic, a
+// truncated count) refuses the whole mount by returning nullptr, which
+// Workspace treats as a refused mount and falls through to a flat-file
+// parse with its own Warning diag (never an abort). Once the header is
+// good, a per-file TOC record whose fields can't even be read, or whose
+// declared size doesn't fit the remaining bytes, stops the walk right
+// there (nothing past an unparseable boundary can be trusted) but keeps
+// every entry already parsed -- mirroring the OBX1 TOC walker's own
+// truncation handling below.
+std::shared_ptr<Onyx::Vfs::IVirtualFileSystem> MountObxPak(const std::filesystem::path& path) {
+    Onyx::Vfs::OsFile file(path.string());
+    if (!file.IsValid()) return nullptr;
+
+    auto bytes = std::make_shared<std::vector<uint8_t>>(file.ReadAll());
+    const std::vector<uint8_t>& buf = *bytes;
+
+    if (buf.size() < 8 || std::memcmp(buf.data(), "OBP1", 4) != 0) return nullptr;
+
+    uint32_t count = 0;
+    if (!ReadU32LEFromBuffer(buf, 4, count)) return nullptr;
+
+    // Smallest possible packed file record: nameLen(4) + name(1) + size(4)
+    // = 9 bytes, with an empty payload -- clamp the claimed count to what
+    // the remaining bytes could physically hold before trusting it.
+    constexpr uint32_t kMinEntrySize = 4 + 1 + 4;
+    const uint64_t remaining = buf.size() - 8;
+    const uint32_t maxPossible =
+        uint32_t(std::min<uint64_t>(remaining / kMinEntrySize, UINT32_MAX));
+    if (count > maxPossible) count = maxPossible;
+
+    std::vector<ObxPakEntry> entries;
+    entries.reserve(count);
+    size_t pos = 8;
+
+    for (uint32_t i = 0; i < count; ++i) {
+        uint32_t nameLen = 0;
+        if (!ReadU32LEFromBuffer(buf, pos, nameLen)) break;
+        pos += 4;
+
+        // nameLen clamp: 1..255, mirroring the OBX1 TOC's own hardening.
+        if (nameLen < 1 || nameLen > 255) break;
+        if (pos + nameLen > buf.size()) break;
+        std::string name(reinterpret_cast<const char*>(buf.data() + pos), nameLen);
+        pos += nameLen;
+
+        uint32_t size = 0;
+        if (!ReadU32LEFromBuffer(buf, pos, size)) break;
+        pos += 4;
+
+        if (uint64_t(pos) + uint64_t(size) > buf.size()) break;   // declared size vs remaining bytes
+
+        entries.push_back(ObxPakEntry{std::move(name), pos, size});
+        pos += size;
+    }
+
+    return std::make_shared<ObxPakVfs>(std::move(bytes), std::move(entries));
 }
 
 } // namespace
@@ -62,20 +217,24 @@ ModuleInfo OnyxBoxModule::Info() const {
         "obx",
         "OnyxBox (example)",
         {"obx"},
-        {OpenFilter{"OnyxBox", {"obx"}}},
+        {OpenFilter{"OnyxBox", {"obx"}}, OpenFilter{"OnyxBox pak", {"obxpak"}}},
     };
 }
 
 ProbeResult OnyxBoxModule::Probe(const ProbeInput& in) const {
-    if (in.header.size() >= 4 &&
-        std::memcmp(in.header.data(), "OBX1", 4) == 0) {
-        return ProbeResult{95, "OBX1 magic at 0"};
+    if (in.header.size() >= 4) {
+        if (std::memcmp(in.header.data(), "OBX1", 4) == 0) {
+            return ProbeResult{95, "OBX1 magic at 0"};
+        }
+        if (std::memcmp(in.header.data(), "OBP1", 4) == 0) {
+            return ProbeResult{95, "OBP1 magic at 0"};
+        }
     }
 
     std::string ext = in.path.extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(),
                     [](unsigned char c) { return char(std::tolower(c)); });
-    if (ext == ".obx") {
+    if (ext == ".obx" || ext == ".obxpak") {
         return ProbeResult{20, "extension only"};
     }
 
@@ -109,23 +268,34 @@ void OnyxBoxModule::RegisterDecoders(DecoderRegistry& reg) {
     reg.Text(m_textType, &OnyxBoxModule::DecodeText);
 }
 
-ParseResult OnyxBoxModule::ParseContainer(ContainerContext& ctx) {
-    Onyx::Vfs::IFile& file = ctx.file;
+std::vector<Onyx::Modules::MountSpec> OnyxBoxModule::Mounts() const {
+    Onyx::Modules::MountSpec spec;
+    spec.label = "OnyxBox pak";
+    spec.extensions = {"obxpak"};
+    spec.mount = [](const std::filesystem::path& path) {
+        return MountObxPak(path);
+    };
+    return {spec};
+}
 
+bool OnyxBoxModule::ParseObxToc(Onyx::Vfs::IFile& file, uint32_t fileIndex,
+                                 Onyx::Services::DiagSink& diags,
+                                 std::vector<Onyx::Domain::AssetEntry>& outEntries,
+                                 std::vector<TocEntry>& outToc) {
     file.Seek(0, SEEK_SET);
     char magic[4] = {};
     if (file.Read(magic, sizeof(magic)) != sizeof(magic) ||
         std::memcmp(magic, "OBX1", 4) != 0) {
-        ctx.diags.Report(Diag{Severity::Error, "obx.header.bad",
-                               "missing OBX1 magic", std::nullopt});
-        return ParseResult{false};
+        diags.Report(Diag{Severity::Error, "obx.header.bad",
+                           "missing OBX1 magic", std::nullopt});
+        return false;
     }
 
     uint32_t count = 0;
     if (!ReadU32LE(file, count)) {
-        ctx.diags.Report(Diag{Severity::Error, "obx.header.truncated",
-                               "file too small for TOC count", std::nullopt});
-        return ParseResult{false};
+        diags.Report(Diag{Severity::Error, "obx.header.truncated",
+                           "file too small for TOC count", std::nullopt});
+        return false;
     }
 
     const uint64_t fileSize = file.Size();
@@ -139,60 +309,61 @@ ParseResult OnyxBoxModule::ParseContainer(ContainerContext& ctx) {
     const uint32_t maxPossibleEntries =
         uint32_t(std::min<uint64_t>(fileSize / kMinEntrySize, UINT32_MAX));
     if (count > maxPossibleEntries) {
-        ctx.diags.Report(Diag{Severity::Warning, "obx.toc.count-clamped",
-                               "TOC count " + std::to_string(count) +
-                                   " exceeds what the file could hold; clamped to " +
-                                   std::to_string(maxPossibleEntries),
-                               std::nullopt});
+        diags.Report(Diag{Severity::Warning, "obx.toc.count-clamped",
+                           "TOC count " + std::to_string(count) +
+                               " exceeds what the file could hold; clamped to " +
+                               std::to_string(maxPossibleEntries),
+                           std::nullopt});
         count = maxPossibleEntries;
     }
 
-    std::vector<TocEntry> toc;
-    toc.reserve(count);
+    outEntries.reserve(outEntries.size() + count);
+    outToc.reserve(outToc.size() + count);
 
     for (uint32_t i = 0; i < count; ++i) {
         uint16_t nameLen = 0;
         if (!ReadU16LE(file, nameLen)) {
-            ctx.diags.Report(Diag{Severity::Warning, "obx.toc.truncated",
-                                   "TOC entry " + std::to_string(i) +
-                                       " truncated reading nameLen",
-                                   std::nullopt});
+            diags.Report(Diag{Severity::Warning, "obx.toc.truncated",
+                               "TOC entry " + std::to_string(i) +
+                                   " truncated reading nameLen",
+                               std::nullopt});
             break;
         }
 
         std::string name(nameLen, '\0');
         if (nameLen > 0 && file.Read(name.data(), nameLen) != nameLen) {
-            ctx.diags.Report(Diag{Severity::Warning, "obx.toc.truncated",
-                                   "TOC entry " + std::to_string(i) +
-                                       " truncated reading name",
-                                   std::nullopt});
+            diags.Report(Diag{Severity::Warning, "obx.toc.truncated",
+                               "TOC entry " + std::to_string(i) +
+                                   " truncated reading name",
+                               std::nullopt});
             break;
         }
 
         uint8_t kind = 0;
         if (file.Read(&kind, 1) != 1) {
-            ctx.diags.Report(Diag{Severity::Warning, "obx.toc.truncated",
-                                   "TOC entry " + std::to_string(i) +
-                                       " truncated reading kind",
-                                   std::nullopt});
+            diags.Report(Diag{Severity::Warning, "obx.toc.truncated",
+                               "TOC entry " + std::to_string(i) +
+                                   " truncated reading kind",
+                               std::nullopt});
             break;
         }
 
         uint32_t payloadOffset = 0, payloadSize = 0;
         if (!ReadU32LE(file, payloadOffset) || !ReadU32LE(file, payloadSize)) {
-            ctx.diags.Report(Diag{Severity::Warning, "obx.toc.truncated",
-                                   "TOC entry " + std::to_string(i) +
-                                       " truncated reading payload range",
-                                   std::nullopt});
+            diags.Report(Diag{Severity::Warning, "obx.toc.truncated",
+                               "TOC entry " + std::to_string(i) +
+                                   " truncated reading payload range",
+                               std::nullopt});
             break;
         }
 
-        toc.push_back(TocEntry{name, kind, payloadOffset, payloadSize});
+        outToc.push_back(TocEntry{name, kind, payloadOffset, payloadSize, fileIndex});
 
         Onyx::Domain::AssetEntry entry;
         entry.name = name;
-        entry.offset = payloadOffset;
-        entry.size = payloadSize;
+        entry.source.fileIndex = fileIndex;
+        entry.source.offset = payloadOffset;
+        entry.source.size = payloadSize;
 
         switch (kind) {
             case 1:
@@ -215,27 +386,92 @@ ParseResult OnyxBoxModule::ParseContainer(ContainerContext& ctx) {
 
         if (outOfBounds) {
             entry.flags = Onyx::Domain::NodeFlags::Failed;
-            ctx.diags.Report(Diag{Severity::Error, "obx.entry.range",
-                                   "payload out of bounds", std::nullopt});
+            diags.Report(Diag{Severity::Error, "obx.entry.range",
+                               "payload out of bounds", std::nullopt});
         }
 
-        ctx.roots.push_back(std::move(entry));
+        outEntries.push_back(std::move(entry));
     }
 
-    ctx.state = std::make_shared<std::vector<TocEntry>>(std::move(toc));
+    return true;
+}
+
+ParseResult OnyxBoxModule::ParseContainer(ContainerContext& ctx) {
+    auto toc = std::make_shared<std::vector<TocEntry>>();
+
+    if (ctx.mountedVfs && ctx.fileTable) {
+        // OBXPAK mount (Task 8): the opened file IS the pak; every inner
+        // OBX1 container it names gets opened through the mount, pushed
+        // into the Document's file table, and parsed with the same TOC
+        // walker as a flat .obx -- into its own child subtree named after
+        // the inner file, stamped with that file's table slot. An inner
+        // file that fails to even open (the mount's own defensive walk
+        // already dropped anything unparseable from its directory) is
+        // skipped with a diag; one whose OBX1 header itself is bad still
+        // gets a subtree, flagged Failed, rather than aborting the pak.
+        const std::vector<std::string> innerNames = ctx.mountedVfs->ListDirectory(std::string());
+        if (innerNames.empty()) {
+            // A mount that succeeded but named nothing (an empty OBP1 header,
+            // or one whose first record was truncated) is worth flagging --
+            // otherwise this looks silently identical to an intentionally
+            // empty pak. Still not a reason to fail the open: no roots is a
+            // valid (if useless) result.
+            ctx.diags.Report(Diag{Severity::Warning, "onyxbox.pak-empty",
+                                   "mounted archive lists no inner containers",
+                                   std::nullopt});
+        }
+        for (const std::string& name : innerNames) {
+            std::unique_ptr<Onyx::Vfs::IFile> inner = ctx.mountedVfs->OpenFile(name);
+            if (!inner) {
+                ctx.diags.Report(Diag{Severity::Warning, "obxpak.entry.open-failed",
+                                       "could not open inner container: " + name,
+                                       std::nullopt});
+                continue;
+            }
+
+            const uint32_t fileIndex = uint32_t(ctx.fileTable->size());
+            Onyx::Vfs::IFile& innerRef = *inner;
+            ctx.fileTable->push_back(std::shared_ptr<Onyx::Vfs::IFile>(std::move(inner)));
+
+            Onyx::Domain::AssetEntry subtree;
+            subtree.name = name;
+
+            std::vector<Onyx::Domain::AssetEntry> children;
+            if (!ParseObxToc(innerRef, fileIndex, ctx.diags, children, *toc)) {
+                subtree.flags = Onyx::Domain::NodeFlags::Failed;
+            }
+            subtree.children = std::move(children);
+            ctx.roots.push_back(std::move(subtree));
+        }
+
+        ctx.state = toc;
+        return ParseResult{true};
+    }
+
+    // Plain flat .obx (no mount): parse the container file directly, its
+    // entries addressed at fileIndex 0 -- the file table's pre-seeded root
+    // slot, which is this same file.
+    std::vector<Onyx::Domain::AssetEntry> entries;
+    if (!ParseObxToc(ctx.file, /*fileIndex=*/0, ctx.diags, entries, *toc)) {
+        return ParseResult{false};
+    }
+
+    ctx.roots = std::move(entries);
+    ctx.state = toc;
     return ParseResult{true};
 }
 
 std::unique_ptr<Onyx::Parsers::TextureData> OnyxBoxModule::DecodeImage(DecodeContext& ctx) {
-    const TocEntry* te = FindTocEntry(ctx.doc, ctx.entry.name);
+    const uint32_t fileIndex = ctx.entry.source.fileIndex;
+    const TocEntry* te = FindTocEntry(ctx.doc, ctx.entry.name, fileIndex);
     if (!te) {
         ctx.diags.Report(Diag{Severity::Error, "obx.image.no-toc-entry",
                                "no TOC entry for " + ctx.entry.name, std::nullopt});
         return nullptr;
     }
-    if (!ctx.doc.file) return nullptr;
+    if (fileIndex >= ctx.doc.fileTable.size() || !ctx.doc.fileTable[fileIndex]) return nullptr;
 
-    Onyx::Vfs::IFile& file = *ctx.doc.file;
+    Onyx::Vfs::IFile& file = *ctx.doc.fileTable[fileIndex];
     const uint64_t fileSize = file.Size();
 
     // The entry's own declared range must fit in the file, and must be at
@@ -286,15 +522,16 @@ std::unique_ptr<Onyx::Parsers::TextureData> OnyxBoxModule::DecodeImage(DecodeCon
 }
 
 std::optional<TextOut> OnyxBoxModule::DecodeText(DecodeContext& ctx) {
-    const TocEntry* te = FindTocEntry(ctx.doc, ctx.entry.name);
+    const uint32_t fileIndex = ctx.entry.source.fileIndex;
+    const TocEntry* te = FindTocEntry(ctx.doc, ctx.entry.name, fileIndex);
     if (!te) {
         ctx.diags.Report(Diag{Severity::Error, "obx.text.no-toc-entry",
                                "no TOC entry for " + ctx.entry.name, std::nullopt});
         return std::nullopt;
     }
-    if (!ctx.doc.file) return std::nullopt;
+    if (fileIndex >= ctx.doc.fileTable.size() || !ctx.doc.fileTable[fileIndex]) return std::nullopt;
 
-    Onyx::Vfs::IFile& file = *ctx.doc.file;
+    Onyx::Vfs::IFile& file = *ctx.doc.fileTable[fileIndex];
     const uint64_t fileSize = file.Size();
 
     if (uint64_t(te->payloadOffset) + uint64_t(te->payloadSize) > fileSize) {

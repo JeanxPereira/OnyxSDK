@@ -1,0 +1,21 @@
+{
+  "scene": "skinned-cube",
+  "width": 512,
+  "height": 512,
+  "pixelHash": 13103458888596407523,
+  "batches": [
+    {
+      "name": "cube_body",
+      "vertexCount": 40,
+      "triangleCount": 60,
+      "blendMode": "Normal",
+      "hasTexture": true,
+      "hasEnvmap": false,
+      "hasSkeleton": true,
+      "metallic": 0.000000,
+      "materialColor": [1.000000, 1.000000, 1.000000, 1.000000],
+      "roleTexturesBound": 1,
+      "paletteJointCount": 3
+    }
+  ]
+}
