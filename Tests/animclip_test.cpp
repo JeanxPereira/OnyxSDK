@@ -66,6 +66,12 @@ TEST_CASE("AnimClip: t=0 holds the rest pose and mid-clip moves away from it") {
     for (size_t i = 0; i < atZero.size(); ++i)
         CHECK(atZero[i].x == doctest::Approx(float(cs.scene.skeleton->vectors5[i].x)));
 
+    // Guards the fixture itself: joints 1 and 2 must carry a real (nonzero)
+    // encoded rest rotation, or the comparison above degrades to 0 == 0 and
+    // a Reset() that ignored vectors5 entirely would pass it.
+    CHECK(atZero[1].x != 0.0f);
+    CHECK(atZero[2].x != 0.0f);
+
     player.SetTime(0.5f);
     const std::vector<glm::vec4> atMid = player.GetJointRotations();
 

@@ -326,11 +326,23 @@ CorpusScene BuildSkinnedCube() {
 
 // ── animated-chain ───────────────────────────────────────────────────────
 //
-// BuildSkinnedCube's geometry and skeleton verbatim, plus the one thing the
-// whole corpus lacks: an actual clip. Joints 1 and 2 sweep 0deg -> 60deg
-// around X over 1.0s at 1/30s, written as absolute (non-additive) samples,
-// which is the branch of HandleSkinningStream that assigns rather than
-// accumulates -- see that function in Source/Rendering/AnimationPlayer.cpp.
+// BuildSkinnedCube's geometry and skeleton verbatim -- rest != bind pose is
+// that scene's whole point (see its own comment), and Tasks 4/5 render this
+// clip's t=0 as the "animation set but not advanced" baseline against that
+// same nonzero rest pose, so a renderer bug that silently substituted the
+// bind pose for the rest pose still has something real to disagree with.
+// Do not zero the skeleton here.
+//
+// Joints 1 and 2 sweep 60deg -> 120deg around X over 1.0s at 1/30s, written
+// as absolute (non-additive) samples, which is the branch of
+// HandleSkinningStream that assigns rather than accumulates -- see that
+// function in Source/Rendering/AnimationPlayer.cpp. The range starts at
+// 60deg rather than 0deg specifically so it never revisits BuildSkinnedCube's
+// fixed 30deg rest bend: a 0deg -> 60deg sweep would pass back through 30deg
+// at its own t=0.5s midpoint, making the animated pose there numerically
+// indistinguishable from the (unmoved) rest pose. Moving the range instead
+// of the sample time closes this for every t, not just the one this task's
+// test happens to sample.
 //
 // Sample index 0 is never read by the bake (EnsureBaked captures frame 0 from
 // the rest pose before its walk starts at f=1), so it is written for
@@ -341,21 +353,8 @@ CorpusScene BuildAnimatedChain() {
 
     constexpr int   kSampleCount = 31;    // frames 0..30 == 1.0s at 1/30
     constexpr float kFrameTime   = 1.0f / 30.0f;
-    constexpr double kBendDegrees = 60.0;
-
-    // BuildSkinnedCube gives its own (independent, cloned-here) skeleton a
-    // permanent +30deg rest bend on joints 1 and 2, so that scene looks bent
-    // even with no animation applied. That value has no effect on the
-    // corpus/parity goldens -- BuildCorpus() calls BuildSkinnedCube() itself
-    // and gets its own separate ObjectData -- but left alone here it collides
-    // with this clip: 60deg swept linearly over the clip's duration passes
-    // through exactly 30deg at t=0.5s, which would make the animated pose at
-    // the record's own midpoint indistinguishable from the (still bent) rest
-    // pose. Zero it out on this clone only, so the rest pose genuinely reads
-    // as straight and the clip's 0deg -> 60deg sweep is unambiguous at every
-    // sampled time, including the midpoint gate 4/5 render against.
-    cs.scene.skeleton->vectors5[1] = glm::ivec4(0, 0, 0, 0);
-    cs.scene.skeleton->vectors5[2] = glm::ivec4(0, 0, 0, 0);
+    constexpr double kBendStartDegrees = 60.0;
+    constexpr double kBendEndDegrees   = 120.0;
 
     auto anim = std::make_shared<AnimationData>();
     anim->dataTypes.push_back(AnimDataType{ANIM_DATATYPE_SKINNING, 0, 0});
@@ -372,7 +371,8 @@ CorpusScene BuildAnimatedChain() {
         samples.reserve(kSampleCount);
         for (int f = 0; f < kSampleCount; ++f) {
             const double t = double(f) / double(kSampleCount - 1);
-            samples.push_back(float(EncodeEulerDegreesQ14(kBendDegrees * t)));
+            samples.push_back(float(EncodeEulerDegreesQ14(
+                kBendStartDegrees + (kBendEndDegrees - kBendStartDegrees) * t)));
         }
         rot.samples[joint * 4 + 0] = std::move(samples); // X coordinate
     }
