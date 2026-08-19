@@ -52,17 +52,24 @@
 //   Gloss, Emissive
 //       Both have a plausible glTF neighbour (gloss -> the G/B channels of
 //       metallicRoughnessTexture; emissive -> the native emissiveTexture
-//       slot) but neither is a direct copy: our Gloss role is a raw
+//       slot) but neither is a direct copy. Our Gloss role is a raw
 //       single-channel glossiness map, not pre-packed into glTF's
 //       roughness=G/metallic=B channel convention, so exporting it as-is
 //       under metallicRoughnessTexture would silently misrender (wrong
 //       channel, wrong sense — glossiness is roughness's inverse) rather
-//       than just "not appear". Emissive genuinely could be wired to
-//       emissiveTexture with zero repacking, but is left out of this v1
-//       pass deliberately to keep the exported role surface exactly the
-//       set this task's brief named (Diffuse/Normal/Occlusion) rather than
-//       silently growing it — a candidate for a follow-up, not a gap this
-//       header hides.
+//       than just "not appear". Emissive's texture slot itself WOULD copy
+//       cleanly (emissiveTexture wants exactly what our Emissive role
+//       already is, no repacking) — but MaterialDesc carries no emissive
+//       FACTOR to pair with it, only the texture-role index. Wiring just
+//       the texture would bind it against glTF's own emissiveFactor
+//       default (0,0,0 — pure black), which multiplies the texture to
+//       nothing: half a mapping that would silently export as "no
+//       emission" regardless of what the source texture shows. Left out
+//       of this v1 pass deliberately, not because the texture slot is
+//       hard, but because MaterialDesc would need an emissive factor
+//       field added first for the mapping to mean anything — a candidate
+//       for a follow-up (alongside that field), not a gap this header
+//       hides.
 //
 // Every exported texture is re-encoded to PNG (stb_image_write, in
 // memory) and embedded in the glTF binary buffer as an image bufferView —
@@ -101,8 +108,19 @@
 //     joint in ObjectData::joints order, so jointMap[local] is already the
 //     correct glTF joint index with no further translation.
 //
-// A part with no skeleton, or with `MeshPart::useBindToJoint == false` or
-// an empty `jointMap`, exports as an ordinary unskinned primitive (no
+// A part exports as skinned exactly when Source/RenderVk/
+// SceneRendererVk.cpp's own draw-time gate would treat it as skinned:
+// `scene.HasSkeleton() && !part.jointMap.empty()` — the renderer decides
+// what is skinned, this exporter only describes what the renderer draws.
+// `MeshPart::useBindToJoint` deliberately does NOT gate this, even though
+// it looks like it should: a part can carry a non-empty `jointMap` with
+// `useBindToJoint == false` (see MeshData.h's `isRigid` comment — GOWR
+// rigid-bound submeshes are exactly this shape, single-entry `jointMap`,
+// no per-vertex bone weights, still fully skinned by the renderer via
+// that one joint), and gating on it too would export such a part as
+// static bind-pose geometry while the viewport renders it skinned. A part
+// with no skeleton, or with an empty `jointMap` regardless of
+// `useBindToJoint`, exports as an ordinary unskinned primitive (no
 // JOINTS_0/WEIGHTS_0, mesh node carries no `skin`).
 //
 // ── Why Core-only, never Onyx::Render ───────────────────────────────────

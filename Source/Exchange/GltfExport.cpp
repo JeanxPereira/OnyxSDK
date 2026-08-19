@@ -196,10 +196,23 @@ bool ExportSceneData(const SceneData& scene, const std::filesystem::path& out,
     const ObjectData* skel = hasSkin ? scene.skeleton.get() : nullptr;
     const size_t jointCount = skel ? skel->joints.size() : 0;
 
+    // Matches Source/RenderVk/SceneRendererVk.cpp's own skinning gate
+    // exactly (`batch.hasSkeleton && !batch.jointMap.empty()`, no
+    // useBindToJoint check) -- the renderer decides what is skinned, this
+    // exporter must describe what the renderer draws, not apply its own
+    // policy on top. useBindToJoint deliberately does NOT gate this: a
+    // part can carry a non-empty jointMap with useBindToJoint == false
+    // (MeshData.h's isRigid comment: "GOWR: submesh has no BoneIdx/BoneWgt
+    // semantics; rigid-bound to jointMap[0]") and the renderer still fully
+    // skins it via that single-entry jointMap. Gating on useBindToJoint
+    // too would silently export such a part as static bind-pose geometry
+    // while the viewport renders it skinned -- exactly the kind of
+    // exporter/renderer disagreement spec §9 exists to catch, on the wrong
+    // side, with no fixture noticing.
     std::vector<bool> partSkinned(scene.meshParts.size(), false);
     for (size_t i = 0; i < scene.meshParts.size(); ++i) {
         const MeshPart& p = scene.meshParts[i];
-        partSkinned[i] = hasSkin && p.useBindToJoint && !p.jointMap.empty();
+        partSkinned[i] = hasSkin && !p.jointMap.empty();
     }
 
     // Texture roles that map cleanly onto glTF core PBR (see GltfExport.h
