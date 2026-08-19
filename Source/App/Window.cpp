@@ -66,6 +66,15 @@ struct Window::VulkanState {
     VkExtent2D         swapchainExtent{0, 0};
     VkSwapchainKHR     swapchain          = VK_NULL_HANDLE;
 
+    // The surface's own VkSurfaceCapabilitiesKHR::minImageCount, captured
+    // by the first createSwapchain() call (before initImGui() runs) so
+    // initImGui()'s ImGui_ImplVulkan_InitInfo::MinImageCount and every
+    // later recreateSwapchain()'s ImGui_ImplVulkan_SetMinImageCount() call
+    // derive from the exact same clamp(max(surfaceMinImageCount, 2))
+    // expression instead of two independently-hardcoded values that can
+    // silently disagree -- see the fix-round comments at both call sites.
+    uint32_t           surfaceMinImageCount = 2;
+
     // Per-swapchain-image state (sized to the swapchain's own image count,
     // which need not equal kFramesInFlight).
     std::vector<VkImage>       images;
@@ -354,6 +363,13 @@ void Window::createSwapchain(uint32_t width, uint32_t height) {
     VkSurfaceCapabilitiesKHR caps{};
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(ctx.Physical(), m_vk->surface, &caps);
 
+    // Captured every call (not just the first) so a driver that reports a
+    // different minImageCount after a mode change is still honored -- but
+    // it is the FIRST call, from initVulkan() before initImGui() runs, that
+    // matters for the MinImageCount/SetMinImageCount agreement documented
+    // on the field itself.
+    m_vk->surfaceMinImageCount = caps.minImageCount;
+
     uint32_t formatCount = 0;
     vkGetPhysicalDeviceSurfaceFormatsKHR(ctx.Physical(), m_vk->surface, &formatCount, nullptr);
     std::vector<VkSurfaceFormatKHR> formats(formatCount);
@@ -473,9 +489,16 @@ void Window::createSwapchain(uint32_t width, uint32_t height) {
 
     // ImGui's own MinImageCount bookkeeping (only meaningful once
     // initImGui() has already run -- a mid-run resize, not the first
-    // creation from the constructor).
+    // creation from the constructor). Fix round 2: this MUST derive from
+    // the exact same expression as initImGui()'s InitInfo::MinImageCount
+    // below -- imgui_impl_vulkan.cpp's SetMinImageCount hits an
+    // unconditional IM_ASSERT(0) the moment the value it's called with
+    // differs from what Init() recorded, and caps.minImageCount is a
+    // per-driver number (several Windows ICDs report 3, not 2) that a
+    // hardcoded literal at the other call site could silently disagree
+    // with on any GPU other than the one this was last tested on.
     if (ImGui::GetCurrentContext())
-        ImGui_ImplVulkan_SetMinImageCount(std::max(caps.minImageCount, 2u));
+        ImGui_ImplVulkan_SetMinImageCount(std::max(m_vk->surfaceMinImageCount, 2u));
 }
 
 void Window::destroySwapchain() {
@@ -656,7 +679,15 @@ void Window::initImGui() {
     // atlas's own handful of descriptors for T10's per-viewer
     // ImGui_ImplVulkan_AddTexture() churn.
     initInfo.DescriptorPoolSize = 64;
-    initInfo.MinImageCount    = std::max<uint32_t>(kFramesInFlight, 2);
+    // Fix round 2: MUST match recreateSwapchain()'s later
+    // ImGui_ImplVulkan_SetMinImageCount() call exactly (same expression,
+    // same m_vk->surfaceMinImageCount field) -- imgui_impl_vulkan.cpp's
+    // SetMinImageCount unconditionally asserts if the value it is ever
+    // called with differs from what Init() recorded here, and this used
+    // to be a hardcoded kFramesInFlight-derived literal that could disagree
+    // with the device's real VkSurfaceCapabilitiesKHR::minImageCount (e.g.
+    // ICDs reporting 3) the first time a resize called SetMinImageCount.
+    initInfo.MinImageCount    = std::max(m_vk->surfaceMinImageCount, 2u);
     initInfo.ImageCount       = static_cast<uint32_t>(m_vk->images.size());
     initInfo.PipelineCache    = VK_NULL_HANDLE;
     initInfo.UseDynamicRendering = true;
