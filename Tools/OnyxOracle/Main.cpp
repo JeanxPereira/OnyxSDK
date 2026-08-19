@@ -4,6 +4,7 @@
 
 #include <Onyx/Rendering/SceneRenderer.h>
 #include <Onyx/RenderVk/VkContext.h>
+#include <Onyx/RenderVk/VkResources.h>
 
 #include <cstdio>
 #include <cstring>
@@ -31,8 +32,12 @@ void PrintHelp() {
         "\n"
         "  onyx-oracle --vk-smoke\n"
         "      Boots a headless Vulkan 1.3 instance/device/VMA allocator via\n"
-        "      VkContext, prints the picked device name, tears down, exits 0 on\n"
-        "      success. Exit 77 if no Vulkan-capable device/driver is found.\n"
+        "      VkContext, prints the picked device name, creates a 64x64 RGBA\n"
+        "      image, uploads a checker pattern to it via a staged upload,\n"
+        "      destroys it, tears down, exits 0 on success. Exit 1 if any\n"
+        "      validation message was captured (Debug builds with the\n"
+        "      validation layer present). Exit 77 if no Vulkan-capable\n"
+        "      device/driver is found.\n"
         "\n"
         "  onyx-oracle render-corpus --out DIR\n"
         "      Renders all 5 corpus scenes to DIR/<name>.png + DIR/<name>.json,\n"
@@ -227,7 +232,50 @@ int main(int argc, char** argv) {
             return 77;
         }
         std::printf("device: %s\n", ctx.Info().deviceName.c_str());
+
+        // T2 smoke: create a 64x64 RGBA image, upload a checker pattern to
+        // it (staged upload -> UNDEFINED -> TRANSFER_DST -> SHADER_READ_ONLY
+        // via vkCmdPipelineBarrier2), then destroy it. Round-trip readback
+        // is NOT required here -- that lands in T4's OffscreenTarget. The
+        // bar is create/upload/destroy raising zero validation messages.
+        constexpr uint32_t kImgW = 64, kImgH = 64;
+        std::vector<uint8_t> checker(static_cast<size_t>(kImgW) * kImgH * 4);
+        for (uint32_t y = 0; y < kImgH; ++y) {
+            for (uint32_t x = 0; x < kImgW; ++x) {
+                const uint8_t v = (((x / 8) + (y / 8)) % 2 == 0) ? 255 : 0;
+                const size_t i = (static_cast<size_t>(y) * kImgW + x) * 4;
+                checker[i + 0] = v;
+                checker[i + 1] = v;
+                checker[i + 2] = v;
+                checker[i + 3] = 255;
+            }
+        }
+
+        Onyx::RenderVk::Image2D img = Onyx::RenderVk::Resources::CreateImage2D(
+            ctx, kImgW, kImgH, VK_FORMAT_R8G8B8A8_UNORM,
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_SAMPLE_COUNT_1_BIT,
+            err);
+        if (img.img == VK_NULL_HANDLE) {
+            std::fprintf(stderr, "%s\n", err.c_str());
+            ctx.Shutdown();
+            return 1;
+        }
+
+        if (!Onyx::RenderVk::Resources::UploadImage(ctx, img, checker.data(), err)) {
+            std::fprintf(stderr, "%s\n", err.c_str());
+            Onyx::RenderVk::Resources::Destroy(ctx, img);
+            ctx.Shutdown();
+            return 1;
+        }
+
+        Onyx::RenderVk::Resources::Destroy(ctx, img);
         ctx.Shutdown();
+
+        if (ctx.ValidationMessageCount() != 0) {
+            std::fprintf(stderr, "%u validation message(s); last: %s\n",
+                        ctx.ValidationMessageCount(), ctx.LastValidationMessage().c_str());
+            return 1;
+        }
         return 0;
     }
 

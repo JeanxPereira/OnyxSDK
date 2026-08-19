@@ -66,7 +66,24 @@ public:
     VmaAllocator     Allocator() const { return m_allocator; }
     const ContextInfo& Info() const { return m_info; }
 
+    // ── Validation capture (T1-review addition) ─────────────────────────────
+    // No debug-message sink existed when T1 landed; every later task needs
+    // "zero validation messages" to be a checkable fact rather than
+    // something eyeballed off stderr. When validation is active (Debug
+    // builds, layer present) Init creates a VkDebugUtilsMessengerEXT scoped
+    // to the instance -- warnings and errors increment the count below and
+    // overwrite the last message. Both persist across Shutdown() (only Init
+    // resets them) so a caller can inspect them right after tearing the
+    // context down, catching messages raised during teardown itself.
+    uint32_t         ValidationMessageCount() const { return m_validationMessageCount; }
+    const std::string& LastValidationMessage() const { return m_lastValidationMessage; }
+
 private:
+    static VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+                                              VkDebugUtilsMessageTypeFlagsEXT type,
+                                              const VkDebugUtilsMessengerCallbackDataEXT* data,
+                                              void* userData);
+
     VkInstance       m_instance = VK_NULL_HANDLE;
     VkPhysicalDevice m_physical = VK_NULL_HANDLE;
     VkDevice         m_device = VK_NULL_HANDLE;
@@ -74,6 +91,10 @@ private:
     uint32_t         m_graphicsFamily = UINT32_MAX;
     VmaAllocator     m_allocator = VK_NULL_HANDLE;
     ContextInfo      m_info;
+
+    VkDebugUtilsMessengerEXT m_debugMessenger = VK_NULL_HANDLE;
+    uint32_t         m_validationMessageCount = 0;
+    std::string      m_lastValidationMessage;
 };
 
 } // namespace Onyx::RenderVk

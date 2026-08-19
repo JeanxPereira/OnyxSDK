@@ -58,6 +58,12 @@ bool VkContext::Init(bool presentSupport, std::string& err) {
         return false;
     }
 
+    // Reset per-session validation state here (not in Shutdown) so a
+    // Shutdown'd-then-reInit'd context starts clean, while Shutdown itself
+    // can still add to the count/message a caller reads afterward.
+    m_validationMessageCount = 0;
+    m_lastValidationMessage.clear();
+
     if (volkInitialize() != VK_SUCCESS) {
         err = "volkInitialize failed -- no Vulkan loader found "
               "(vulkan-1.dll on Windows, libvulkan.so.1 elsewhere)";
@@ -93,6 +99,10 @@ bool VkContext::Init(bool presentSupport, std::string& err) {
     if (wantValidation && LayerAvailable("VK_LAYER_KHRONOS_validation")) {
         instanceLayers.push_back("VK_LAYER_KHRONOS_validation");
         validationEnabled = true;
+        // VK_EXT_debug_utils is what lets the messenger below exist at all;
+        // only requested alongside the layer that would actually emit
+        // anything to it.
+        instanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
 
     VkInstanceCreateInfo instInfo{};
@@ -110,6 +120,27 @@ bool VkContext::Init(bool presentSupport, std::string& err) {
         return false;
     }
     volkLoadInstance(m_instance);
+
+    // ---- Debug messenger (instance-scoped; only when validation is on) ----
+    if (validationEnabled && vkCreateDebugUtilsMessengerEXT) {
+        VkDebugUtilsMessengerCreateInfoEXT dbgInfo{};
+        dbgInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+        dbgInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                   VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        dbgInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                               VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                               VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+        dbgInfo.pfnUserCallback = &VkContext::DebugCallback;
+        dbgInfo.pUserData = this;
+
+        vr = vkCreateDebugUtilsMessengerEXT(m_instance, &dbgInfo, nullptr, &m_debugMessenger);
+        if (vr != VK_SUCCESS) {
+            err = "vkCreateDebugUtilsMessengerEXT failed (VkResult " +
+                  std::to_string(static_cast<int>(vr)) + ")";
+            Shutdown();
+            return false;
+        }
+    }
 
     // ---- Physical device ----
     uint32_t deviceCount = 0;
@@ -258,6 +289,14 @@ void VkContext::Shutdown() {
         vkDestroyDevice(m_device, nullptr);
         m_device = VK_NULL_HANDLE;
     }
+    // Destroyed after the device but before the instance it was created
+    // against -- any validation raised while tearing down the device/
+    // allocator above is still captured.
+    if (m_debugMessenger != VK_NULL_HANDLE) {
+        if (vkDestroyDebugUtilsMessengerEXT)
+            vkDestroyDebugUtilsMessengerEXT(m_instance, m_debugMessenger, nullptr);
+        m_debugMessenger = VK_NULL_HANDLE;
+    }
     if (m_instance != VK_NULL_HANDLE) {
         vkDestroyInstance(m_instance, nullptr);
         m_instance = VK_NULL_HANDLE;
@@ -266,6 +305,24 @@ void VkContext::Shutdown() {
     m_graphicsQueue = VK_NULL_HANDLE;
     m_graphicsFamily = UINT32_MAX;
     m_info = ContextInfo{};
+}
+
+VkBool32 VKAPI_CALL VkContext::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
+                                              VkDebugUtilsMessageTypeFlagsEXT type,
+                                              const VkDebugUtilsMessengerCallbackDataEXT* data,
+                                              void* userData) {
+    (void)type;
+    if (severity & (VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                    VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)) {
+        VkContext* ctx = static_cast<VkContext*>(userData);
+        if (ctx) {
+            ++ctx->m_validationMessageCount;
+            ctx->m_lastValidationMessage =
+                (data && data->pMessage) ? data->pMessage : "(no message)";
+        }
+    }
+    // VK_FALSE: never abort the call that triggered validation.
+    return VK_FALSE;
 }
 
 } // namespace Onyx::RenderVk
