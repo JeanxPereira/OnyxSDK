@@ -1,9 +1,12 @@
-# OnyxSDK CI — the repo's first CI (Task 12, Onyx v1 M4 "Vulkan" milestone).
+# OnyxSDK CI — the repo's first CI (Task 12, Onyx v1 M4 "Vulkan" milestone;
+# extended at Task 9, Onyx v1 M5 "Generality", with the cold-start header
+# exam on windows-msvc and refreshed ctest counts for the v1.0.0 tag).
 #
 # HONEST NOTE (read before trusting a green or red run): as of writing,
 # this repo's remote has never received the feat/onyx-v1-m4-vulkan branch
-# this file was authored on -- pushing it is a pending human action. This
-# workflow was authored and locally lint-checked
+# this file was authored on -- pushing it is a pending human action, still
+# true at the v1.0.0 tag. This workflow was authored and locally
+# lint-checked
 # (`python -c "import yaml,sys; yaml.safe_load(open('.github/workflows/ci.yml'))"`)
 # but has NEVER actually executed on a GitHub-hosted runner. In particular:
 #
@@ -47,22 +50,72 @@ jobs:
       - name: Build
         run: cmake --build --preset debug
 
+      - name: Cold-start header exam (T2/T9) -- <Onyx/Onyx.h> alone, public headers only
+        # The milestone's spine (see docs/design/2026-08-19-public-surface-
+        # audit.md): a toolkit author who has only cloned the repo and
+        # configured once must be able to compile a TU that includes
+        # nothing but <Onyx/Onyx.h> against -I Include plus third-party
+        # dirs alone -- explicitly NO -I Source, NO -I build/generated.
+        # Include/Onyx/Version.h is checked into the tree (fbd54d3), so
+        # the umbrella's first include resolves without depending on this
+        # job's own configure having run -- it is exercised here anyway
+        # because build/_deps/*-src (populated by the Configure step
+        # above via FetchContent, the same mechanism a consumer's own
+        # FetchContent would use) is the natural source for the
+        # third-party dirs the umbrella needs. Tools/ColdStart/ColdStartOnyx.cpp
+        # is deliberately not a member of any CMakeLists.txt target --
+        # through-CMake compilation would put Source/ on the include path
+        # via ordinary target properties, defeating the point. Command
+        # verified locally (MSVC, this exact set of -I dirs) before this
+        # step was authored; see task-9-report.md.
+        #
+        # NOT duplicated on linux-lavapipe below: this step's exact
+        # compiler invocation (cl.exe via ilammy/msvc-dev-cmd) has no
+        # equivalent proven from this dispatch's Windows-only environment
+        # -- a g++/clang++ invocation was not exercised against a real
+        # Ubuntu toolchain here, and adding an unverified step would be
+        # exactly the "wishful CI" this repo's own convention warns
+        # against (see this file's own header note on lavapipe). Porting
+        # this check to linux-lavapipe is flagged as follow-up work, not
+        # silently skipped.
+        #
+        # shell: cmd (not the runner's pwsh default) -- `^` line
+        # continuation below is cmd syntax; this is the exact invocation
+        # verified locally via cmd.exe, unchanged.
+        shell: cmd
+        run: |
+          cl /c /EHsc /utf-8 /std:c++20 /nologo ^
+            -I Include ^
+            -I build\_deps\imgui-src ^
+            -I build\_deps\glm-src ^
+            -I build\_deps\glfw-src\include ^
+            -I build\_deps\tomlplusplus-src\include ^
+            -I build\_deps\lz4-src\lib ^
+            -I build\_deps\imgui_color_text_edit-src ^
+            Tools\ColdStart\ColdStartOnyx.cpp
+
       - name: Test
         # This runner has no GPU (and possibly no Vulkan loader at all).
         # Every render-labeled ctest entry (VkBootSmoke, VkValidationSelfTest,
-        # VkSceneSmoke, OracleReproducible, VkOracleParity --
-        # Tools/OnyxOracle/CMakeLists.txt; OnyxCliRender --
-        # Examples/OnyxCli/CMakeLists.txt) calls VkContext::Init, which
-        # returns exit 77 uniformly whether volkInitialize() finds no
-        # Vulkan loader at all (Source/Rendering/VkContext.cpp) or the
-        # loader finds no physical device -- either way, on this runner,
-        # the process exits 77. Each of those six tests carries
-        # SKIP_RETURN_CODE 77, which is CTest's own "treat this exit code
-        # as SKIP, not FAIL" contract: ctest reports the test "Not Run"
-        # and does NOT count it toward the run's pass/fail verdict, so the
-        # overall `ctest` process still exits 0 with 6 skips among the 47
-        # registered tests. Nothing here should ever legitimately go red
-        # from a missing GPU.
+        # VkSceneSmoke, RenderToImageSmoke, OracleReproducible, VkOracleParity --
+        # Tools/OnyxOracle/CMakeLists.txt; OnyxCliRender, OnyxCliRenderViews,
+        # OnyxCliRenderStrict -- Examples/OnyxCli/CMakeLists.txt) calls
+        # VkContext::Init, which returns exit 77 uniformly whether
+        # volkInitialize() finds no Vulkan loader at all
+        # (Source/Rendering/VkContext.cpp) or the loader finds no physical
+        # device -- either way, on this runner, the process exits 77. Each
+        # of those nine tests carries SKIP_RETURN_CODE 77, which is
+        # CTest's own "treat this exit code as SKIP, not FAIL" contract:
+        # ctest reports the test "Not Run" and does NOT count it toward
+        # the run's pass/fail verdict, so the overall `ctest` process
+        # still exits 0 with 9 skips among the 52 registered tests
+        # (updated as of the v1.0 tag -- M5 added OnyxTestKit and OnyxGltf
+        # among others; re-check this count if it drifts again). This
+        # includes OnyxTestKit (Tests/testkit_test.cpp, Onyx::TestKit's
+        # golden/decode-smoke/render-compare helpers): ctest with no -R
+        # filter runs every registered test, so no separate invocation is
+        # needed to exercise it on both jobs. Nothing here should ever
+        # legitimately go red from a missing GPU.
         run: ctest --test-dir build -j1 --output-on-failure
 
   linux-lavapipe:
@@ -132,4 +185,7 @@ jobs:
         # above all -- actually RUNS here and gates the PR for real. See
         # this workflow's header for why a VkOracleParity tolerance FAIL on
         # the very first run of this job is expected to be a tuning event.
+        # No -R filter, same as windows-msvc: every registered test runs,
+        # including OnyxTestKit -- there is no separate TestKit-only
+        # invocation to keep in sync between the two jobs.
         run: ctest --test-dir build -j1 --output-on-failure
