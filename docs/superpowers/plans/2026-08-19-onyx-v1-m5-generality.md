@@ -6,11 +6,12 @@
 zero SDK edits — ship `Onyx::TestKit` so every toolkit is born testable,
 add glTF export as an external oracle for skinning, and tag **v1.0**.
 
-**Architecture:** The milestone is an exam, not a feature list. A toy COMI
-module (LucasArts LA0 containers) is written entirely inside
-`Examples/OnyxComi` against public headers only; every time it needs
-something the SDK does not export, that is a **finding**, and the fix is a
-first-class task, not a workaround in the example. `Onyx::TestKit` is
+**Architecture:** The milestone is an exam, not a feature list. No new game
+module enters this repo (Jean's scope call, 2026-08-19); the exam instead
+audits the SDK's public surface against the two toolkits that already exist
+(`MinimalViewer`, `onyxbox-cli`) plus a cold-start toolkit TU compiled from
+public headers alone. Every thing a consumer cannot reach is a **finding**,
+and the fix is a first-class SDK task, never a workaround. `Onyx::TestKit` is
 extracted from the test helpers this repo already grew organically (tree
 goldens, decode smoke, render compare) and becomes public surface. glTF
 export lands as `Onyx::Exchange` (cgltf), validated by an external tool
@@ -33,14 +34,13 @@ Roadmap: `2026-08-18-onyx-v1-roadmap.md` §M5.
   or delete it; a configure failure is STOP-and-report. vcvars64 is the
   BuildTools edition; from Git Bash use `MSYS2_ARG_CONV_EXCL="*"` with
   `cmd /c`. ctest SERIAL only.
-- **The exam rule (binding, T2-T4):** `Examples/OnyxComi` may include only
-  `Include/Onyx/**` public headers. It may not touch `Source/**`, may not
-  be granted friend access, and may not have SDK sources added to its
-  target. If it cannot do something, STOP, write the finding down, and let
-  the controller schedule an SDK task — never route around it.
-- No game names in Core or Render sources (spec §13). "COMI"/"LA0" live in
-  `Examples/OnyxComi` only. (M4 left three pre-existing violations in
-  Render headers — T8 cleans them; do not add more.)
+- **The exam rule (binding, T2):** a gap in the public surface is a
+  FINDING, never something to route around. The audit reports what a
+  consumer cannot reach; the controller schedules the SDK fix. No task may
+  "solve" a gap by reaching into `Source/**`.
+- No game names in Core or Render sources (spec §13). (M4 left three
+  pre-existing violations in Render headers — T8 cleans them; do not add
+  more.) No new game module enters this repo — Jean's call, 2026-08-19.
 - Every new public header compiles standalone.
 - The M0 goldens in `Tests/Golden/corpus` stay FROZEN. Render-compare work
   reuses them; nothing regenerates them.
@@ -50,15 +50,14 @@ Roadmap: `2026-08-18-onyx-v1-roadmap.md` §M5.
   (M4 shipped two over — do not repeat), NO attribution trailers,
   explicit-path staging.
 - Commercial game data never enters the repository (spec §10 fixture
-  policy). COMI fixtures are synthetic, written by a fixture builder.
+  policy). All fixtures are synthetic, written by fixture builders.
 
 ## File Structure
 
 ```
 Include/Onyx/TestKit/{Goldens,DecodeSmoke,RenderCompare}.h   (T1)
 Source/TestKit/*.cpp                                          (T1)
-Examples/OnyxComi/{CMakeLists.txt,ComiModule.h/.cpp,
-                   PalettePanel.h/.cpp,Fixture.cpp}           (T2-T4)
+docs/design/2026-08-19-public-surface-audit.md              (T2)
 Include/Onyx/Exchange/GltfExport.h + Source/Exchange/*.cpp    (T5)
 Include/Onyx/Cli/Commands.h + Source/Cli/*.cpp                (T6: render
                                                                moves into
@@ -71,9 +70,10 @@ Include/Onyx/Onyx.h, Include/Onyx/Rendering/*, README.md      (T8: §13 +
 docs/, CHANGELOG.md, .github/workflows/ci.yml                 (T9)
 ```
 
-Order: T1 (TestKit) → T2-T4 (the exam, sequential) → T5 (glTF) → T6, T7,
-T8 (perimeter debts; independent of each other) → T9 (v1.0). T6-T8 may be
-reordered if a dispatch needs it; nothing else may.
+Order: T1 (TestKit) → T2 (the generality audit) → T5 (glTF) → T6 → T7 →
+T8 (perimeter debts; T6 before T7 before T8, see the ledger's scan) → T9
+(v1.0). Task numbering keeps its original gaps (T3/T4 were the retired
+COMI toolkit/panel tasks) so the ledger and reports stay readable.
 
 ---
 
@@ -137,98 +137,52 @@ CompareResult CompareImages(const std::filesystem::path& a,
   faithful.
 - [ ] **Step 5: Commit.** `feat(testkit): Ship tree goldens, decode smoke and render compare`
 
-### Task 2: The COMI module — probe, container tree, one decoder
+### Task 2: The generality audit — is the SDK actually consumable?
 
-**Files:** Create `Examples/OnyxComi/{CMakeLists.txt,ComiModule.h,
-ComiModule.cpp,Fixture.h,Fixture.cpp}`; modify root `CMakeLists.txt`
-(`add_subdirectory(Examples/OnyxComi)` beside the other examples).
+**Scope decision (Jean, 2026-08-19):** the toy COMI module and its toolkit
+are OUT. No game module enters this repo. The exam's PURPOSE survives in
+this task: prove — or disprove — that a toolkit can be built against
+`Include/Onyx/**` alone. The subjects are the two toolkits that already
+exist (`Examples/MinimalViewer`, `Examples/OnyxCli`), audited as if they
+were third-party consumers.
 
-**The exam rule applies from this task onward** (see Global Constraints).
-Keep a running list in your report titled "SDK gaps found" — every time you
-reach for something that is not in `Include/Onyx/**`, write it there with
-the exact header you wanted and what you did instead.
+**Files:** no production code. Create `docs/design/2026-08-19-public-surface-audit.md`.
+Any gap this task finds becomes its own SDK task, scheduled by the
+controller — never a workaround.
 
-**Format (synthetic, fixture-only — this is a TOY, not a real LA0 parser):**
-A `.la0` file: magic `LA0\0`, uint32 blockCount, then per block: 4-char tag
-(`ROOM`, `IMAG`, `PALT`, `TEXT`), uint32 payloadSize, payload bytes. Blocks
-may nest one level: a `ROOM` payload is itself a sequence of blocks.
-`IMAG`: uint16 w, uint16 h, then w*h bytes of palette indices. `PALT`: 256
-RGB triples (768 bytes). `TEXT`: raw UTF-8. Hardening mirrors OnyxBox:
-count clamp, payload-vs-remaining check → `Failed` + diag, never abort.
+**The audit (do all four, report each as a table):**
+1. **Include audit.** For every `#include` in `Examples/**`, classify:
+   public (`Include/Onyx/**`), third-party (imgui/glm/volk — legitimate,
+   §2 says raw access stays reachable), or **private** (`Source/**`,
+   `Tools/**`, or a relative include reaching outside its own example).
+   Every private hit is a finding with the exact symbol wanted.
+2. **Link audit.** For each example target in CMake: does it link only
+   `Onyx::*` aliases plus third-party, or does it compile SDK sources
+   directly / link a stub / reach into another target's objects? (M4 left
+   `AppConfigStub` history here — verify it is gone.)
+3. **Capability audit.** List what each example does (register a module,
+   open documents, browse, decode, view, render, run the CLI, add a panel,
+   add a viewer, theme, persist layout). For each: is the API that enables
+   it declared in a public header AND reachable through `Include/Onyx/Onyx.h`?
+   (M4's review found the umbrella header exposes no renderer at all —
+   confirm what else is missing from it.)
+4. **The cold-start test.** Write the smallest possible toolkit main() —
+   register a module, run the app — as a code block IN THE AUDIT DOC (not
+   a new target), using only public headers, and verify by compiling it as
+   a throwaway TU (`cl /c` against `Include/` + the third-party include
+   dirs, exactly as the header-self-sufficiency checks in earlier
+   milestones did). If it does not compile, every missing piece is a
+   finding.
 
-**Deliverables:** `ComiModule : IGameModule` with `Info()` (id `comi`),
-evidence-ranked `Probe` (magic at 0 → high confidence; reason string),
-`RegisterTypes` (namespaced keys `comi.room`, `comi.image`, `comi.palette`,
-`comi.text` with TypeSpec icons/colors), `RegisterDecoders` (Image decoder
-for `IMAG`+nearest `PALT`; Text decoder for `TEXT`), `ParseContainer`
-building the nested tree with `ByteRange` sources. `Fixture.cpp` writes a
-synthetic `.la0` (used by tests and by the palette panel demo).
+**Deliverable:** the audit doc with the four tables and a single ranked
+"SDK gaps" list at the top: each gap = what a consumer wanted, which
+header it should live in, and severity (blocks a toolkit / forces a
+workaround / cosmetic). An empty list is the headline result and is what
+justifies the v1.0 tag; a non-empty list schedules work before T9.
 
-- [ ] **Step 1: Failing tests** in `Tests/comi_test.cpp` (ctest entry
-  `OnyxComi`): probe scores the fixture and rejects an OBX; parse yields
-  the expected nested tree (a ROOM with IMAG+PALT children, a top-level
-  TEXT); a truncated block → Failed + diag, siblings still parsed; the
-  image decoder produces the expected pixels for a known 4×4 fixture with a
-  known palette; TestKit's `SnapshotTree` golden committed for the fixture.
-- [ ] **Step 2: Run, expect FAIL.**
-- [ ] **Step 3: Implement** using only public headers.
-- [ ] **Step 4: Prove it through the generic CLI** — `probe`, `list --json`,
-  `extract`, `decode` on the fixture, asserted in the same test file (the
-  same `Cli::Commands` entry points `onyxbox-cli` uses).
-- [ ] **Step 5: Commit.** `feat(examples): Add a toy COMI module` — and put
-  the SDK-gaps list in the report even if it is empty (an empty list is the
-  headline result).
-
-### Task 3: The COMI toolkit — a second app, zero SDK edits
-
-**Files:** Create `Examples/OnyxComi/Main.cpp` (a `comi-toolkit`
-executable: `App::Run(argc, argv)` with the module registered) + the CMake
-for it.
-
-The point: a whole second toolkit whose entire source is one module + one
-main. It must get, for free: the window, dock, panels, browser, inspector,
-viewers, the full generic CLI, settings, logging. Compare against
-`Examples/MinimalViewer/Source/Main.cpp` — anything MinimalViewer needs
-that a consumer would also need but that is not public is an SDK gap.
-
-- [ ] **Step 1:** Write `Main.cpp`. Target ≤ 40 lines. If it needs more,
-  the excess is evidence for the gaps list — record what and why.
-- [ ] **Step 2: ctest `OnyxComiToolkitSelfTest`** mirroring
-  `MinimalViewer_SelfTest` (headless smoke: constructs, initializes what it
-  can without a window, exits 0).
-- [ ] **Step 3: Manual proof** (headless-compatible): run
-  `comi-toolkit --open-first-image <fixture.la0>` under a timeout, assert
-  the log shows the image decoded and drawn with a valid ImTextureID and 0
-  validation messages. Reuse MinimalViewer's debug-flag pattern; if that
-  flag is example-local (it is), note in the gaps list that debug-open
-  affordances are not SDK surface.
-- [ ] **Step 4: Commit.** `feat(examples): Build a COMI toolkit on the SDK alone`
-
-### Task 4: The palette panel — custom UI on the public widget contract
-
-**Files:** Create `Examples/OnyxComi/{PalettePanel.h,PalettePanel.cpp}`;
-register it in `Main.cpp`.
-
-Spec §11: *"Custom UI is a public contract, not an escape hatch: `IPanel`,
-`IDocumentContent` and the widget library are exported… A COMI palette
-panel is a first-class citizen written against the same widgets the SDK
-uses."* This task tests that sentence. The panel: shows the selected
-document's `PALT` block as a 16×16 swatch grid, hover shows index + RGB,
-click copies the hex. It must be written against `Include/Onyx/App/IPanel.h`
-+ `Widgets.h` (+ raw ImGui where §2 allows), subscribe to
-`SelectionChanged` like the SDK's own panels do, and be registered through
-the public panel API.
-
-- [ ] **Step 1:** Read `Include/Onyx/App/{IPanel.h,Widgets.h,PanelRegistry.h}`
-  and `Source/App/Panels/InspectorPanel.cpp` (the SDK's own example of the
-  pattern). Write the panel.
-- [ ] **Step 2: Pure logic under test** — the swatch-grid layout math
-  (index ↔ cell, hex formatting) in `Tests/comi_test.cpp`; the drawing
-  itself is proven by the timeout-run.
-- [ ] **Step 3:** Extend Task 3's timeout-run to open the fixture and log
-  that the palette panel drew N swatches.
-- [ ] **Step 4: Commit.** `feat(examples): Add a COMI palette panel` — gaps
-  list updated (every widget you wanted and did not find is a finding).
+- [ ] **Step 1:** the four audits.
+- [ ] **Step 2:** the cold-start TU compiles (or its failures are findings).
+- [ ] **Step 3:** write the doc; commit `docs: Audit the SDK's public surface`.
 
 ### Task 5: glTF export — an oracle we did not write
 
@@ -292,9 +246,10 @@ of a renderer dependency, and state the reasoning.
 Also add spec §11's missing flags: `--views iso,front,...` (render N
 canonical views) and `--strict` (nonzero exit on any Error diag).
 
-- [ ] **Step 1:** Failing test — `comi-toolkit render` works on a COMI
-  fixture (proving a second toolkit gets it for free), plus a `--views`
-  test asserting N PNGs, plus `--strict` exit-code test.
+- [ ] **Step 1:** Failing test — `render` is reachable through the SDK's
+  own CLI entry point (not the example's local parsing), proving a second
+  toolkit would get it for free; plus a `--views` test asserting N PNGs and
+  a `--strict` exit-code test.
 - [ ] **Step 2-3:** Move + wire; keep `onyxbox-cli render` byte-identical
   in behavior (its existing device-gated test must still pass unchanged).
 - [ ] **Step 4: Commit.** `refactor(cli): Move the render command into the SDK`
@@ -376,9 +331,10 @@ Rendering path fold.
   whole v1 marked complete, post-v1 backlog listed (GoWToolkit port, the
   M4 deferrals that remain, animation playback on the Vulkan renderer,
   the metrics ratchet).
-- [ ] **Step 2:** CI: add the TestKit and COMI tests to both jobs; add a
-  `comi-toolkit` build step (the exam must not rot); keep the lavapipe leg
-  honest (still never-run until the first push).
+- [ ] **Step 2:** CI: add the TestKit tests to both jobs; add a step that
+  compiles T2's cold-start toolkit TU against public headers (the exam must
+  not rot); keep the lavapipe leg honest (still never-run until the first
+  push).
 - [ ] **Step 3: The gate itself** — run every milestone gate one last time:
   full serial ctest, parity + reproducibility 3×, YAML lint, both toolkits'
   timeout-runs, `git diff --stat -- Tests/Golden` empty.
@@ -391,10 +347,10 @@ Rendering path fold.
 
 ## Milestone Gate (roadmap M5, restated)
 
-1. **The exam:** `comi-toolkit` builds and runs having touched only
-   `Examples/OnyxComi` — and the SDK-gaps list from T2-T4 is either empty
-   or every entry has a scheduled fix. A non-empty list with no fixes means
-   the SDK is not yet general and v1.0 is premature.
+1. **The exam (T2):** the public-surface audit's gaps list is either empty
+   or every entry has a scheduled fix that landed. A non-empty list with no
+   fixes means the SDK is not yet general and v1.0 is premature. The
+   cold-start toolkit TU compiles against public headers alone.
 2. TestKit green in CI and consumed by the oracle (parity unchanged).
 3. glTF export machine-verified via cgltf round-trip; Blender validation
    documented and flagged PENDING a human.
