@@ -1,8 +1,129 @@
 # Changelog
 
-## Unreleased
+## v1.0.0 — 2026-08-19
+
+The v1 rewrite closes here: **M1** Target split (`Onyx::Core`/`Render`/
+`Shell`), **M2** Identity & state (`TypeRegistrar`, `DiagSink`, `JobQueue`,
+`EventBus`, `Settings`), **M3** Modules (`IGameModule`, evidence-ranked
+probing, `Workspace`/`Document`, the generic CLI), **M4** Vulkan (the GL
+renderer replaced end to end, the parity gate proving it against frozen
+goldens), and **M5** Generality (this section) — the exit exam: can a
+second toolkit consume the SDK by naming public headers alone. Full
+milestone-by-milestone history and gates:
+`docs/superpowers/plans/2026-08-18-onyx-v1-roadmap.md`.
+M5 shipped as a **public-surface audit** rather than a built second game
+module: a toy `comi` module was planned and then deliberately cut
+(scope decision, mid-milestone) in favour of four audits — include, link,
+capability, and cold-start-TU — over the toolkits the SDK already ships
+(`MinimalViewer`, `OnyxBox`, `OnyxCli`), producing the same ranked gaps
+list a built module would have. That is weaker in one specific way, worth
+stating plainly at this tag: an audit proves the surface is *reachable*;
+a second real toolkit would have proven it *sufficient*. The gaps it found
+were fixed within this milestone (below); none are deferred past v1.0.
+**Two human gates are recorded as PENDING, not satisfied by this tag:**
+Blender validation of the exported glTF skinned corpus model against a
+real DCC tool (`docs/gltf-validation.md` says so explicitly), and the
+first push of this repo's history to its remote — which is what would
+finally exercise the `linux-lavapipe` CI leg end to end (see "Known gaps"
+below and `.github/workflows/ci.yml`'s own header comment).
 
 ### Added
+- **`Onyx::TestKit`** (`Include/Onyx/TestKit/`, M5) — the SDK ships its own
+  opt-in test harness so a second toolkit does not have to reinvent
+  golden-tree comparison, decode smoke tests, or render-image comparison:
+  `SnapshotTree`/`CompareTreeGolden` (byte-stable hand-built JSON, same
+  convention as the oracle's own report and the CLI's `list --json`),
+  `DecodeAll` (a Scene/Image/Text decode-everything smoke pass matching
+  the CLI's decoder priority and the GUI's Failed-node salvage rule — a
+  parse-time Failed node is skipped and counted in its own `skippedFailed`
+  bucket, never double-counted as a decode failure), and `CompareImages`/
+  `ReadPng`/`CompareRGBA` (moved verbatim — algorithm and tuning
+  untouched, only the namespace changed — from `Tools/OnyxOracle/
+  ImageCompare.{h,cpp}`/`PngRead.{h,cpp}`; the oracle itself was
+  repointed onto this shared home with goldens proven byte-identical
+  three times). One CMake target (`Onyx::TestKit`, links only
+  `Onyx::Core`): none of Goldens/DecodeSmoke/RenderCompare needs a GPU
+  context or a renderer type, so there is no headless/render split to
+  make. Consumed by the SDK's own suite (`OnyxTestKit` ctest entry) and
+  green in both CI jobs (no `-R` filter — every registered test runs).
+- **`Onyx::Exchange`** (`Include/Onyx/Exchange/GltfExport.h`, M5) — glTF
+  2.0 export of `SceneData` via cgltf v1.15 (write side), wired to
+  `onyxbox-cli decode <container> <entry> --to gltf --out model.gltf`.
+  Diffuse/Normal/Occlusion textures map onto glTF's core PBR material
+  model with zero repacking; baseColor/metallic factors always export.
+  Skinning exports the renderer's own inverse bind matrices verbatim
+  (`ObjectData::Joint::bindToJointMat`, the exact field `JointPalette.cpp`'s
+  `ComputeJointPalette()` consumes as the inverse bind matrix), so the
+  exporter is structurally incapable of describing a skeleton the
+  renderer would draw differently — not merely observed to agree. The
+  rest-pose TRS hierarchy is a cited, deliberate verbatim duplication of
+  `JointPalette.cpp`'s own rotation math, unavoidable under the same
+  link-cycle constraint `Onyx::Cli::CmdRender` has (`Onyx_Exchange` links
+  `Onyx_Core` only; `JointPalette.cpp` compiles into `Onyx_Render`). The
+  export skinning gate matches the renderer's own decision exactly (no
+  independent `useBindToJoint` flag that could drift from it). Round-trip
+  verified via `cgltf_validate` plus a read-back parity ctest (`OnyxGltf`);
+  **Blender validation of a skinned corpus model against a real DCC tool
+  is PENDING a human** — `docs/gltf-validation.md` says so explicitly and
+  warns against reading the green ctest as that checklist being done.
+  `Gloss`/`Emissive`/`Height`/`Scatter`/`Detail`/`EnvMap` are not exported
+  this pass (per-role reasoning in the header); `Emissive` in particular
+  is deferred because `MaterialDesc` carries no emissive factor to pair
+  with the texture, not because the mapping itself is hard.
+- **`Onyx::CliRender`** (`Include/Onyx/Cli/Render.h`, M5) — closes the one
+  blocking gap the public-surface audit found (G1, below): `CmdRender`
+  used to be declared in a public header and ship in **no** library, only
+  as `Examples/OnyxCli/Render.cpp` compiled straight into the example
+  executable — a consumer following the header got an unresolved external
+  and had to copy example source out of `Examples/`. It now ships as a
+  real fourth library above the `Core`/`Render` link cycle
+  (`Onyx_CliRender`, linking `Onyx_Core` + `Onyx_Render` PUBLIC),
+  independently reproduced by a cold-start compile-AND-link of a
+  throwaway consumer TU against `-I Include` and exactly the documented
+  libraries — executable produced and run, not just compiled.
+  `Onyx::Cli::Run`'s argv dispatch now takes `render` through an injected
+  `RenderFn` hook (mirroring `SceneExportFn`'s glTF shape) so `Onyx_Core`
+  stays Vulkan-free while still routing the command for free. Gains spec
+  §11's `--views` (canonical `iso/front/back/left/right/top`, checked
+  name-for-name against the CLI's own usage text by a `constexpr` walk,
+  not just an array-size `static_assert`) and `--strict` (reads the diag
+  sink's `Severity::Error`, not a heuristic).
+- **`Onyx::Rendering::RenderToImage`** (M5) — the ready floor's one-call
+  render entry point: `RenderToImage(request, rgbaOut, err)` owns a full
+  `VkContext` lifetime end to end and names no Vulkan type in its own
+  signature; a second overload takes a caller-owned, already-`Init()`'d
+  context. `Tools/OnyxOracle`'s corpus renderer and `Onyx::CliRender`'s
+  `CmdRender` both refactored onto it — goldens proven byte-identical
+  (pixel hash and file bytes, before vs. after) three times. Takes a
+  plain, non-Vulkan-flipped projection matrix and applies
+  `VulkanProjection()` internally exactly once — a total contract chosen
+  because the oracle itself forgot this exact flip once already, for a
+  full milestone, before a pixel-vs-GL-golden comparison caught it
+  (`Include/Onyx/Rendering/Pipelines.h`'s "Camera convention" note); a
+  pre-flipped matrix is rejected by a real runtime check in every build
+  configuration, not just a Debug assert, since this entry point's
+  audience is callers with zero Vulkan knowledge.
+- **The public-surface audit** (`docs/design/2026-08-19-public-surface-
+  audit.md`, M5) — the exam T2 ran in place of the cut `comi` module: four
+  audits (include, link, capability, cold-start-TU) over the SDK's
+  existing example toolkits, refusing its own "all clean" false-pass by
+  running the cold-start TU in three variants (a trivial one that
+  compiled by accident, a real-work one against the umbrella only that
+  failed with 6 errors, and a real-work one with 8 explicit includes that
+  compiled clean) — proving every API the audit needed both exists and is
+  public, and that only the umbrella header failed to surface it. Found 6
+  gaps, 1 blocking (`Onyx::Cli::CmdRender` shipping in no library, G1).
+  The blocking gap and both forcing-a-workaround gaps (the umbrella's
+  narrow reach, G2; `Version.h` absent from the source tree, G3) are
+  fixed in this release — see `Onyx::CliRender` and the umbrella entries
+  above. The no-`install()`/`export()` gap (G4) is resolved as a
+  documented decision, not a code change (README's "Consuming Onyx",
+  above). **Two of the audit's cosmetic gaps are NOT fixed and carry past
+  v1.0 — see "Known gaps" below:** `Services/PathUtils.h` still declares
+  `namespace PathUtils` at global scope (the other half of G5; only its
+  `AssetEntry`/`AssetContainer`-alias half was closed, see "Removed"
+  below), and `Examples/**` still link raw `Onyx_*` target names instead
+  of the `Onyx::` aliases (G6).
 - **M4 Vulkan renderer** (v1 spec §W4) — `Onyx::Render` rewritten on
   Vulkan 1.3 (dynamic rendering, VMA), offscreen-first, on two floors:
   `SceneRendererVk` (the ready-made PBR/skinning/grid/skeleton path
@@ -117,6 +238,84 @@
     Example binary `onyxbox-cli`.
 
 ### Changed
+- **`<Onyx/Onyx.h>` broadened to a stated, testable inclusion rule** (M5,
+  audit gap G2) — the umbrella used to reach 49 of 108 public headers
+  while its own comment claimed "the full public surface." The rule is
+  now explicit and predictive rather than descriptive: a header belongs
+  in the umbrella when using an already-included umbrella class through
+  its public interface requires the *consumer* to name something that
+  header declares (an event counts — subscribing means naming the type);
+  a header a class merely calls into on the consumer's behalf does not
+  qualify. Applying that rule pulled in `Modules/DecoderRegistry.h`,
+  `Modules/Selection.h`, `App/ViewerOpening.h`/`ViewerRouting.h`, the
+  whole CLI, `Services/ThemeManager.h`/`PathUtils.h`, and
+  `Services/EventManager.h`/`Events.h` (`DocumentWindow`/`Viewport3D`,
+  both already in the umbrella, post `EventDocumentOpened`/
+  `EventAnimationLoaded` through them — withholding the event catalog
+  would leave a consumer of the umbrella's own document/viewer pipeline
+  unable to subscribe to events it fires). The Vulkan-touching half of
+  the renderer and `Viewers/VideoPlayer.h` stay out on purpose — see the
+  new sibling umbrellas below.
+- **`<Onyx/Render.h>` and `<Onyx/Media.h>`** (M5, audit gap G2) — sibling
+  umbrellas for the two halves `<Onyx/Onyx.h>` deliberately excludes: the
+  7 Vulkan-touching renderer headers (every one pulls in `volk.h`/
+  `vk_mem_alloc.h` directly or transitively) and `Viewers/VideoPlayer.h`
+  (the one viewer whose *header* directly includes FFmpeg/miniaudio, which
+  would break `#include <Onyx/Onyx.h>` itself when `ONYX_COMPONENT_MEDIA`
+  is off). Each documents its own third-party dependency list in its top
+  comment; `Render.h`'s list was found incomplete (`AxisGizmo.h` silently
+  needs `imgui.h`) and corrected — the underlying design smell (a
+  Vulkan-rendering target's public header with a hard ImGui dependency)
+  is flagged, deliberately unfixed, in "Known gaps" below.
+- **`Include/Onyx/Version.h` checked into the source tree** (M5, audit gap
+  G3) — previously generated only into `build/generated/Onyx/Version.h`
+  and never present for a consumer who had cloned the repo but not yet
+  run CMake, even though it is `<Onyx/Onyx.h>`'s first include.
+  `configure_file()` now writes directly into `Include/Onyx/Version.h`
+  (checked in) instead; a cold-start compile of the umbrella needs no
+  `-I build/generated` any more.
+- **Consumption model documented, not built** (M5, audit gap G4) — README's
+  "Consuming Onyx" section now states plainly, up front, that
+  `FetchContent`/`add_subdirectory` against `Onyx::*` targets is the
+  supported v1 model and that `install()`/`export()`/`find_package()` are
+  not supported and not a v1 promise, rather than silently absent. Chosen
+  over building real install/export support: nine targets is real,
+  untested packaging surface to add on top of an already-invasive
+  milestone, and the audit ranked this "forces a workaround," not
+  blocking, since vendoring via `add_subdirectory()` demonstrably works
+  today.
+- **Stability policy documented** (v1 spec §15, README's "Stability
+  policy") — public surface = `Include/Onyx/**` minus `Detail/`; the
+  promise is source compatibility only (API, not ABI — Onyx ships as
+  source, every consumer recompiles). As of this tag the project is
+  post-1.0: PATCH is bug-fix-only, MINOR is additive-only, MAJOR is the
+  only class allowed to remove/rename/reshape a public declaration. A
+  header moving between two public locations (the `RenderVk` → `Rendering`
+  fold below is the worked example) is MAJOR-class from this tag forward.
+- **`Include/Onyx/RenderVk/` folded into `Include/Onyx/Rendering/`** (M5,
+  part of the G2 umbrella work) — all 7 headers, all 8 `.cpp`/8 shader
+  files moved (`git mv`, zero content diff on the move itself); every
+  `#include` site and the shader-compile CMake list repointed. Proven
+  mechanical: `git diff --stat -- Tests/Golden` empty, 52/52 green,
+  parity + reproducibility 3× stable throughout. Eight stale
+  `Onyx/RenderVk/` path references survived the move in 6 shader-file
+  comments plus `ci.yml`, fixed separately.
+- Global-scope `GLuint` typedef and remaining GOW-named comments removed
+  from the Render layer (v1 spec §13 — a layer a consumer compiles against
+  should describe mechanisms, not game names): `RenderBatch.h`'s
+  `using GLuint = unsigned int` replaced tree-wide with plain `uint32_t`
+  (same width, no ABI change); `RenderBatch.h`/`JointPalette.h`/
+  `Rendering/SceneRendererVk.cpp` comments rewritten in mechanism terms
+  ("a role-suffixed texture naming convention," "a per-game bind-pose
+  orientation convention") instead of naming GOWR/GOW2 directly; an unread
+  `TextureData.h` field (`glInternalFormat`, zero readers tree-wide)
+  removed rather than renamed.
+- The CLI's canonical-view name check (`kCanonicalViews`/`kViewAngles`)
+  now compares names, not just array size — a `constexpr`
+  `ViewNamesMatchCanonical()` walk replaces a `static_assert` that only
+  caught a length mismatch, so a rename in one list that left the other
+  stale used to compile clean and only surface at runtime as "unknown
+  view" for a name the usage text still advertised.
 - **BREAKING: the OpenGL renderer is deleted.** `Onyx::Render` is Vulkan
   1.3 only now — glad, the GLSL 330 shaders and the GL `SceneRenderer` are
   gone from the tree entirely; there is no compatibility shim. Consumers
@@ -192,12 +391,15 @@
   Removing them now is a MINOR bump; the same fix after v1.0.0 would
   need a MAJOR one for a pure namespace-hygiene change.
 
-### Known gaps — M4 Vulkan renderer
-Recorded here on purpose so nobody rediscovers these by surprise once the
-milestone's working ledger (`.superpowers/sdd/2026-08-19-onyx-v1-m4-vulkan/`)
-is gone at merge. None of these are silent: every one is either disabled
-with an in-UI tooltip, documented in the source at the exact spot a reader
-would look, or both.
+### Known gaps — the v1.0 promise
+Carried forward from M4 into this tag on purpose, corrected where M5 found
+the M4 text wrong, and extended with what M5 itself found and left
+unfixed — so nobody rediscovers any of it by surprise once the milestones'
+working ledgers (`.superpowers/sdd/2026-08-19-onyx-v1-m4-vulkan/`,
+`.superpowers/sdd/2026-08-19-onyx-v1-m5-generality/`) are gone at merge.
+None of these are silent: every one is either disabled with an in-UI
+tooltip, documented in the source at the exact spot a reader would look,
+or both.
 - **No animation playback.** `SceneRendererVk` has no
   `SetAnimation`/`UpdateAnimation`/`AnimationPlayer` wiring this milestone
   — every skinned scene renders its rest pose. The GL path's transport
@@ -247,6 +449,42 @@ would look, or both.
   the structurally right home for a frame-pipelined, non-blocking version
   of this; nothing beyond the 45 FPS single observation above has been
   measured, and no work here has started.
+  **Correction (M5 T7):** M4's own text elsewhere claimed `Viewport3D`
+  was one of "three consumers" duplicating roughly 60 lines each that
+  `RenderToImage` (above) would collapse. That is overstated and is not
+  repeated here: `Viewport3D` was never actually a `RenderToImage`
+  candidate — it holds a persistent `OffscreenTarget` created once per
+  resize (not per frame), builds its pipelines once, exposes the result
+  as a live GPU texture via `TexturePool::RegisterExternalView`, runs up
+  to four passes, and does zero CPU readback, none of which fits a
+  one-shot scene-render-to-RGBA-bytes contract. Forcing the fit would
+  have added a CPU round-trip to an interactive view to satisfy a refactor
+  metric. Of the ~60 lines, roughly 15-20 were literal duplication; the
+  rest is structural difference between an interactive live-texture
+  viewer and a one-shot offscreen renderer, and does not go away by
+  sharing a function.
+- **`RenderRequest` (the struct `RenderToImage` takes) grew background
+  fields to keep the render-corpus oracle's own gradient background — and
+  therefore the parity gate itself — intact when the oracle moved onto
+  the new entry point.** Flagged as a grow-one-field-per-consumer pattern
+  that will not scale: if a second caller needs a differently-shaped
+  pre-scene pass, the principled fix is a `RenderContext::AddPass`-shaped
+  hook on the request, not a third bespoke field. Not built now because
+  there is exactly one consumer that needs it today.
+- **`Tools/OnyxOracle`'s corpus renderer still calls `Build()` a second
+  time per scene, pixel-inert, only to recover `GetBatches()` for the
+  JSON report** — a full duplicate GPU upload that does not affect any
+  pixel or golden. An optional `outBatches` parameter on `RenderToImage`
+  would remove it; premature for the one consumer that has this need.
+- **`<Onyx/Render.h>` has a hard ImGui dependency it should not need.**
+  `AxisGizmo.h` (pulled into the umbrella above) draws its gizmo discs
+  through `ImDrawList`, which means `Onyx::Render` — a Vulkan-rendering
+  target with no UI concerns of its own — cannot be compiled without a UI
+  library on the include path. Found and documented (M5 T8), deliberately
+  not restructured this milestone. Candidate v1.1 fix: move `AxisGizmo`
+  into `Onyx::Shell` (it already draws through ImGui, not Vulkan, so it
+  arguably belongs there architecturally) or split `Render.h` into a
+  truly headless slice plus an opt-in gizmo/debug-draw header.
 - **macOS is unsupported this milestone**, not a formality gap.
   `Source/App/Platform/Window_macos.mm` and `NativeWindow_macos.mm` still
   call `glfwMakeContextCurrent`/`NSOpenGLContext` against what is now a
@@ -278,6 +516,18 @@ would look, or both.
   presentation is a manual, timeout-bounded run of the GUI, not a ctest —
   no test in this suite creates a real window and drives frames through
   the swapchain.
+- **`Services/PathUtils.h` still declares `namespace PathUtils` at global
+  scope** (the audit's G5, other half — see "Removed" above for the half
+  that was fixed). Every consumer of it sees a bare `::PathUtils::...`
+  rather than something nested under `Onyx::`. Cosmetic, audit-ranked, not
+  touched this milestone; carries past v1.0, so fixing it later is a
+  MAJOR-class rename under this tag's own stability policy.
+- **`Examples/**` still link raw `Onyx_*` target names**
+  (`Onyx_Core`/`Onyx_ExampleBox`/etc.) in places, not the `Onyx::` aliases
+  the README's "Targets" table tells every other consumer to use (audit
+  G6). Breaks the moment a future `install()`/`export()` ships namespaced
+  names only (G4, above, is documented but not built this milestone).
+  Cosmetic, audit-ranked, not touched this milestone.
 
 ## v0.6.0 - 2026-08-18
 

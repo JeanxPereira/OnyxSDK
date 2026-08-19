@@ -81,7 +81,7 @@ Then run the example viewer against the example module's own synthetic container
 include(FetchContent)
 FetchContent_Declare(OnyxSDK
     GIT_REPOSITORY https://github.com/JeanxPereira/OnyxSDK.git
-    GIT_TAG        v0.6.0)
+    GIT_TAG        v1.0.0)
 set(ONYX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(ONYX_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(OnyxSDK)
@@ -218,15 +218,15 @@ Everything is fetched and pinned by `CMakeLists.txt` — no submodules, and noth
 
 **API, not ABI.** Onyx ships as source and every consumer recompiles against the exact commit or tag they pull — there is no prebuilt binary a stale header could silently mismatch. The stability promise below is therefore about *source* compatibility (does your `#include` and call site still compile and mean the same thing), never about binary layout, symbol versioning, or struct ABI. A struct gaining a defaulted field, an enum gaining a new enumerator, or a virtual method table changing shape are all in-bounds changes at any version, because nothing links a prebuilt `.lib`/`.so` against a different Onyx commit than it was compiled with.
 
-**Pre-1.0 (current):** anything under `Include/Onyx/**` (minus `Detail/`) may change in a breaking, source-incompatible way in a MINOR version bump (`0.X.0`), same as any pre-1.0 SemVer project. A PATCH bump (`0.6.X`) never breaks source compatibility on purpose. Breaking changes are called out in `CHANGELOG.md`.
-
-**Post-1.0:** the public surface follows SemVer's source-compatibility reading —
+**Post-1.0 (current, since `v1.0.0`):** the public surface follows SemVer's source-compatibility reading —
 
 - **PATCH** (`X.Y.Z+1`): bug fixes only, no signature or behaviour-contract change to any public declaration.
 - **MINOR** (`X.Y+1.0`): additive only — new headers, new functions, new struct fields with defaults, new enumerators appended (never inserted) to an existing enum. Existing call sites keep compiling and keep meaning what they meant before.
 - **MAJOR** (`X+1.0.0`): the only version class allowed to remove, rename, or change the meaning of an existing public declaration. Reserved for real design corrections, not routine growth — `CHANGELOG.md` documents the migration for each one.
 
-A header moving between two public locations (for example the `Include/Onyx/RenderVk/` → `Include/Onyx/Rendering/` fold) is itself a breaking, MAJOR-class change under this policy once past 1.0; pre-1.0 it is a MINOR bump like any other breaking change, called out in `CHANGELOG.md` the same way a removed function would be.
+**Pre-1.0 (history):** through `v0.6.0`, the last pre-1.0 release, anything under `Include/Onyx/**` (minus `Detail/`) could change in a breaking, source-incompatible way in a MINOR version bump (`0.X.0`), same as any pre-1.0 SemVer project — a PATCH bump never broke source compatibility on purpose even then. That era's breaking changes stay recorded in `CHANGELOG.md`; the rule above is the one that binds going forward.
+
+A header moving between two public locations (for example the `Include/Onyx/RenderVk/` → `Include/Onyx/Rendering/` fold, done pre-1.0 as a MINOR bump under the rule above) is a breaking, MAJOR-class change under this policy now that the project is past 1.0, called out in `CHANGELOG.md` the same way a removed function would be.
 
 ## Conventions
 
