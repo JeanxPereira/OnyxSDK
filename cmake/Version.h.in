@@ -15,7 +15,7 @@
 
 namespace Onyx {
 
-// e.g. "0.6.0" -- handy for About boxes and bug reports.
+// e.g. "1.0.0" -- handy for About boxes and bug reports.
 inline constexpr const char* Version() { return ONYX_VERSION_STRING; }
 
 } // namespace Onyx

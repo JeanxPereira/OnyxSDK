@@ -8,14 +8,14 @@
 // consumer who has only cloned the repository and never run CMake -- see
 // this file's own configure_file() call in the root CMakeLists.txt.
 
-#define ONYX_VERSION_MAJOR 0
-#define ONYX_VERSION_MINOR 6
+#define ONYX_VERSION_MAJOR 1
+#define ONYX_VERSION_MINOR 0
 #define ONYX_VERSION_PATCH 0
-#define ONYX_VERSION_STRING "0.6.0"
+#define ONYX_VERSION_STRING "1.0.0"
 
 namespace Onyx {
 
-// e.g. "0.6.0" -- handy for About boxes and bug reports.
+// e.g. "1.0.0" -- handy for About boxes and bug reports.
 inline constexpr const char* Version() { return ONYX_VERSION_STRING; }
 
 } // namespace Onyx
