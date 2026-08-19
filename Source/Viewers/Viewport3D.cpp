@@ -216,10 +216,26 @@ void Viewport3D::ComputeBounds() {
     glm::vec3 hi(-std::numeric_limits<float>::max());
     bool any = false;
     if (m_sceneData) {
+        // T11-review F1: bounds must be computed in RENDERED space, not
+        // object space -- the GL SceneRenderer::Build did exactly this
+        // (git show 7525d1f:Source/Rendering/SceneRenderer.cpp) and said
+        // why: FocusOn's camera framing has to cover every vertex as it
+        // actually draws, and SceneRendererVk::Build applies this same
+        // instanceTransform (Source/RenderVk/SceneRendererVk.cpp, "GOW2
+        // models face -Z, GOWR is already screen-correct -- identical to
+        // GL's SceneRenderer::Build") before rasterizing. Skipping this
+        // transform here left ComputeBounds silently out of sync with
+        // what the renderer draws: any asset with a non-identity
+        // instanceTransform framed on the wrong center, and any GOW2
+        // asset (flipZ=true) framed mirrored in Z.
+        const glm::mat4 instanceTransform = m_sceneData->flipZ
+            ? glm::scale(m_sceneData->instanceTransform, glm::vec3(1.0f, 1.0f, -1.0f))
+            : m_sceneData->instanceTransform;
         for (const Parsers::MeshPart& part : m_sceneData->meshParts) {
             for (const Onyx::Domain::GpuVertex& v : part.vertices) {
-                lo = glm::min(lo, v.position);
-                hi = glm::max(hi, v.position);
+                const glm::vec3 tp = glm::vec3(instanceTransform * glm::vec4(v.position, 1.0f));
+                lo = glm::min(lo, tp);
+                hi = glm::max(hi, tp);
                 any = true;
             }
         }
@@ -449,13 +465,17 @@ void Viewport3D::HandleInput() {
             m_needsRedraw = true;
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Z)) {
-            switch (shadingMode) {
-                case Rendering::ShadingMode::Solid:        shadingMode = Rendering::ShadingMode::Matcap;       break;
-                case Rendering::ShadingMode::Matcap:       shadingMode = Rendering::ShadingMode::Textured;     break;
-                case Rendering::ShadingMode::Textured:     shadingMode = Rendering::ShadingMode::Wireframe;    break;
-                case Rendering::ShadingMode::Wireframe:    shadingMode = Rendering::ShadingMode::TexturedWire; break;
-                case Rendering::ShadingMode::TexturedWire: shadingMode = Rendering::ShadingMode::Solid;        break;
-            }
+            // T11-review F3: Matcap/Wireframe/TexturedWire all render
+            // identically to Solid or Textured on SceneRendererVk (no
+            // Vulkan matcap/wireframe pass exists -- see that class's own
+            // divergence-2 comment) -- cycling through five labels that
+            // produce two distinct images was misleading. Toggle between
+            // the two modes that actually look different; keep in sync
+            // with DrawToolbar's identical cycle below and DrawInspector's
+            // combo.
+            shadingMode = (shadingMode == Rendering::ShadingMode::Solid)
+                ? Rendering::ShadingMode::Textured
+                : Rendering::ShadingMode::Solid;
             m_needsRedraw = true;
         }
         if (ImGui::IsKeyPressed(ImGuiKey_G)) {
@@ -478,27 +498,19 @@ void Viewport3D::DrawToolbar(ImVec2 avail, ImVec2 cursorPos) {
 
     namespace W = Onyx::App::Widgets;
 
-    const char* shadingLabel = nullptr;
-    switch (shadingMode) {
-        case Rendering::ShadingMode::Solid:        shadingLabel = "Solid";      break;
-        case Rendering::ShadingMode::Matcap:       shadingLabel = "Matcap";     break;
-        case Rendering::ShadingMode::Textured:     shadingLabel = "Textured";   break;
-        case Rendering::ShadingMode::Wireframe:    shadingLabel = "Wire";       break;
-        case Rendering::ShadingMode::TexturedWire: shadingLabel = "Wire (Tex)"; break;
-    }
+    // T11-review F3: only Solid/Textured are offered any more -- see the
+    // [Z]-shortcut handler's comment above for why.
+    const char* shadingLabel =
+        (shadingMode == Rendering::ShadingMode::Textured) ? "Textured" : "Solid";
     char shadingTip[64];
     snprintf(shadingTip, sizeof(shadingTip), "Shading: %s [Z]", shadingLabel);
     {
         W::IconButtonOpts opts;
         opts.tooltip = shadingTip;
         if (W::IconButton("vp_shading", ICON_SF_CUBE, opts)) {
-            switch (shadingMode) {
-                case Rendering::ShadingMode::Solid:        shadingMode = Rendering::ShadingMode::Matcap;       break;
-                case Rendering::ShadingMode::Matcap:       shadingMode = Rendering::ShadingMode::Textured;     break;
-                case Rendering::ShadingMode::Textured:     shadingMode = Rendering::ShadingMode::Wireframe;    break;
-                case Rendering::ShadingMode::Wireframe:    shadingMode = Rendering::ShadingMode::TexturedWire; break;
-                case Rendering::ShadingMode::TexturedWire: shadingMode = Rendering::ShadingMode::Solid;        break;
-            }
+            shadingMode = (shadingMode == Rendering::ShadingMode::Solid)
+                ? Rendering::ShadingMode::Textured
+                : Rendering::ShadingMode::Solid;
             m_needsRedraw = true;
         }
     }
@@ -594,10 +606,18 @@ void Viewport3D::DrawInspector() {
     ImGui::Text("Viewport Settings");
     ImGui::Separator();
 
-    const char* shadingLabel = "Solid\0Matcap\0Textured\0Wireframe\0TexturedWire\0";
-    int mode = (int)shadingMode;
+    // T11-review F3: Matcap/Wireframe/TexturedWire removed from this list
+    // (rather than kept and disabled) -- SceneRendererVk aliases all three
+    // to Solid or Textured (no Vulkan matcap/wireframe pass exists), so
+    // they never produced a distinct image; offering five labels for two
+    // results was misleading. shadingMode's enum still has all five values
+    // (nothing else in this class sets it to the removed three), so the
+    // combo index maps explicitly rather than casting -- keep this in sync
+    // with the [Z]-shortcut/toolbar-button cycle in HandleInput/DrawToolbar.
+    const char* shadingLabel = "Solid\0Textured\0";
+    int mode = (shadingMode == Rendering::ShadingMode::Textured) ? 1 : 0;
     if (ImGui::Combo("Shading", &mode, shadingLabel)) {
-        shadingMode = (Rendering::ShadingMode)mode;
+        shadingMode = (mode == 1) ? Rendering::ShadingMode::Textured : Rendering::ShadingMode::Solid;
         m_needsRedraw = true;
     }
 

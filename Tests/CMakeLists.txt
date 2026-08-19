@@ -32,6 +32,7 @@ add_executable(onyx_tests
     decoderregistry_test.cpp
     viewerrouting_test.cpp
     documentwindow_test.cpp
+    viewport3d_bounds_test.cpp
     onyxbox_test.cpp
     materialdesc_test.cpp
     cli_test.cpp
@@ -86,6 +87,7 @@ add_test(NAME OnyxSelection       COMMAND onyx_tests "--test-case=*Selection:*")
 add_test(NAME OnyxDecoders        COMMAND onyx_tests "--test-case=*DecoderRegistry*")
 add_test(NAME OnyxViewerRouting   COMMAND onyx_tests "--test-case=*RouteForType*,*ViewerOpening:*")
 add_test(NAME OnyxDocumentWindow  COMMAND onyx_tests "--test-case=*DocumentWindow:*")
+add_test(NAME OnyxViewport3DBounds COMMAND onyx_tests "--test-case=*Viewport3D::LoadScene frames bounds*")
 add_test(NAME OnyxBox            COMMAND onyx_tests "--test-case=*onyxbox end to end*,*onyxbox types are minted*,*onyxbox clamps a lying TOC count*,*onyxbox rejects an image whose payloadSize*,*onyxbox decodes a mesh entry*,*onyxbox flags a mesh entry Failed*")
 add_test(NAME OnyxMaterialDesc    COMMAND onyx_tests "--test-case=*ResolveRoleIndices*")
 add_test(NAME OnyxCli             COMMAND onyx_tests "--test-case=*cli probe prints a table*,*cli list json contains type key*,*cli extract writes payloadSize*,*cli extract skips unsafe entry names*,*cli decode text entry prints hello box*,*cli decode strict returns kStrictErrors*,*cli decode scene entry prints parts materials vertices summary*,*cli decode unknown entry name*,*cli list returns kNoModule*,*cli Run dispatches probe list extract*,*cli Run returns kUsage to err*,*cli probe returns kNoModule when the ranking*,*cli decode returns kOk when a capability exists*,*cli Run --game hint overrides ranking*,*cli parse keeps a 0xFFFFFFFF*")

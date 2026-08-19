@@ -533,9 +533,40 @@ void SettingsWindow::DrawViewportCategory() {
   ImGui::NewLine();
 
   if (BeginSubWindow("Debugging Overlays")) {
+    // T11-review F2: these three knobs have zero readers at HEAD --
+    // SceneRendererVk::RenderSkeleton draws the bone overlay with its own
+    // hardcoded colors (boneColor/rootColor, Source/RenderVk/
+    // SceneRendererVk.cpp), and the hover-highlight/wireframe passes T10
+    // disclosed as not-yet-implemented (Viewport3D.cpp's own top comment:
+    // "Render() does not read RenderBatch::isVisible/isHighlighted ...
+    // they simply have no visible effect yet") never existed on the
+    // Vulkan side to read wireR either. Disabled (not removed) rather
+    // than silently live and doing nothing -- the skeleton overlay in
+    // particular DOES draw every frame, so a color picker that looks
+    // like it controls it but doesn't is actively misleading. The
+    // config field itself keeps persisting so a real reader can pick it
+    // up later with no config migration.
+    ImGui::BeginDisabled();
     ImGui::ColorEdit3("Bones Color", &config->boneR, flags);
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+      ImGui::SetTooltip("Not wired up yet -- the skeleton overlay currently "
+                         "draws with a fixed color, not this one.");
+
+    ImGui::BeginDisabled();
     ImGui::ColorEdit3("Wireframe Color", &config->wireR, flags);
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+      ImGui::SetTooltip("Not wired up yet -- the Vulkan renderer has no "
+                         "wireframe pass (Wireframe shading mode currently "
+                         "renders identically to Solid).");
+
+    ImGui::BeginDisabled();
     ImGui::ColorEdit4("Outline Color", &config->hlR, flags);
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+      ImGui::SetTooltip("Not wired up yet -- the Vulkan renderer does not "
+                         "draw a hover-highlight outline.");
   }
   EndSubWindow();
   ImGui::NewLine();
@@ -546,10 +577,17 @@ void SettingsWindow::DrawViewportCategory() {
     // aliases ShadingMode::Matcap to Solid -- see Source/RenderVk/
     // SceneRendererVk.cpp's own divergence-2 comment), and ShaderManager
     // itself was deleted with the rest of the GL renderer, so the call is
-    // dropped rather than wired against nothing. The stored color survives
-    // (still a valid, persisted AppConfig value) in case a Vulkan matcap
-    // path lands later.
+    // dropped rather than wired against nothing. T11-review F2: disabled
+    // for the same reason the Debugging Overlays knobs above are -- Solid
+    // is what Matcap mode actually renders as, so this color has nothing
+    // left to affect. The stored color survives (still a valid, persisted
+    // AppConfig value) in case a Vulkan matcap path lands later.
+    ImGui::BeginDisabled();
     ImGui::ColorEdit3("Matcap Base Color", &config->matcapR, flags);
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+      ImGui::SetTooltip("Not wired up yet -- Matcap shading mode currently "
+                         "renders identically to Solid.");
   }
   EndSubWindow();
 }
