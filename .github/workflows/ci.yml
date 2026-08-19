@@ -75,9 +75,22 @@ jobs:
         # every hardware Mesa driver it also carries; libvulkan1 is the
         # loader itself. No FFmpeg dev packages here on purpose -- see the
         # configure step below.
+        #
+        # F5 fix: xorg-dev added -- GLFW (pinned 3.3.9, root CMakeLists.txt)
+        # is built from source here via FetchContent, and on Linux its
+        # default CMake build needs the X11 dev headers (Xlib, Xrandr,
+        # Xinerama, Xcursor, Xi, Xext, ...) to configure at all; without
+        # them CMake's GLFW subproject fails before this job ever reaches
+        # a Vulkan test. xorg-dev is the umbrella package Ubuntu ships for
+        # exactly that header set (also what GLFW's own Linux build docs
+        # point at). Nothing Wayland-related added: 3.3.9 only builds the
+        # X11 backend by default (GLFW's Wayland backend became a
+        # default-alongside-X11 build in 3.4, not 3.3.x, and nothing in
+        # this repo's CMakeLists opts into GLFW_USE_WAYLAND), so
+        # libwayland-dev/libxkbcommon-dev would be unused weight here.
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build mesa-vulkan-drivers libvulkan1
+          sudo apt-get install -y ninja-build mesa-vulkan-drivers libvulkan1 xorg-dev
 
       - name: Locate the lavapipe ICD
         # Do NOT hardcode a guessed ICD json path -- mesa-vulkan-drivers'
