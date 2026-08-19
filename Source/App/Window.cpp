@@ -1007,7 +1007,15 @@ void Window::presentFrame() {
     {
         VkImageMemoryBarrier2 b{};
         b.sType               = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        b.srcStageMask        = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        // T10 fix-round-2 (sync-validation WRITE_AFTER_READ, VUID hint):
+        // srcStageMask must include COLOR_ATTACHMENT_OUTPUT_BIT so this
+        // transition chains after the acquire semaphore's wait stage
+        // (this submission waits that semaphore at COLOR_ATTACHMENT_
+        // OUTPUT) instead of racing the presentation engine's read of
+        // this same image. srcAccessMask stays NONE -- there is no
+        // memory access to make visible here, only an execution
+        // dependency against the semaphore wait.
+        b.srcStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
         b.srcAccessMask       = VK_ACCESS_2_NONE;
         b.dstStageMask        = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
         b.dstAccessMask       = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
