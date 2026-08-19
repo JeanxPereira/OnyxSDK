@@ -61,4 +61,28 @@ std::string BuildReport(const std::string& sceneName, int w, int h,
                         const std::vector<Rendering::RenderBatch>& batches,
                         const std::vector<size_t>& paletteJointCounts);
 
+// ── Task 7: masked report comparison ───────────────────────────────────────
+//
+// The Vulkan oracle's `render-corpus` writes the exact same BuildReport()
+// shape as the GL path, from its own renderer-agnostic GetBatches()
+// (SceneRendererVk::GetBatches() returns the same Rendering::RenderBatch
+// vector type -- see SceneRendererVk.h's top comment). Every field should
+// therefore come out byte-identical between the two renderers EXCEPT
+// `pixelHash`, which is a hash of the rendered pixel buffer itself and is
+// never expected to match across two different rasterizers (different GPU,
+// different math, sometimes different pixels within tolerance) -- masking
+// that one line is the whole point of this comparison, everything else
+// staying byte-exact is what actually pins the report layer.
+
+/// True iff `a` and `b` are identical line-for-line EXCEPT any line that
+/// begins with the exact prefix `  "pixelHash": ` (BuildReport's own
+/// two-space-indented key), which is skipped on both sides rather than
+/// compared -- so the two documents may report different scene names,
+/// batch counts, or any other field and still fail here (correctly: that
+/// would be a real divergence), but two reports that differ ONLY in their
+/// pixelHash value compare equal. Documents with a different number of
+/// lines are never equal (compare `--help` in Main.cpp documents this
+/// masking rule).
+bool JsonEqualMaskingPixelHash(const std::string& a, const std::string& b);
+
 } // namespace Onyx::OracleTool

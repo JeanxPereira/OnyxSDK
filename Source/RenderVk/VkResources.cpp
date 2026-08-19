@@ -1,5 +1,7 @@
 #include <Onyx/RenderVk/VkResources.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace Onyx::RenderVk {
@@ -41,6 +43,12 @@ VkImageAspectFlags AspectMaskFor(VkFormat format) {
     }
 }
 
+// T7 mip remedy: full chain down to a 1x1 base level, same formula every
+// GPU API uses (floor(log2(max(w,h)))+1).
+uint32_t MipLevelsFor(uint32_t width, uint32_t height) {
+    return static_cast<uint32_t>(std::floor(std::log2(static_cast<double>(std::max(width, height))))) + 1;
+}
+
 } // namespace
 
 Buffer Resources::CreateBuffer(VkContext& ctx, VkDeviceSize size, VkBufferUsageFlags usage,
@@ -80,23 +88,30 @@ Buffer Resources::CreateBuffer(VkContext& ctx, VkDeviceSize size, VkBufferUsageF
 
 Image2D Resources::CreateImage2D(VkContext& ctx, uint32_t width, uint32_t height, VkFormat format,
                                   VkImageUsageFlags usage, VkSampleCountFlagBits samples,
-                                  std::string& err) {
+                                  std::string& err, bool generateMips) {
     Image2D out{};
     if (width == 0 || height == 0) {
         err = "Resources::CreateImage2D: width/height must be nonzero";
         return out;
     }
 
+    const uint32_t mipLevels = generateMips ? MipLevelsFor(width, height) : 1;
+    // Every mip level past 0 is filled by blitting FROM the level above it
+    // (UploadImage's mip-gen chain), so the image itself must be a valid
+    // blit source in addition to whatever the caller already asked for.
+    const VkImageUsageFlags effectiveUsage =
+        generateMips ? (usage | VK_IMAGE_USAGE_TRANSFER_SRC_BIT) : usage;
+
     VkImageCreateInfo imgInfo{};
     imgInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imgInfo.imageType = VK_IMAGE_TYPE_2D;
     imgInfo.format = format;
     imgInfo.extent = {width, height, 1};
-    imgInfo.mipLevels = 1;
+    imgInfo.mipLevels = mipLevels;
     imgInfo.arrayLayers = 1;
     imgInfo.samples = samples;
     imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imgInfo.usage = usage;
+    imgInfo.usage = effectiveUsage;
     imgInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     imgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
@@ -118,7 +133,7 @@ Image2D Resources::CreateImage2D(VkContext& ctx, uint32_t width, uint32_t height
     viewInfo.format = format;
     viewInfo.subresourceRange.aspectMask = AspectMaskFor(format);
     viewInfo.subresourceRange.baseMipLevel = 0;
-    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.levelCount = mipLevels;
     viewInfo.subresourceRange.baseArrayLayer = 0;
     viewInfo.subresourceRange.layerCount = 1;
 
@@ -136,6 +151,7 @@ Image2D Resources::CreateImage2D(VkContext& ctx, uint32_t width, uint32_t height
     out.format = format;
     out.width = width;
     out.height = height;
+    out.mipLevels = mipLevels;
     return out;
 }
 
@@ -209,26 +225,36 @@ bool Resources::UploadImage(VkContext& ctx, Image2D& dst, const void* rgba, std:
     std::memcpy(stagingInfo.pMappedData, rgba, static_cast<size_t>(size));
 
     const VkImageAspectFlags aspect = AspectMaskFor(dst.format);
+    const uint32_t mipLevels = dst.mipLevels > 0 ? dst.mipLevels : 1;
 
     bool ok = OneShot(ctx, [&](VkCommandBuffer cmd) {
-        VkImageMemoryBarrier2 toDst{};
-        toDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        toDst.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-        toDst.srcAccessMask = VK_ACCESS_2_NONE;
-        toDst.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        toDst.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        toDst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        toDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        toDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toDst.image = dst.img;
-        toDst.subresourceRange = {aspect, 0, 1, 0, 1};
+        auto barrier = [&](uint32_t baseMip, uint32_t levelCount, VkPipelineStageFlags2 srcStage,
+                           VkAccessFlags2 srcAccess, VkPipelineStageFlags2 dstStage,
+                           VkAccessFlags2 dstAccess, VkImageLayout oldLayout, VkImageLayout newLayout) {
+            VkImageMemoryBarrier2 b{};
+            b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            b.srcStageMask = srcStage;
+            b.srcAccessMask = srcAccess;
+            b.dstStageMask = dstStage;
+            b.dstAccessMask = dstAccess;
+            b.oldLayout = oldLayout;
+            b.newLayout = newLayout;
+            b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            b.image = dst.img;
+            b.subresourceRange = {aspect, baseMip, levelCount, 0, 1};
 
-        VkDependencyInfo dep1{};
-        dep1.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep1.imageMemoryBarrierCount = 1;
-        dep1.pImageMemoryBarriers = &toDst;
-        vkCmdPipelineBarrier2(cmd, &dep1);
+            VkDependencyInfo dep{};
+            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.imageMemoryBarrierCount = 1;
+            dep.pImageMemoryBarriers = &b;
+            vkCmdPipelineBarrier2(cmd, &dep);
+        };
+
+        // Level 0: UNDEFINED -> TRANSFER_DST, then the buffer -> image copy.
+        barrier(0, 1, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, VK_ACCESS_2_NONE,
+                VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
         VkBufferImageCopy copy{};
         copy.bufferOffset = 0;
@@ -240,24 +266,58 @@ bool Resources::UploadImage(VkContext& ctx, Image2D& dst, const void* rgba, std:
         vkCmdCopyBufferToImage(cmd, staging.buf, dst.img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
                                &copy);
 
-        VkImageMemoryBarrier2 toRead{};
-        toRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        toRead.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        toRead.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        toRead.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        toRead.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        toRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        toRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        toRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toRead.image = dst.img;
-        toRead.subresourceRange = {aspect, 0, 1, 0, 1};
+        if (mipLevels <= 1) {
+            // Exact pre-T7 behavior: one image, one mip, straight to
+            // SHADER_READ_ONLY_OPTIMAL. No blit chain to generate.
+            barrier(0, 1, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                    VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            return;
+        }
 
-        VkDependencyInfo dep2{};
-        dep2.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep2.imageMemoryBarrierCount = 1;
-        dep2.pImageMemoryBarriers = &toRead;
-        vkCmdPipelineBarrier2(cmd, &dep2);
+        // T7 mip remedy: standard box-downsample blit chain. Level 0 first
+        // becomes a blit SOURCE (it was just written as a blit DST above);
+        // every later level is blitted from the level directly above it,
+        // halving width/height (floored, clamped to a 1x1 minimum), then
+        // itself becomes a blit source for the next iteration.
+        barrier(0, 1, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+        int32_t mipW = static_cast<int32_t>(dst.width);
+        int32_t mipH = static_cast<int32_t>(dst.height);
+        for (uint32_t level = 1; level < mipLevels; ++level) {
+            const int32_t nextW = mipW > 1 ? mipW / 2 : 1;
+            const int32_t nextH = mipH > 1 ? mipH / 2 : 1;
+
+            barrier(level, 1, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, VK_ACCESS_2_NONE,
+                    VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                    VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+            VkImageBlit blit{};
+            blit.srcSubresource = {aspect, level - 1, 0, 1};
+            blit.srcOffsets[0] = {0, 0, 0};
+            blit.srcOffsets[1] = {mipW, mipH, 1};
+            blit.dstSubresource = {aspect, level, 0, 1};
+            blit.dstOffsets[0] = {0, 0, 0};
+            blit.dstOffsets[1] = {nextW, nextH, 1};
+            vkCmdBlitImage(cmd, dst.img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst.img,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+
+            barrier(level, 1, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                    VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+
+            mipW = nextW;
+            mipH = nextH;
+        }
+
+        // Every level is now TRANSFER_SRC_OPTIMAL (level 0 from the first
+        // barrier above, every other level from its own loop iteration) --
+        // one final barrier moves the whole chain to SHADER_READ_ONLY.
+        barrier(0, mipLevels, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+                VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }, err);
 
     Destroy(ctx, staging);

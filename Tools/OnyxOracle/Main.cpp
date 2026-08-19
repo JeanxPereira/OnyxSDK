@@ -1,5 +1,7 @@
 #include "HeadlessGL.h"
 #include "PngWrite.h"
+#include "PngRead.h"
+#include "ImageCompare.h"
 #include "CorpusScenes.h"
 #include "RenderReport.h"
 
@@ -11,6 +13,7 @@
 #include <Onyx/RenderVk/VkResources.h>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -73,18 +76,43 @@ void PrintHelp() {
         "      on any assertion/GPU failure, 77 if no Vulkan-capable\n"
         "      device/driver is found.\n"
         "\n"
-        "  onyx-oracle render-corpus --out DIR\n"
+        "  onyx-oracle render-corpus --out DIR [--renderer gl|vk]\n"
         "      Renders all 5 corpus scenes to DIR/<name>.png + DIR/<name>.json,\n"
-        "      printing one summary line per scene. Exit 0 on success. Exit 77\n"
-        "      if GL init fails (no display session) -- treat this as SKIP, not\n"
-        "      FAIL, in any automated caller.\n"
+        "      printing one summary line per scene. --renderer selects the\n"
+        "      rasterizer: gl (default, until T11) uses HeadlessGL/SceneRenderer\n"
+        "      exactly like the frozen goldens were produced; vk uses VkContext/\n"
+        "      OffscreenTarget/SceneRendererVk instead, same scenes/cameras/JSON\n"
+        "      report shape, for T7's Vulkan-vs-GL parity gate. Exit 0 on\n"
+        "      success. Exit 77 if the renderer can't initialize (gl: no display\n"
+        "      session; vk: no Vulkan-capable device/driver) -- treat this as\n"
+        "      SKIP, not FAIL, in any automated caller.\n"
         "\n"
         "  onyx-oracle verify DIR_A DIR_B\n"
         "      Byte-compares the 10 corpus files (5 PNG + 5 JSON) between two\n"
         "      render-corpus output directories and prints one verdict line per\n"
         "      file. Exit 0 if all 10 files are byte-identical, 1 if any differ,\n"
         "      2 if any file is missing from either directory, 77 if DIR_B does\n"
-        "      not exist at all (treat this as SKIP, not FAIL).\n");
+        "      not exist at all (treat this as SKIP, not FAIL).\n"
+        "\n"
+        "  onyx-oracle compare DIR_A DIR_B [--max-channel-delta N] [--max-differing-pct P]\n"
+        "      Tolerant comparison of the same 10 corpus files, for comparing a\n"
+        "      Vulkan render-corpus run against the frozen GL goldens (or any\n"
+        "      two render-corpus output directories) where byte-exactness isn't\n"
+        "      expected. N and P default to 0 (byte-exact). PNGs are decoded\n"
+        "      (stb_image) and compared per-pixel, per-channel: |a-b| against N\n"
+        "      on every channel, and the fraction of pixels with any nonzero\n"
+        "      delta against P (0-100, a percentage). A PNG whose two files\n"
+        "      decode to different dimensions always fails, regardless of N/P.\n"
+        "      JSONs are compared byte-exact EXCEPT the \"pixelHash\" line, which\n"
+        "      is masked (skipped entirely, both sides) -- pixelHash is a hash of\n"
+        "      the rendered pixel buffer itself, and two different rasterizers\n"
+        "      are never expected to produce byte-identical pixels even when\n"
+        "      every other reported field (batch geometry, materials, blend\n"
+        "      modes, skinning) matches exactly, which is what actually pins\n"
+        "      correctness at the report layer. Exit 0 if every file is within\n"
+        "      tolerance, 1 if any is not, 2 if any file is missing from either\n"
+        "      directory, 77 if DIR_B does not exist at all (treat this as SKIP,\n"
+        "      not FAIL).\n");
 }
 
 // The 5 corpus scene names in BuildCorpus() order, times the 2 extensions
@@ -104,6 +132,37 @@ bool ReadWholeFile(const fs::path& path, std::vector<char>& out) {
     out.resize(static_cast<size_t>(size));
     if (size > 0 && !f.read(out.data(), size)) return false;
     return true;
+}
+
+// Vulkan's NDC Y points down where GL's points up (Pipelines.h's own
+// "Camera convention" note, binding for every Vulkan draw call in this
+// milestone). CorpusScene::proj is built once via a plain glm::perspective()
+// call in CorpusScenes.cpp -- a file compiled OUTSIDE Onyx_RenderVk (it is
+// part of the onyx-oracle executable, shared verbatim by the GL
+// render-corpus path, which needs no correction and must never get one --
+// see CMakeLists.txt's own account of the PUBLIC-define leak that once
+// corrupted the frozen GL golden corpus this exact way), so it carries no
+// Vulkan-specific correction of its own. Every Vulkan call site in this
+// file that feeds a CorpusScene's projection matrix to SceneRendererVk::
+// Render() must apply this correction itself first -- discovered by T7's
+// pixel-level comparison against the GL goldens (every scene rendered
+// upside-down without it; see task-7-report.md), which is exactly the kind
+// of bug this task exists to catch. Y-only: the [-1,1] vs [0,1] clip-space
+// Z range difference GLM_FORCE_DEPTH_ZERO_TO_ONE would otherwise fix is a
+// SEPARATE convention this scene's near=0.1/far=100 camera setup does not
+// need corrected in practice (view-space depth beyond ~0.2 units already
+// maps to a positive GL-style NDC z, so nothing in this corpus's visible
+// range gets Vulkan-clipped at the z=0 near-clip plane, and the resulting
+// mapping stays monotonic in view depth either way, so the depth TEST
+// still orders fragments correctly) -- flagged in the task report as a
+// latent risk for any future scene whose geometry sits within roughly 0.2
+// units of the camera, not fixed here since it is not exercised by this
+// corpus and this task's mandate is parity against the frozen goldens, not
+// a speculative camera-matrix rewrite.
+glm::mat4 VkProj(const glm::mat4& proj) {
+    glm::mat4 p = proj;
+    p[1][1] *= -1.0f;
+    return p;
 }
 
 // ── vk-scene-smoke (T5) ─────────────────────────────────────────────────
@@ -131,7 +190,7 @@ bool RenderSceneTwice(Onyx::RenderVk::VkContext& ctx, const Onyx::RenderVk::Scen
 
         bool ok = Onyx::RenderVk::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
             target.BeginFrame(cmd, clearColor);
-            renderer.Render(cmd, view, proj, mode, w, h);
+            renderer.Render(cmd, view, VkProj(proj), mode, w, h);
             target.EndFrame(cmd);
         }, err);
         if (!ok) {
@@ -497,6 +556,154 @@ int RunRenderCorpus(const fs::path& outDir) {
     return 0;
 }
 
+// ── render-corpus --renderer vk (T7) ────────────────────────────────────
+
+// Vulkan mirror of RunRenderCorpus above: same 5 corpus scenes, same fixed
+// cameras, same DIR/<name>.png + DIR/<name>.json output shape (BuildReport
+// is renderer-agnostic -- see RenderReport.h's top comment), same
+// background-gradient-then-geometry draw order -- but through VkContext/
+// OffscreenTarget/SceneRendererVk instead of HeadlessGL/SceneRenderer.
+// This is what T7's `compare`/VkOracleParity actually renders and checks
+// against the frozen GL goldens.
+int RunRenderCorpusVk(const fs::path& outDir) {
+    Onyx::RenderVk::VkContext ctx;
+    std::string err;
+    if (!ctx.Init(/*presentSupport=*/false, err)) {
+        std::fprintf(stderr, "render-corpus: %s\n", err.c_str());
+        return 77;
+    }
+
+    Onyx::RenderVk::ScenePipelines scenePipes;
+    if (!Onyx::RenderVk::Pipelines::CreateScene(ctx, scenePipes, err)) {
+        std::fprintf(stderr, "render-corpus: %s\n", err.c_str());
+        ctx.Shutdown();
+        return 1;
+    }
+    Onyx::RenderVk::BackgroundPipeline bgPipe;
+    if (!Onyx::RenderVk::Pipelines::CreateBackground(ctx, bgPipe, err)) {
+        std::fprintf(stderr, "render-corpus: %s\n", err.c_str());
+        Onyx::RenderVk::Pipelines::Destroy(ctx, scenePipes);
+        ctx.Shutdown();
+        return 1;
+    }
+
+    std::error_code ec;
+    fs::create_directories(outDir, ec);
+
+    // Same clear color HeadlessGL::BeginFrame uses (black) before its own
+    // RenderBackground call -- the background pipeline is depth-off/
+    // blend-off and draws a fullscreen triangle covering every pixel, so
+    // the clear color underneath is always fully overdrawn on both paths;
+    // kept identical anyway so nothing about this frame's setup diverges
+    // from the GL path for a reason that isn't the renderer itself. Same
+    // top/bottom gradient colors RunRenderCorpus feeds SceneRenderer::
+    // RenderBackground above (neutral, not app-config dependent).
+    const float clearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    const glm::vec3 topColor(0.10f, 0.11f, 0.13f);
+    const glm::vec3 bottomColor(0.03f, 0.03f, 0.04f);
+
+    int rc = 0;
+    std::vector<CorpusScene> corpus = Onyx::OracleTool::BuildCorpus();
+    for (const CorpusScene& cs : corpus) {
+        Onyx::RenderVk::OffscreenTarget target;
+        if (!target.Create(ctx, cs.width, cs.height, err)) {
+            std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
+            rc = 1;
+            break;
+        }
+
+        Onyx::RenderVk::SceneRendererVk renderer;
+        if (!renderer.Build(ctx, scenePipes, cs.scene, err)) {
+            std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
+            renderer.Clear(ctx);
+            target.Destroy(ctx);
+            rc = 1;
+            break;
+        }
+
+        bool bgOk = true;
+        bool ok = Onyx::RenderVk::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
+            target.BeginFrame(cmd, clearColor);
+            bgOk = renderer.RenderBackground(ctx, bgPipe, cmd, topColor, bottomColor, err);
+            renderer.Render(cmd, cs.view, VkProj(cs.proj), cs.mode, cs.width, cs.height);
+            target.EndFrame(cmd);
+        }, err);
+        if (!ok || !bgOk) {
+            std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
+            renderer.Clear(ctx);
+            target.Destroy(ctx);
+            rc = 1;
+            break;
+        }
+
+        std::vector<uint8_t> rgba;
+        if (!target.Readback(ctx, rgba, err)) {
+            std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
+            renderer.Clear(ctx);
+            target.Destroy(ctx);
+            rc = 1;
+            break;
+        }
+
+        uint64_t pixelHash = Onyx::OracleTool::Fnv1a(rgba.data(), rgba.size());
+
+        fs::path pngPath = outDir / (cs.name + ".png");
+        if (!Onyx::OracleTool::WritePng(pngPath, cs.width, cs.height, rgba, err)) {
+            std::fprintf(stderr, "render-corpus: %s: %s\n", cs.name.c_str(), err.c_str());
+            renderer.Clear(ctx);
+            target.Destroy(ctx);
+            rc = 1;
+            break;
+        }
+
+        std::vector<Onyx::Rendering::RenderBatch>& batches = renderer.GetBatches();
+        std::vector<size_t> paletteJointCounts;
+        paletteJointCounts.reserve(batches.size());
+        for (const auto& b : batches) paletteJointCounts.push_back(b.jointMap.size());
+
+        std::string report = Onyx::OracleTool::BuildReport(
+            cs.name, cs.width, cs.height, pixelHash, batches, paletteJointCounts);
+
+        fs::path jsonPath = outDir / (cs.name + ".json");
+        std::ofstream jf(jsonPath, std::ios::binary | std::ios::trunc);
+        if (!jf) {
+            std::fprintf(stderr, "render-corpus: %s: failed to open %s for writing\n",
+                        cs.name.c_str(), jsonPath.string().c_str());
+            renderer.Clear(ctx);
+            target.Destroy(ctx);
+            rc = 1;
+            break;
+        }
+        jf.write(report.data(), static_cast<std::streamsize>(report.size()));
+        jf.close();
+        if (!jf) {
+            std::fprintf(stderr, "render-corpus: %s: failed writing %s\n",
+                        cs.name.c_str(), jsonPath.string().c_str());
+            renderer.Clear(ctx);
+            target.Destroy(ctx);
+            rc = 1;
+            break;
+        }
+
+        std::printf("%s: %dx%d pixelHash=%llu batches=%zu\n", cs.name.c_str(), cs.width,
+                    cs.height, static_cast<unsigned long long>(pixelHash), batches.size());
+
+        renderer.Clear(ctx);
+        target.Destroy(ctx);
+    }
+
+    Onyx::RenderVk::Pipelines::Destroy(ctx, bgPipe);
+    Onyx::RenderVk::Pipelines::Destroy(ctx, scenePipes);
+    ctx.Shutdown();
+
+    if (rc == 0 && ctx.ValidationMessageCount() != 0) {
+        std::fprintf(stderr, "%u validation message(s); last: %s\n", ctx.ValidationMessageCount(),
+                    ctx.LastValidationMessage().c_str());
+        rc = 1;
+    }
+    return rc;
+}
+
 // ── verify ───────────────────────────────────────────────────────────────
 
 int RunVerify(const fs::path& dirA, const fs::path& dirB) {
@@ -541,6 +748,91 @@ int RunVerify(const fs::path& dirA, const fs::path& dirB) {
 
     if (anyMissing) return 2;
     if (anyDiffer) return 1;
+    return 0;
+}
+
+// ── compare (T7) ─────────────────────────────────────────────────────────
+
+// Tolerant sibling of RunVerify above: same 10-file corpus shape, but PNGs
+// are decoded and compared per-pixel/per-channel within (maxChannelDelta,
+// maxDifferingPct) instead of demanded byte-identical, and JSONs are
+// compared with their "pixelHash" line masked (Onyx::OracleTool::
+// JsonEqualMaskingPixelHash) instead of raw byte-for-byte -- see
+// RenderReport.h's doc comment on that function for why pixelHash
+// specifically is the one field two different renderers are never
+// expected to agree on.
+int RunCompare(const fs::path& dirA, const fs::path& dirB, int maxChannelDelta,
+                double maxDifferingPct) {
+    std::error_code ec;
+    if (!fs::exists(dirB, ec) || !fs::is_directory(dirB, ec)) {
+        std::fprintf(stderr, "compare: %s does not exist\n", dirB.string().c_str());
+        return 77;
+    }
+
+    bool anyMissing = false;
+    bool anyFail = false;
+
+    for (const char* name : kSceneNames) {
+        // -- PNG: decode + tolerant per-pixel/per-channel comparison --
+        {
+            std::string fname = std::string(name) + ".png";
+            fs::path pathA = dirA / fname;
+            fs::path pathB = dirB / fname;
+
+            int wA = 0, hA = 0, wB = 0, hB = 0;
+            std::vector<uint8_t> rgbaA, rgbaB;
+            std::string errA, errB;
+            bool haveA = Onyx::OracleTool::ReadPng(pathA, wA, hA, rgbaA, errA);
+            bool haveB = Onyx::OracleTool::ReadPng(pathB, wB, hB, rgbaB, errB);
+            if (!haveA || !haveB) {
+                anyMissing = true;
+                std::printf("MISSING %s (A:%s B:%s)\n", fname.c_str(),
+                            haveA ? "present" : errA.c_str(), haveB ? "present" : errB.c_str());
+                continue;
+            }
+            if (wA != wB || hA != hB) {
+                anyFail = true;
+                std::printf("FAIL %s: dimension mismatch A=%dx%d B=%dx%d\n", fname.c_str(), wA, hA,
+                            wB, hB);
+                continue;
+            }
+
+            Onyx::OracleTool::ImageCompareResult result =
+                Onyx::OracleTool::CompareRGBA(wA, hA, rgbaA, rgbaB);
+            bool ok = Onyx::OracleTool::WithinTolerance(result, maxChannelDelta, maxDifferingPct);
+            std::printf("%s %s: maxChannelDelta=%d differingPct=%.4f%% "
+                        "(tolerance: maxChannelDelta<=%d differingPct<=%.4f%%)\n",
+                        ok ? "OK" : "FAIL", fname.c_str(), result.maxChannelDelta,
+                        result.differingPct, maxChannelDelta, maxDifferingPct);
+            if (!ok) anyFail = true;
+        }
+
+        // -- JSON: byte-exact except the masked pixelHash line --
+        {
+            std::string fname = std::string(name) + ".json";
+            fs::path pathA = dirA / fname;
+            fs::path pathB = dirB / fname;
+
+            std::vector<char> bytesA, bytesB;
+            bool haveA = ReadWholeFile(pathA, bytesA);
+            bool haveB = ReadWholeFile(pathB, bytesB);
+            if (!haveA || !haveB) {
+                anyMissing = true;
+                std::printf("MISSING %s (A:%s B:%s)\n", fname.c_str(),
+                            haveA ? "present" : "missing", haveB ? "present" : "missing");
+                continue;
+            }
+
+            std::string strA(bytesA.begin(), bytesA.end());
+            std::string strB(bytesB.begin(), bytesB.end());
+            bool ok = Onyx::OracleTool::JsonEqualMaskingPixelHash(strA, strB);
+            std::printf("%s %s (pixelHash line masked)\n", ok ? "OK" : "FAIL", fname.c_str());
+            if (!ok) anyFail = true;
+        }
+    }
+
+    if (anyMissing) return 2;
+    if (anyFail) return 1;
     return 0;
 }
 
@@ -849,9 +1141,12 @@ int main(int argc, char** argv) {
 
     if (argc >= 2 && std::strcmp(argv[1], "render-corpus") == 0) {
         fs::path outDir;
+        std::string renderer = "gl";
         for (int i = 2; i < argc; ++i) {
             if (std::strcmp(argv[i], "--out") == 0 && i + 1 < argc) {
                 outDir = argv[++i];
+            } else if (std::strcmp(argv[i], "--renderer") == 0 && i + 1 < argc) {
+                renderer = argv[++i];
             }
         }
         if (outDir.empty()) {
@@ -859,7 +1154,14 @@ int main(int argc, char** argv) {
             PrintHelp();
             return 1;
         }
-        return RunRenderCorpus(outDir);
+        if (renderer == "gl") {
+            return RunRenderCorpus(outDir);
+        } else if (renderer == "vk") {
+            return RunRenderCorpusVk(outDir);
+        }
+        std::fprintf(stderr, "render-corpus: unknown --renderer '%s' (want gl or vk)\n",
+                     renderer.c_str());
+        return 1;
     }
 
     if (argc >= 2 && std::strcmp(argv[1], "verify") == 0) {
@@ -869,6 +1171,26 @@ int main(int argc, char** argv) {
             return 1;
         }
         return RunVerify(argv[2], argv[3]);
+    }
+
+    if (argc >= 2 && std::strcmp(argv[1], "compare") == 0) {
+        if (argc < 4) {
+            std::fprintf(stderr, "compare: DIR_A and DIR_B are required\n");
+            PrintHelp();
+            return 1;
+        }
+        fs::path dirA = argv[2];
+        fs::path dirB = argv[3];
+        int maxChannelDelta = 0;
+        double maxDifferingPct = 0.0;
+        for (int i = 4; i < argc; ++i) {
+            if (std::strcmp(argv[i], "--max-channel-delta") == 0 && i + 1 < argc) {
+                maxChannelDelta = std::atoi(argv[++i]);
+            } else if (std::strcmp(argv[i], "--max-differing-pct") == 0 && i + 1 < argc) {
+                maxDifferingPct = std::atof(argv[++i]);
+            }
+        }
+        return RunCompare(dirA, dirB, maxChannelDelta, maxDifferingPct);
     }
 
     if (argc >= 2 && (std::strcmp(argv[1], "--help") == 0 || std::strcmp(argv[1], "-h") == 0)) {

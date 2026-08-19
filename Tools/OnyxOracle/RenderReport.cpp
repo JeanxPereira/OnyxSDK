@@ -176,4 +176,40 @@ std::string BuildReport(const std::string& sceneName, int w, int h,
     return out;
 }
 
+bool JsonEqualMaskingPixelHash(const std::string& a, const std::string& b) {
+    // Splits on '\n' without dropping a trailing empty segment past the
+    // last delimiter -- BuildReport always ends its output with "}\n", so
+    // there is no meaningful content after the final '\n' and a naive
+    // split would otherwise leave a spurious empty "line" at the end of
+    // both vectors; comparing it (always "" == "") would be harmless but
+    // pointless, so it is simply not emitted.
+    auto splitLines = [](const std::string& s) {
+        std::vector<std::string> lines;
+        size_t start = 0;
+        while (start < s.size()) {
+            size_t nl = s.find('\n', start);
+            if (nl == std::string::npos) {
+                lines.push_back(s.substr(start));
+                break;
+            }
+            lines.push_back(s.substr(start, nl - start));
+            start = nl + 1;
+        }
+        return lines;
+    };
+
+    const std::vector<std::string> linesA = splitLines(a);
+    const std::vector<std::string> linesB = splitLines(b);
+    if (linesA.size() != linesB.size()) return false;
+
+    static const std::string kPixelHashPrefix = "  \"pixelHash\": ";
+    for (size_t i = 0; i < linesA.size(); ++i) {
+        const bool aIsHash = linesA[i].compare(0, kPixelHashPrefix.size(), kPixelHashPrefix) == 0;
+        const bool bIsHash = linesB[i].compare(0, kPixelHashPrefix.size(), kPixelHashPrefix) == 0;
+        if (aIsHash && bIsHash) continue; // masked: both sides skip this line entirely
+        if (linesA[i] != linesB[i]) return false;
+    }
+    return true;
+}
+
 } // namespace Onyx::OracleTool

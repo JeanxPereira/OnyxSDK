@@ -81,7 +81,14 @@ bool SceneRendererVk::Build(VkContext& ctx, const ScenePipelines& pipelines, con
     samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     samplerInfo.minLod = 0.0f;
-    samplerInfo.maxLod = 0.0f; // Resources::CreateImage2D fixes mipLevels=1
+    // T7 mip remedy: real scene textures below now carry a full mip chain
+    // (Resources::CreateImage2D(..., generateMips=true)); VK_LOD_CLAMP_NONE
+    // lets the sampler use every level a given image actually has. This
+    // sampler is shared with m_defaultTex (1x1, always exactly 1 mip
+    // level) -- a maxLod beyond an image's real level count is harmless,
+    // Vulkan clamps the sampled LOD to [0, image's own mip count - 1]
+    // automatically, so one shared sampler setting is correct for both.
+    samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
     VkResult vr = vkCreateSampler(ctx.Device(), &samplerInfo, nullptr, &m_sampler);
     if (vr != VK_SUCCESS) {
         err = "SceneRendererVk::Build: vkCreateSampler failed (VkResult " +
@@ -105,9 +112,13 @@ bool SceneRendererVk::Build(VkContext& ctx, const ScenePipelines& pipelines, con
     for (size_t i = 0; i < scene.textures.size(); ++i) {
         if (!scene.textures[i] || !scene.textures[i]->IsValid()) continue;
         const auto& tex = *scene.textures[i];
+        // T7 mip remedy: real scene textures get a full mip chain (GL's own
+        // UploadTexture calls glGenerateMipmap unconditionally -- see
+        // Resources::CreateImage2D's doc comment for the parity gap this
+        // closes); generateMips=true is the only call site that opts in.
         Image2D img = Resources::CreateImage2D(ctx, tex.width, tex.height, VK_FORMAT_R8G8B8A8_UNORM,
                                                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                                                VK_SAMPLE_COUNT_1_BIT, err);
+                                                VK_SAMPLE_COUNT_1_BIT, err, /*generateMips=*/true);
         if (img.img == VK_NULL_HANDLE || !Resources::UploadImage(ctx, img, tex.pixels.data(), err)) {
             err = "SceneRendererVk::Build: texture[" + std::to_string(i) + "] '" + tex.name +
                   "': " + err;
