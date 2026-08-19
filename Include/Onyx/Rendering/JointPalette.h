@@ -16,6 +16,18 @@
 // No GL includes, no Vulkan includes — only glm and Parsers::ObjectData
 // (a plain data header). Every function here is pure: no globals, no
 // logging, no side effects beyond its return value.
+//
+// DANGER — asymmetric GLM_FORCE_DEPTH_ZERO_TO_ONE: this file is compiled
+// TWICE, once into Onyx_Render (no GLM_FORCE_DEPTH_ZERO_TO_ONE — GL's
+// [-1,1] NDC Z) and once into Onyx_RenderVk (GLM_FORCE_DEPTH_ZERO_TO_ONE
+// defined PRIVATE on that target — Vulkan's [0,1] NDC Z; see
+// CMakeLists.txt and Include/Onyx/RenderVk/Pipelines.h's own note). Every
+// function here must stay pure rest-pose/local-TRS math with NO clip-space
+// projection step. Never call glm::perspective/ortho/frustum/project/
+// unProject (or anything that reads GLM_DEPTH_CLIP_SPACE) from this file —
+// doing so would silently compile two different NDC-Z conventions into the
+// two object files sharing this one source, and the two renderers would
+// diverge without a compile error anywhere.
 
 #include <Onyx/Parsers/SceneNode.h> // Parsers::ObjectData
 

@@ -6,6 +6,12 @@
 
 #include <cmath>
 
+// DANGER — see JointPalette.h's own note: this translation unit is compiled
+// twice (once into Onyx_Render, once into Onyx_RenderVk PRIVATE-defining
+// GLM_FORCE_DEPTH_ZERO_TO_ONE), so every function below must stay clear of
+// glm::perspective/ortho/frustum/project/unProject — any clip-space call
+// here would compile to two silently different NDC-Z results.
+
 namespace Onyx::Rendering {
 
 glm::mat4 BuildLocalTRS(const Onyx::Parsers::ObjectData& obj, int i) {
