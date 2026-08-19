@@ -2,7 +2,7 @@
 #include "imgui.h"
 #include <Onyx/Services/Events.h>
 #include <Onyx/App/Widgets.h>
-#include <cassert>
+#include <Onyx/Services/Logger.h>
 
 namespace Onyx::Viewers {
 
@@ -41,19 +41,37 @@ void DocumentWindow::Shutdown() {
     // containers still holds a shared_ptr to a tab's content, so clearing
     // the vector below will NOT actually destroy it (and will not run its
     // destructor's GPU-resource cleanup) -- exactly the class of bug this
-    // asserts against, debug-only since it never changes production
+    // guards against, debug-only since it never changes production
     // behavior, only surfaces the violation immediately instead of letting
     // it manifest as a mysterious later crash/leak.
+    //
+    // This is LOG_ERR, not assert(): DocumentWindow::Shutdown runs on the
+    // GUI thread, and MSVC's assert() pops a MODAL dialog that blocks the
+    // window's message pump. The app then just appears to freeze on its
+    // last frame, Windows marks it "Not responding", and the dialog itself
+    // is frequently hidden behind the main window -- the user sees an
+    // unexplained hang with no way to know a guard even fired. An
+    // invariant guard must never be able to deadlock the message pump, so
+    // this logs the same diagnostic and lets the existing teardown below
+    // continue -- the guard's job is telling us the invariant broke, not
+    // stopping the process.
 #ifndef NDEBUG
     for (const auto& content : m_pendingDelete) {
-        assert((!content || content.use_count() <= 1) &&
-               "DocumentWindow::Shutdown: a pending-delete tab's content is still "
-               "externally shared -- clearing m_pendingDelete will not destroy it");
+        if (content && content.use_count() > 1) {
+            LOG_ERR("[DocumentWindow] Shutdown: a pending-delete tab's content (%p, "
+                    "use_count=%ld) is still externally shared -- clearing "
+                    "m_pendingDelete will not destroy it",
+                    static_cast<const void*>(content.get()),
+                    static_cast<long>(content.use_count()));
+        }
     }
     for (const auto& tab : m_tabs) {
-        assert((!tab.content || tab.content.use_count() <= 1) &&
-               "DocumentWindow::Shutdown: a tab's content is still externally "
-               "shared -- clearing m_tabs will not destroy it");
+        if (tab.content && tab.content.use_count() > 1) {
+            LOG_ERR("[DocumentWindow] Shutdown: a tab's content (%p, use_count=%ld) is "
+                    "still externally shared -- clearing m_tabs will not destroy it",
+                    static_cast<const void*>(tab.content.get()),
+                    static_cast<long>(tab.content.use_count()));
+        }
     }
 #endif
 
