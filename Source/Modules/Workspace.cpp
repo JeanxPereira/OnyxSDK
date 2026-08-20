@@ -124,8 +124,9 @@ ParseResult Workspace::RunParse(Document& doc, IGameModule& module,
     // Extension match is case-insensitive against MountSpec::extensions
     // (lowercase, no dot); the first matching spec wins. A factory that
     // returns nullptr is a refused mount, not a parse failure: fall
-    // through to a plain-file parse (ctx.mountedVfs/fileTable stay null)
-    // with a Warning diag instead of aborting the open.
+    // through to a plain-file parse (ctx.mountedVfs stays null; ctx.
+    // fileTable does not -- see its doc comment) with a Warning diag
+    // instead of aborting the open.
     std::string ext = doc.path.extension().string();
     if (!ext.empty() && ext.front() == '.') ext.erase(ext.begin());
     std::transform(ext.begin(), ext.end(), ext.begin(),
@@ -171,10 +172,14 @@ ParseResult Workspace::RunParse(Document& doc, IGameModule& module,
             std::nullopt});
     }
 
+    // fileTable is handed to every module, mounted or not (doc.fileTable's
+    // slot 0 is already pre-seeded above with the root container file
+    // regardless of mount outcome) -- see ContainerContext::fileTable's
+    // doc comment. mountedVfs alone is the "was this mounted?" signal.
     ContainerContext ctx{*doc.file, doc.path, m_settings, doc.diags, progress,
                           doc.state, doc.roots,
                           doc.mountedVfs.get(),
-                          doc.mountedVfs ? &doc.fileTable : nullptr};
+                          &doc.fileTable};
     ParseResult result;
     try {
         result = module.ParseContainer(ctx);

@@ -45,15 +45,25 @@ struct ContainerContext {
     ModuleState&              state;      // module writes what it wants kept
     std::vector<Domain::AssetEntry>& roots;   // module fills the tree here
 
-    // Mount processing at open (spec §5.2, Task 7). Both null/absent for a
-    // plain file (no MountSpec matched the opened path's extension, or the
-    // matching spec's factory refused the mount). When a mount succeeded,
-    // mountedVfs is the live VFS to open inner files through, and fileTable
-    // is the Document's file table to push those opened files into --
-    // stamping each pushed entry's resulting index into that entry's
-    // AssetEntry::source.fileIndex is the module's job. Index 0 always
-    // names the root container file (pre-seeded by the Workspace before
-    // ParseContainer runs).
+    // Mount processing at open (spec §5.2, Task 7). mountedVfs is null/
+    // absent for a plain file (no MountSpec matched the opened path's
+    // extension, or the matching spec's factory refused the mount); when a
+    // mount succeeded, mountedVfs is the live VFS to open inner files
+    // through. mountedVfs is the only honest "was this mounted?" signal --
+    // check it, not fileTable, to tell the two cases apart.
+    //
+    // fileTable, by contrast, is never null: it is always the Document's
+    // file table, slot 0 always pre-seeded with the root container file
+    // (by the Workspace, before ParseContainer runs) whether or not a
+    // mount happened. A module is free to push ANY file its entries need
+    // to address into it -- not only inner files opened via mountedVfs,
+    // but a decompressed buffer, a synthesised view, or anything else a
+    // plain-file parse builds for itself -- and must stamp the resulting
+    // index into those entries' AssetEntry::source.fileIndex; a module
+    // that fails to do so leaves affected entries pointing at slot 0 (the
+    // still-compressed/still-raw container), which is a correctness bug
+    // downstream consumers (e.g. CmdExtract) have no way to detect. Index
+    // 0 always names the root container file.
     Vfs::IVirtualFileSystem*  mountedVfs = nullptr;
     std::vector<std::shared_ptr<Vfs::IFile>>* fileTable = nullptr;
 };
@@ -73,8 +83,12 @@ struct Document {
     // hands out must outlive the parse). fileTable is the file table
     // AssetEntry::source.fileIndex indexes into: slot 0 is pre-seeded with
     // `file` itself (the root container) by the Workspace before
-    // ParseContainer runs; a module parsing through a mount appends every
-    // inner file it opens via mountedVfs, in order, from slot 1 on.
+    // ParseContainer runs, whether or not a mount happens -- a module
+    // parsing through a mount appends every inner file it opens via
+    // mountedVfs, in order, from slot 1 on; a module with no mount at all
+    // may append too (e.g. a decompressed buffer its entries address),
+    // which is exactly why ContainerContext::fileTable is handed to every
+    // module unconditionally, not only mounted ones.
     std::shared_ptr<Vfs::IVirtualFileSystem> mountedVfs;
     std::vector<std::shared_ptr<Vfs::IFile>> fileTable;
 

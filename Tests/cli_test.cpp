@@ -6,6 +6,7 @@
 #include <Onyx/Exchange/GltfExport.h>
 #include <Onyx/Modules/Workspace.h>
 #include <Onyx/Types/TypeCatalog.h>
+#include <Onyx/Vfs/MemoryFile.h>
 
 #include <OnyxBoxModule.h>
 
@@ -13,9 +14,11 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -292,6 +295,130 @@ struct DecoyModule : Onyx::Modules::IGameModule {
     }
 };
 
+// Regression fixture for ContainerContext::fileTable (the file-table gap:
+// a container that decompresses/synthesises its own bytes had no seat at
+// the file table -- see the field's doc comment in
+// Include/Onyx/Modules/Workspace.h). This module mirrors the motivating
+// GoWR scenario at model-organism scale: it never mounts (Mounts() is the
+// IGameModule default, {}), so ctx.mountedVfs is always null for it --
+// its only claim on multi-file addressing is ctx.fileTable, which used to
+// be null for exactly this (non-mounted) case.
+//
+// The on-disk container is deliberately NOT where the entry's bytes come
+// from: 4 bytes of "SYN1" magic followed by 32 bytes of 0xFF padding.
+// ParseContainer ignores that padding and synthesises its own buffer,
+// kSynthBuf, pushing it onto ctx.fileTable (guarded by `if (ctx.fileTable)`
+// -- exactly like the real mount-aware modules in this tree,
+// Examples/OnyxBox/OnyxBoxModule.cpp and Tests/mounts_test.cpp -- so a
+// pre-fix run degrades instead of null-dereferencing) and stamping the
+// resulting slot onto the one entry it emits. That entry's declared range
+// points at "THE REAL BYTES" (14 bytes) inside kSynthBuf; reading the SAME
+// offset/size from the on-disk padding (slot 0) instead yields 14 bytes of
+// 0xFF -- observably different content, not merely a different length, so
+// a wrong resolution is caught by an exact byte comparison.
+struct SynthFileModule : Onyx::Modules::IGameModule {
+    static constexpr std::string_view kOnDiskMagic = "SYN1";
+    static constexpr std::string_view kSynthBuf = "junk-THE REAL BYTES-junk";
+    static constexpr uint64_t kOffset = 5;    // "THE REAL BYTES" inside kSynthBuf
+    static constexpr uint64_t kSize = 14;
+
+    Onyx::Types::TypeId payloadType;
+
+    Onyx::Modules::ModuleInfo Info() const override {
+        return Onyx::Modules::ModuleInfo{"synthfile", "SynthFile", {"synth"}, {}};
+    }
+
+    Onyx::Modules::ProbeResult Probe(const Onyx::Modules::ProbeInput& in) const override {
+        if (in.header.size() >= kOnDiskMagic.size() &&
+            std::memcmp(in.header.data(), kOnDiskMagic.data(), kOnDiskMagic.size()) == 0) {
+            return Onyx::Modules::ProbeResult{90, "SYN1 magic"};
+        }
+        return Onyx::Modules::ProbeResult{0, "no magic"};
+    }
+
+    void RegisterTypes(Onyx::Types::TypeRegistrar& r) override {
+        Onyx::Types::TypeInfo info;
+        info.key = "payload";
+        info.label = "Synth Payload";
+        payloadType = r.Add(info);
+    }
+    void RegisterDecoders(Onyx::Modules::DecoderRegistry&) override {}
+
+    Onyx::Modules::ParseResult ParseContainer(Onyx::Modules::ContainerContext& ctx) override {
+        Onyx::Domain::AssetEntry entry;
+        entry.name = "payload.bin";
+        entry.typeId = payloadType;
+        entry.source.offset = kOffset;
+        entry.source.size = kSize;
+        // entry.source.fileIndex stays the ByteRange default (0, the raw
+        // on-disk container) unless ctx.fileTable is reachable and the
+        // synthesised buffer can be registered and stamped onto it --
+        // exactly the pre-fix defect this fixture reproduces.
+        if (ctx.fileTable) {
+            std::vector<uint8_t> bytes(kSynthBuf.begin(), kSynthBuf.end());
+            entry.source.fileIndex = uint32_t(ctx.fileTable->size());
+            ctx.fileTable->push_back(
+                std::make_shared<Onyx::Vfs::MemoryFile>(std::move(bytes)));
+        }
+        ctx.roots.push_back(std::move(entry));
+        return Onyx::Modules::ParseResult{true};
+    }
+};
+
+std::filesystem::path WriteSynthContainerFile() {
+    std::vector<uint8_t> buf;
+    buf.insert(buf.end(), {uint8_t('S'), uint8_t('Y'), uint8_t('N'), uint8_t('1')});
+    for (int i = 0; i < 32; ++i) buf.push_back(uint8_t(0xFF));
+
+    auto path = std::filesystem::temp_directory_path() / "onyx_cli_synth_container.bin";
+    std::ofstream f(path, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
+    f.close();
+    return path;
+}
+
+// Regression fixture for CmdExtract's out-of-range handling (Source/Cli/
+// Commands.cpp's ExtractEntries) against the NEW mistake a reachable
+// fileTable makes possible: a module stamping AssetEntry::source.fileIndex
+// to a slot it never pushed. This is a module bug, not a mount/decompress
+// scenario -- ParseContainer never touches ctx.fileTable at all, it just
+// writes a bogus index straight into the entry it emits.
+struct BogusIndexModule : Onyx::Modules::IGameModule {
+    Onyx::Types::TypeId itemType;
+
+    Onyx::Modules::ModuleInfo Info() const override {
+        return Onyx::Modules::ModuleInfo{"bogusindex", "BogusIndex", {"bogus"}, {}};
+    }
+    Onyx::Modules::ProbeResult Probe(const Onyx::Modules::ProbeInput&) const override {
+        return Onyx::Modules::ProbeResult{50, "always claims"};
+    }
+    void RegisterTypes(Onyx::Types::TypeRegistrar& r) override {
+        Onyx::Types::TypeInfo info;
+        info.key = "item";
+        info.label = "Bogus Item";
+        itemType = r.Add(info);
+    }
+    void RegisterDecoders(Onyx::Modules::DecoderRegistry&) override {}
+    Onyx::Modules::ParseResult ParseContainer(Onyx::Modules::ContainerContext& ctx) override {
+        Onyx::Domain::AssetEntry entry;
+        entry.name = "ghost.bin";
+        entry.typeId = itemType;
+        entry.source.fileIndex = 99;   // never pushed anywhere -- a module bug
+        entry.source.offset = 0;
+        entry.source.size = 4;
+        ctx.roots.push_back(std::move(entry));
+        return Onyx::Modules::ParseResult{true};
+    }
+};
+
+std::filesystem::path WriteBogusIndexFile() {
+    auto path = std::filesystem::temp_directory_path() / "onyx_cli_bogus_index.bin";
+    std::ofstream f(path, std::ios::binary);
+    f << "whatever";
+    f.close();
+    return path;
+}
+
 // Builds a stable argv (char*[]) from a list of strings for the `render`
 // dispatch tests below, which need more argv permutations than the rest
 // of this file's hand-rolled char[]/vector<char> literals comfortably
@@ -404,6 +531,89 @@ TEST_CASE("cli extract skips unsafe entry names and writes nothing outside outDi
         ++count;
     }
     CHECK(count == 1);
+
+    std::filesystem::remove_all(outDir);
+    std::filesystem::remove(path);
+}
+
+// The file-table gap's actual symptom, driven end to end through the real
+// CmdExtract path (Source/Cli/Commands.cpp): a module that decompresses or
+// synthesises its own second file must be able to register it and have
+// CmdExtract read the entry's payload from THAT file, not from the raw
+// on-disk container. Ragnarok WADs are LZ4-framed and every entry's offset
+// is relative to the decompressed buffer -- with no way to register that
+// buffer, every entry kept fileIndex == 0 (the still-compressed file on
+// disk) and `onyx-cli extract` wrote garbage. SynthFileModule reproduces
+// the shape at model-organism scale: this test proves the extracted bytes
+// are the right ones, not merely that extraction "succeeded".
+TEST_CASE("cli extract resolves entry bytes from a module-registered second file, not slot 0") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(std::make_unique<SynthFileModule>());
+    auto path = WriteSynthContainerFile();
+    auto outDir = std::filesystem::temp_directory_path() / "onyx_cli_synth_extract_out";
+    std::filesystem::remove_all(outDir);
+
+    std::ostringstream out;
+    int rc = Onyx::Cli::CmdExtract(ws, path, outDir, out);
+    CHECK(rc == Onyx::Cli::kOk);
+
+    // ExtractEntries scopes any entry with fileIndex != 0 into an
+    // outDir/<fileIndex>/ subdirectory (Task 8's cross-inner-file name
+    // collision guard, Source/Cli/Commands.cpp); fileIndex == 0 writes
+    // straight into outDir. Which one this lands in is itself part of what
+    // is under test -- fixed, SynthFileModule's entry gets fileIndex 1
+    // (outDir/1/payload.bin); pre-fix, ctx.fileTable is null, the
+    // `if (ctx.fileTable)` guard never fires, and the entry keeps its
+    // default fileIndex == 0 (outDir/payload.bin directly). Check whichever
+    // one CmdExtract actually produced, so the assertion that follows is
+    // squarely about the BYTES, not about which path existed.
+    const std::filesystem::path viaSlot1 = outDir / "1" / "payload.bin";
+    const std::filesystem::path viaSlot0 = outDir / "payload.bin";
+    const std::filesystem::path extractedPath =
+        std::filesystem::exists(viaSlot1) ? viaSlot1 : viaSlot0;
+    REQUIRE(std::filesystem::exists(extractedPath));
+    std::ifstream f(extractedPath, std::ios::binary);
+    const std::string extracted((std::istreambuf_iterator<char>(f)),
+                                 std::istreambuf_iterator<char>());
+    f.close();   // Windows: remove_all below would throw on an open handle
+
+    // The defining assertion: the extracted bytes are "THE REAL BYTES"
+    // (from the module-registered second file, fileTable slot 1), never
+    // the 14 bytes of 0xFF that the same offset/size reads from slot 0
+    // (the raw on-disk container's padding). Against the pre-fix SDK this
+    // fails on content, not on a missing file: CmdExtract still runs and
+    // still writes outDir/payload.bin (fileIndex defaulted to 0), but its
+    // bytes are the on-disk 0xFF padding, not "THE REAL BYTES".
+    CHECK(extracted == "THE REAL BYTES");
+    CHECK(extracted != std::string(SynthFileModule::kSize, char(0xFF)));
+
+    std::filesystem::remove_all(outDir);
+    std::filesystem::remove(path);
+}
+
+// Task list item 4: the NEW mistake a reachable fileTable makes possible
+// is a module stamping AssetEntry::source.fileIndex to a slot it never
+// pushed. CmdExtract's out-of-range guard (ExtractEntries,
+// Source/Cli/Commands.cpp) is documented as a salvage case, not a
+// whole-extract abort -- proven here: the run as a whole still reports
+// kOk, no file is written for the bogus entry, nothing crashes, and the
+// error line names both the entry and the offending index.
+TEST_CASE("cli extract salvages an entry whose fileIndex the module never registered") {
+    Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+    ws.AddModule(std::make_unique<BogusIndexModule>());
+    auto path = WriteBogusIndexFile();
+    auto outDir = std::filesystem::temp_directory_path() / "onyx_cli_bogus_extract_out";
+    std::filesystem::remove_all(outDir);
+
+    std::ostringstream out;
+    int rc = Onyx::Cli::CmdExtract(ws, path, outDir, out);
+    CHECK(rc == Onyx::Cli::kOk);   // salvage, not abort
+
+    CHECK_FALSE(std::filesystem::exists(outDir / "ghost.bin"));
+    const std::string text = out.str();
+    CHECK(text.find("ghost.bin") != std::string::npos);
+    CHECK(text.find("file index 99") != std::string::npos);
+    CHECK(text.find("out of range") != std::string::npos);
 
     std::filesystem::remove_all(outDir);
     std::filesystem::remove(path);

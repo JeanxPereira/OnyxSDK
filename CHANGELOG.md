@@ -272,6 +272,49 @@ has no reachable control in the example Shell.
   same as the `FetchContent` defect above — the pattern worth naming again
   is that our own exams run inside our own tree, and a gap only a real
   consumer's own module can see stays invisible until one shows up.
+- **A container that decompresses itself couldn't address its own bytes
+  correctly.** `ContainerContext::fileTable`
+  (`Include/Onyx/Modules/Workspace.h`) was only non-null when a `MountSpec`
+  matched; a module parsing a plain, unmounted file got `nullptr` and had
+  nowhere to register a file its own entries need to address. God of War
+  Ragnarök WADs are LZ4-framed: the module decompresses the container into
+  a `MemoryFile`, and every entry's `ByteRange::offset` is relative to
+  *that* decompressed buffer — but with `fileTable` withheld, it had no way
+  to register the buffer anywhere, so every entry kept `fileIndex == 0`,
+  naming the still-compressed file on disk instead. `CmdExtract` resolves
+  payload bytes as `fileTable[e.source.fileIndex]` (`Source/Cli/
+  Commands.cpp`), so `onyx-cli extract` on a Ragnarök WAD read from the
+  compressed file at decompressed offsets and wrote garbage. Fixed by
+  handing `ContainerContext::fileTable` to every module unconditionally,
+  mounted or not: `Document::fileTable` already existed and slot 0 was
+  already pre-seeded with the root container file regardless of mount
+  outcome, so this is reachability, not new state, and nothing in the tree
+  depended on a null `fileTable` meaning "not mounted" —
+  `ContainerContext::mountedVfs` already was, and remains, the honest
+  signal for that, now decoupled from `fileTable`'s reachability.
+  `ContainerContext::fileTable`'s doc comment now says a module may push
+  ANY file its entries need to address — a decompressed buffer, a
+  synthesised view, not only inner files opened through a mount — and must
+  stamp the resulting index into those entries' `source.fileIndex`. Gated
+  in `Tests/cli_test.cpp` by a synthetic module that decompresses/
+  synthesises a second file and registers it, driven through the real
+  `CmdExtract` path with an exact byte comparison against the extracted
+  output — a stronger gate than `ContainerContext::path`'s compile-only
+  proof above, which was noted at the time as leaving this defect's actual
+  symptom uncovered; verified to fail behaviourally (not merely to not
+  compile) against the pre-fix code — the header/source change stashed,
+  the suite run, the fix restored — where the extracted bytes come back as
+  the on-disk container's raw padding instead of the module's synthesised
+  payload. `CmdExtract`'s existing out-of-range handling (already a
+  per-entry salvage, never a whole-extract abort) was checked against the
+  new mistake a reachable `fileTable` makes possible — a module stamping
+  an index it never pushed — and already names the offending index in its
+  error line; a dedicated test now locks that behaviour in.
+  **Third consumer-found gap on this branch** (GoWToolkit again) — the
+  lesson shared with the two entries above, worth stating once rather than
+  a third time: every v1.0.0 exam ran with Onyx as the top-level project,
+  driving Onyx's own code, so a gap only a real external consumer's own
+  module reaches stays invisible until one shows up.
 
 ### Changed
 - **`SceneRendererVk::RenderSkeleton()` gained a color-taking overload**
