@@ -825,17 +825,37 @@ int RunVkSceneSmoke() {
 // codebase; (c) must land far outside it, proving the renderer actually
 // samples the animated pose and not just the rest pose it started from.
 //
-// (f) exists specifically because (d) alone cannot see a one-frame-later
-// regression (fix-round Finding 2): StopAnimation() used to reset the
-// "last applied" sentinel to -1.0f unconditionally, but Stop() -> Reset()
-// already sets the player's own time to 0.0f -- so the very next
-// UpdateAnimation() call in a live viewport loop (0.0f != -1.0f) took the
-// paused/scrub branch and immediately overwrote the just-restored rest
-// palette with ComputeJointMatrices(). Render (d) happens before any
-// further UpdateAnimation() call, so it could not have caught this; (f)
-// calls UpdateAnimation(0.016f) -- an ordinary frame tick, exactly what a
-// live viewport does the frame after a stop -- and renders again, which
-// would have differed from (a) before the fix and must not after it.
+// (f) exists because (d) alone cannot see a one-frame-later regression
+// (fix-round Finding 2): StopAnimation() used to reset the "last applied"
+// sentinel to -1.0f unconditionally, but Stop() -> Reset() already sets the
+// player's own time to 0.0f -- so the very next UpdateAnimation() call in a
+// live viewport loop (0.0f != -1.0f) took the paused/scrub branch and
+// recomputed+reuploaded the palette from ComputeJointMatrices() one frame
+// after the stop, on a tick nothing asked for. Render (d) happens before
+// any further UpdateAnimation() call, so it could not have caught this.
+//
+// (f) calls UpdateAnimation(0.016f) -- an ordinary frame tick, exactly what
+// a live viewport does the frame after a stop -- and asserts its RETURN
+// VALUE is false; the pixel comparison against (a) is only a cheap extra
+// guard, not the actual regression check. That split is deliberate, not
+// incidental: fix-round re-review (checked out b9fa6b9~1, the pre-sentinel-
+// fix commit, and reasoned through it directly rather than trusting this
+// comment) found that the IMAGE cannot distinguish the fixed sentinel from
+// the broken one at all. EnsureBaked() bakes frame 0 by calling Reset()
+// then immediately capturing it (capture(0), before the bake walk ever
+// runs) -- the exact same Reset() Stop() itself calls. So the erroneous
+// recompute the old sentinel triggered read the SAME rest-pose values
+// ComputeJointMatrices() would read either way, wrote the SAME bytes into
+// the palette SSBO, and (a)-vs-(f) reports maxChannelDelta=0 whether the
+// sentinel fix is present or not. What the old sentinel actually cost was
+// one wasted recompute-and-reupload after every stop -- real waste, and
+// (before the bindToJointMat fix, when ComputeJointMatrices() and
+// ComputeJointPalette() genuinely disagreed) it WOULD have been real pose
+// corruption -- but never a pixel this gate's image comparison could see on
+// its own. UpdateAnimation()'s return means exactly "the pose changed,
+// redraw"; immediately after StopAnimation(), nothing has changed, so it
+// must return false, and only that assertion actually separates the two
+// worlds.
 int RunVkAnimationSmoke() {
     Onyx::Rendering::VkContext ctx;
     std::string err;
@@ -954,14 +974,32 @@ int RunVkAnimationSmoke() {
     }
 
     // ── (f) one ordinary frame tick after (d): UpdateAnimation(0.016f), the
-    // exact call a live viewport makes every frame -- this is the fix-round
-    // Finding 2 regression check; see this function's top comment for why
-    // (d) alone cannot see it. Must still match (a): a fixed sentinel bug
-    // would make this render silently drift onto the mid-clip-ish pose one
-    // frame after every stop. ───────────────────────────────────────────
+    // exact call a live viewport makes every frame. The REAL regression
+    // check here is the RETURN VALUE, not the image -- see this function's
+    // top comment for why the image alone cannot tell the fixed sentinel
+    // apart from the broken one (EnsureBaked's Reset()+capture(0) makes
+    // baked frame 0 bit-identical to what Stop()->Reset() just wrote, so
+    // both write the same bytes into the palette either way).
+    // UpdateAnimation() returning true means "the pose changed, redraw";
+    // nothing changed on this tick (StopAnimation() just settled the pose),
+    // so it must return false. A stale sentinel makes it return true --
+    // StopAnimation() left the "last applied" time disagreeing with the
+    // player's own time, and this frame recomputed+reuploaded a pose
+    // nothing asked for. The image comparison below stays only as a cheap
+    // extra guard against a future UpdateAnimation() that does something
+    // destructive on a no-op tick, not as this check's real teeth. ───
     if (rc == 0) {
-        renderer.UpdateAnimation(0.016f);
-        if (!renderOnce(oneFrameAfterStopImg)) {
+        bool oneFrameChanged = renderer.UpdateAnimation(0.016f);
+        std::printf("vk-animation-smoke: (f) UpdateAnimation(0.016f) after StopAnimation() returned %s "
+                    "(expected false)\n", oneFrameChanged ? "true" : "false");
+        if (oneFrameChanged) {
+            std::fprintf(stderr,
+                        "vk-animation-smoke: (f) UpdateAnimation(0.016f) returned true immediately after "
+                        "StopAnimation() -- nothing should have changed. true means StopAnimation left a "
+                        "stale \"last applied\" sentinel and this frame recomputed and reuploaded a pose "
+                        "nothing asked for\n");
+            rc = 1;
+        } else if (!renderOnce(oneFrameAfterStopImg)) {
             std::fprintf(stderr, "vk-animation-smoke: (f) one-frame-after-stop render: %s\n", err.c_str());
             rc = 1;
         } else {
