@@ -100,6 +100,21 @@ void PrintHelp() {
         "      knowledge to use. Exit 0 on success, 1 on any assertion failure,\n"
         "      77 if no Vulkan-capable device/driver is found.\n"
         "\n"
+        "  onyx-oracle --vk-animation-smoke\n"
+        "      M6: renders Onyx::OracleTool::BuildAnimatedChain() (BuildSkinnedCube\n"
+        "      plus a 1s clip sweeping joints 1/2 from 60deg to 120deg) through ONE\n"
+        "      SceneRendererVk instance four times: (a) reference (no SetAnimation),\n"
+        "      (b) SetAnimation(0,0) then UpdateAnimation(0.0f) without advancing,\n"
+        "      (c) paused and scrubbed to t=0.5s via GetAnimPlayer()->SetTime(),\n"
+        "      asserting UpdateAnimation(0.0f) returns true (the paused/scrub\n"
+        "      branch), (d) StopAnimation(). Compares each against (a) with\n"
+        "      Onyx::TestKit::CompareRGBA under VkOracleParity's own tolerance\n"
+        "      (Tools/OnyxOracle/CMakeLists.txt's ONYX_PARITY_ARGS): (a)/(b)/(d)\n"
+        "      must be within it, (c) must be far outside it. Prints the measured\n"
+        "      percentages for every comparison, success or failure, and writes\n"
+        "      all four PNGs. Exit 0 on success, 1 on any tolerance violation or\n"
+        "      validation message, 77 if no Vulkan-capable device/driver is found.\n"
+        "\n"
         "  onyx-oracle render-corpus --out DIR [--renderer vk]\n"
         "      Renders all 5 corpus scenes to DIR/<name>.png + DIR/<name>.json,\n"
         "      printing one summary line per scene, through VkContext/\n"
@@ -793,6 +808,197 @@ int RunVkSceneSmoke() {
     return rc;
 }
 
+// ── vk-animation-smoke (T4, the milestone's animation gate) ────────────────
+//
+// Renders Onyx::OracleTool::BuildAnimatedChain() (a clone of BuildSkinnedCube
+// carrying a 1s "bend" clip that sweeps joints 1/2 from 60deg to 120deg --
+// see that builder's own top comment for why the range starts at 60deg
+// rather than 0deg) FOUR times through ONE SceneRendererVk instance, driving
+// its animation API between renders: (a) the untouched rest pose, (b) an
+// animation set but never advanced, (c) scrubbed to the clip's midpoint
+// while paused, (d) stopped. (a)/(b)/(d) must agree within the same
+// four-knob tolerance VkOracleParity's ONYX_PARITY_ARGS uses (Tools/
+// OnyxOracle/CMakeLists.txt) -- the only tolerance already adjudicated for
+// Onyx::TestKit::CompareRGBA in this codebase; (c) must land far outside it,
+// proving the renderer actually samples the animated pose and not just the
+// rest pose it started from.
+int RunVkAnimationSmoke() {
+    Onyx::Rendering::VkContext ctx;
+    std::string err;
+    if (!ctx.Init(/*presentSupport=*/false, err)) {
+        std::fprintf(stderr, "skip: %s\n", err.c_str());
+        return 77;
+    }
+
+    Onyx::Rendering::ScenePipelines scenePipes;
+    if (!Onyx::Rendering::Pipelines::CreateScene(ctx, scenePipes, err)) {
+        std::fprintf(stderr, "vk-animation-smoke: %s\n", err.c_str());
+        ctx.Shutdown();
+        return 1;
+    }
+
+    // Same clear color every other Vk* smoke in this file uses.
+    const float clearColor[4] = {0.10f, 0.11f, 0.13f, 1.0f};
+
+    CorpusScene animated = Onyx::OracleTool::BuildAnimatedChain();
+
+    Onyx::Rendering::SceneRendererVk renderer;
+    if (!renderer.Build(ctx, scenePipes, animated.scene, err)) {
+        std::fprintf(stderr, "vk-animation-smoke: Build: %s\n", err.c_str());
+        renderer.Clear(ctx);
+        Onyx::Rendering::Pipelines::Destroy(ctx, scenePipes);
+        ctx.Shutdown();
+        return 1;
+    }
+
+    // One SceneRendererVk instance, rendered into a fresh OffscreenTarget
+    // each call -- unlike RenderSceneTwice above, Build() runs exactly
+    // once: the whole point of this check is exercising SetAnimation/
+    // UpdateAnimation/StopAnimation against ONE live instance the way a
+    // real viewport would, not four independent scenes.
+    auto renderOnce = [&](std::vector<uint8_t>& out) -> bool {
+        Onyx::Rendering::OffscreenTarget target;
+        if (!target.Create(ctx, animated.width, animated.height, err)) return false;
+
+        bool ok = Onyx::Rendering::Resources::OneShot(ctx, [&](VkCommandBuffer cmd) {
+            target.BeginFrame(cmd, clearColor);
+            renderer.Render(cmd, animated.view, VkProj(animated.proj), animated.mode, animated.width,
+                            animated.height);
+            target.EndFrame(cmd);
+        }, err);
+        if (!ok) {
+            target.Destroy(ctx);
+            return false;
+        }
+
+        ok = target.Readback(ctx, out, err);
+        target.Destroy(ctx);
+        return ok;
+    };
+
+    int rc = 0;
+    std::vector<uint8_t> refImg, setNotAdvancedImg, midClipImg, stoppedImg;
+
+    // ── (a) reference: Build() only, no SetAnimation -- the rest pose ──────
+    if (!renderOnce(refImg)) {
+        std::fprintf(stderr, "vk-animation-smoke: (a) reference render: %s\n", err.c_str());
+        rc = 1;
+    } else {
+        std::string pngErr;
+        Onyx::OracleTool::WritePng("vk-animation-a-reference.png", animated.width, animated.height, refImg,
+                                   pngErr);
+    }
+
+    // ── (b) set, not advanced: SetAnimation(0,0) then UpdateAnimation(0.0f) ─
+    if (rc == 0) {
+        renderer.SetAnimation(0, 0);
+        renderer.UpdateAnimation(0.0f);
+        if (!renderOnce(setNotAdvancedImg)) {
+            std::fprintf(stderr, "vk-animation-smoke: (b) set-not-advanced render: %s\n", err.c_str());
+            rc = 1;
+        } else {
+            std::string pngErr;
+            Onyx::OracleTool::WritePng("vk-animation-b-set-not-advanced.png", animated.width, animated.height,
+                                       setNotAdvancedImg, pngErr);
+        }
+    }
+
+    // ── (c) mid-clip: pause, scrub to t=0.5s, UpdateAnimation(0.0f) must
+    // return true -- proving the paused/scrub branch (UpdateAnimation's
+    // "else" arm, comparing GetTime() against m_lastAppliedAnimTime) --
+    // then render. ──────────────────────────────────────────────────────
+    if (rc == 0) {
+        renderer.GetAnimPlayer()->SetPlaying(false);
+        renderer.GetAnimPlayer()->SetTime(0.5f);
+        bool changed = renderer.UpdateAnimation(0.0f);
+        if (!changed) {
+            std::fprintf(stderr,
+                        "vk-animation-smoke: (c) UpdateAnimation(0.0f) after SetTime(0.5f) on a paused "
+                        "player returned false -- the paused/scrub branch did not apply the scrub\n");
+            rc = 1;
+        } else if (!renderOnce(midClipImg)) {
+            std::fprintf(stderr, "vk-animation-smoke: (c) mid-clip render: %s\n", err.c_str());
+            rc = 1;
+        } else {
+            std::string pngErr;
+            Onyx::OracleTool::WritePng("vk-animation-c-mid-clip.png", animated.width, animated.height,
+                                       midClipImg, pngErr);
+        }
+    }
+
+    // ── (d) stopped: StopAnimation() restores the rest pose ────────────────
+    if (rc == 0) {
+        renderer.StopAnimation();
+        if (!renderOnce(stoppedImg)) {
+            std::fprintf(stderr, "vk-animation-smoke: (d) stopped render: %s\n", err.c_str());
+            rc = 1;
+        } else {
+            std::string pngErr;
+            Onyx::OracleTool::WritePng("vk-animation-d-stopped.png", animated.width, animated.height,
+                                       stoppedImg, pngErr);
+        }
+    }
+
+    // ── comparisons -- same four-knob tolerance VkOracleParity's
+    // ONYX_PARITY_ARGS uses (Tools/OnyxOracle/CMakeLists.txt): the only
+    // tolerance already adjudicated for CompareRGBA in this codebase, so
+    // this gate does not invent a second, uncalibrated one. Percentages are
+    // printed on both success and failure -- a future tuning argument gets
+    // data, not opinion. ─────────────────────────────────────────────────
+    if (rc == 0) {
+        constexpr int kMaxChannelDelta = 160;
+        constexpr double kMaxDifferingPct = 2.0;
+        constexpr double kMaxHighDeltaPct = 0.8;
+        constexpr double kMaxMae = 1.0;
+
+        auto compareAndPrint = [&](const char* label, const std::vector<uint8_t>& other,
+                                   bool expectWithinTolerance) -> bool {
+            Onyx::TestKit::ImageCompareResult result =
+                Onyx::TestKit::CompareRGBA(animated.width, animated.height, refImg, other);
+            bool within = Onyx::TestKit::WithinTolerance(result, kMaxChannelDelta, kMaxDifferingPct,
+                                                          kMaxHighDeltaPct, kMaxMae);
+            std::printf("vk-animation-smoke: (a)-vs-%s: maxChannelDelta=%d differingPct=%.4f%% "
+                        "highDeltaPct=%.4f%% mae=%.4f (within tolerance: %s)\n",
+                        label, result.maxChannelDelta, result.differingPct, result.highDeltaPct,
+                        result.mae, within ? "yes" : "no");
+            if (expectWithinTolerance && !within) {
+                std::fprintf(stderr,
+                            "vk-animation-smoke: (a)-vs-%s expected to be WITHIN tolerance, was outside\n",
+                            label);
+                return false;
+            }
+            if (!expectWithinTolerance && within) {
+                std::fprintf(stderr,
+                            "vk-animation-smoke: (a)-vs-%s expected to be OUTSIDE tolerance (the "
+                            "mid-clip pose's large, reliable visual delta) but was within -- the "
+                            "renderer appears to be ignoring the animation\n",
+                            label);
+                return false;
+            }
+            return true;
+        };
+
+        if (!compareAndPrint("b(set-not-advanced)", setNotAdvancedImg, /*expectWithinTolerance=*/true)) rc = 1;
+        if (rc == 0 && !compareAndPrint("c(mid-clip)", midClipImg, /*expectWithinTolerance=*/false)) rc = 1;
+        if (rc == 0 && !compareAndPrint("d(stopped)", stoppedImg, /*expectWithinTolerance=*/true)) rc = 1;
+    }
+
+    renderer.Clear(ctx);
+    Onyx::Rendering::Pipelines::Destroy(ctx, scenePipes);
+    ctx.Shutdown();
+
+    if (rc == 0 && ctx.ValidationMessageCount() != 0) {
+        std::fprintf(stderr, "%u validation message(s); last: %s\n", ctx.ValidationMessageCount(),
+                    ctx.LastValidationMessage().c_str());
+        rc = 1;
+    }
+    if (rc == 0) {
+        std::printf("vk-animation-smoke: %dx%d -- (a)/(b)/(d) within tolerance, (c) outside -- OK\n",
+                    animated.width, animated.height);
+    }
+    return rc;
+}
+
 // ── render-corpus ───────────────────────────────────────────────────────
 //
 // Task 11 deleted the GL RunRenderCorpus (HeadlessGL/SceneRenderer) that
@@ -1462,6 +1668,10 @@ int main(int argc, char** argv) {
 
     if (argc >= 2 && std::strcmp(argv[1], "--render-to-image-smoke") == 0) {
         return Onyx::OracleTool::RunRenderToImageSmoke();
+    }
+
+    if (argc >= 2 && std::strcmp(argv[1], "--vk-animation-smoke") == 0) {
+        return RunVkAnimationSmoke();
     }
 
     if (argc >= 2 && std::strcmp(argv[1], "--vk-validation-selftest") == 0) {

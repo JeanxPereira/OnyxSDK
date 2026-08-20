@@ -140,6 +140,12 @@ bool SceneRendererVk::Build(VkContext& ctx, const ScenePipelines& pipelines, con
         m_skeleton = scene.skeleton;
         m_jointPalette = Rendering::ComputeJointPalette(*scene.skeleton, &m_jointWorldPos);
 
+        // The rest pose is kept immutable so StopAnimation() can restore it
+        // without a rebuild. GL overwrote its only copy with std::move and
+        // could not go back -- see the spec's "deliberate departures".
+        m_restPalette       = m_jointPalette;
+        m_restJointWorldPos = m_jointWorldPos;
+
         if (!m_skeleton->joints.empty()) {
             // Upper-bound overlay vertex capacity: RenderSkeleton emits, per
             // joint, at most 6 (root cross) + 4 (joint dot) + 6 (3 axis
@@ -169,6 +175,10 @@ bool SceneRendererVk::Build(VkContext& ctx, const ScenePipelines& pipelines, con
             }
         }
     }
+
+    // Kept for SetAnimation() -- may be null (scene carries no animation
+    // data), checked there before touching it.
+    m_animData = scene.animations;
 
     // ── one shared descriptor pool: 2 frame sets + up to one set per
     // mesh part (an upper bound -- some parts may be skipped below for
@@ -603,6 +613,54 @@ void SceneRendererVk::Render(VkCommandBuffer cmd, const glm::mat4& view, const g
     }
 }
 
+// ── Animation ─────────────────────────────────────────────────────────────
+// Names mirror the deleted GL SceneRenderer's animation block exactly, so
+// consumers port across without rewriting call sites.
+
+void SceneRendererVk::SetAnimation(int groupIdx, int actIdx) {
+    if (!m_animData || !m_skeleton) return;
+    if (!m_animPlayer) m_animPlayer = std::make_unique<AnimationPlayer>();
+    m_animPlayer->SetAnimation(m_animData.get(), groupIdx, actIdx, m_skeleton.get());
+    m_lastAppliedAnimTime = -1.0f; // force the next UpdateAnimation to apply
+}
+
+void SceneRendererVk::StopAnimation() {
+    if (m_animPlayer) m_animPlayer->Stop();
+
+    // Restore the pose Build() captured. Unlike GL, this needs no rebuild.
+    m_jointPalette = m_restPalette;
+    m_jointWorldPos = m_restJointWorldPos;
+    UploadBatchPalettes();
+    m_lastAppliedAnimTime = -1.0f;
+}
+
+bool SceneRendererVk::UpdateAnimation(float dt) {
+    if (!m_animPlayer) return false;
+
+    bool changed = false;
+    if (m_animPlayer->IsPlaying()) {
+        changed = m_animPlayer->Update(dt);
+    } else {
+        // A paused player can still be moved by the UI through SetTime/
+        // SetFrame -- that is what scrubbing the Dopesheet does, and Update()
+        // never runs for it. Without this branch playback would work while
+        // scrubbing silently did nothing.
+        if (m_animPlayer->GetTime() != m_lastAppliedAnimTime) changed = true;
+    }
+    if (!changed) return false;
+
+    std::vector<glm::mat4> animated = m_animPlayer->ComputeJointMatrices();
+    if (!animated.empty()) {
+        m_jointPalette = std::move(animated);
+        m_jointWorldPos.resize(m_jointPalette.size());
+        for (size_t i = 0; i < m_jointPalette.size(); ++i)
+            m_jointWorldPos[i] = glm::vec3(m_jointPalette[i][3]); // skeleton overlay follows
+        UploadBatchPalettes();
+    }
+    m_lastAppliedAnimTime = m_animPlayer->GetTime();
+    return true;
+}
+
 // Rewrites every batch's palette SSBO from m_jointPalette. Cheap: a memcpy per
 // batch into already-mapped memory, no allocation, no command buffer. Batches
 // that carry the one-entry identity palette (unskinned) are left alone.
@@ -953,6 +1011,11 @@ void SceneRendererVk::Clear(VkContext& ctx) {
     m_jointPalette.clear();
     m_skeleton.reset();
     m_jointWorldPos.clear();
+    m_restPalette.clear();
+    m_restJointWorldPos.clear();
+    m_animData.reset();
+    m_animPlayer.reset();
+    m_lastAppliedAnimTime = -1.0f;
 
     if (m_descriptorPool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(ctx.Device(), m_descriptorPool, nullptr);

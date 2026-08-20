@@ -68,6 +68,7 @@
 // ═══════════════════════════════════════════════════════════════════════
 
 #include <Onyx/Parsers/SceneNode.h>
+#include <Onyx/Rendering/AnimationPlayer.h>
 
 #include <glm/glm.hpp>
 
@@ -232,6 +233,36 @@ public:
     /// report (Tools/OnyxOracle/RenderReport.cpp) reads this directly.
     std::vector<Rendering::RenderBatch>& GetBatches() { return m_batches; }
 
+    // ── Animation ─────────────────────────────────────────────────────────
+    // Names mirror the deleted GL SceneRenderer's animation block exactly,
+    // so consumers port across without rewriting call sites. Build() must
+    // have run first (SetAnimation is a no-op without a scene's animations/
+    // skeleton -- see the .cpp); UpdateAnimation/StopAnimation are safe to
+    // call even if SetAnimation was never called (both no-op without a live
+    // m_animPlayer).
+    bool HasAnimations() const { return m_animData != nullptr; }
+    const Parsers::AnimationData* GetAnimationData() const { return m_animData.get(); }
+    AnimationPlayer* GetAnimPlayer() { return m_animPlayer.get(); }
+
+    /// Starts playing `groupIdx`/`actIdx` of the scene's animation data
+    /// (Build() must have captured a non-null m_animData/m_skeleton, or
+    /// this is a no-op). Creates the player on first use.
+    void SetAnimation(int groupIdx, int actIdx);
+
+    /// Stops playback and restores the rest pose Build() captured
+    /// (m_restPalette/m_restJointWorldPos) -- unlike GL, this needs no
+    /// rebuild, since the rest pose is kept immutable rather than moved
+    /// out of.
+    void StopAnimation();
+
+    /// Advances a playing player by `dt`, or -- for a paused player --
+    /// notices a UI-driven SetTime()/SetFrame() scrub and applies it
+    /// (see the .cpp for why this second branch is load-bearing). Returns
+    /// true and re-uploads every batch's joint palette iff the pose
+    /// actually changed; false (no-op) otherwise, including when no
+    /// SetAnimation() has ever been called.
+    bool UpdateAnimation(float dt);
+
 private:
     /// The real Vulkan-side GPU resources for one batch -- index-aligned
     /// with m_batches (m_gpuBatches[i] belongs to m_batches[i]). Kept
@@ -287,6 +318,19 @@ private:
     std::vector<glm::mat4>               m_jointPalette;   // global joint index -> skinning matrix
     std::shared_ptr<Parsers::ObjectData> m_skeleton;       // kept for RenderSkeleton only
     std::vector<glm::vec3>               m_jointWorldPos;  // world-space joint origins, RenderSkeleton only
+
+    // Immutable rest pose, captured once in Build() right after
+    // m_jointPalette/m_jointWorldPos above. StopAnimation() restores from
+    // these rather than rebuilding -- GL's own StopAnimation could not do
+    // this (its Build() std::move'd its only copy of the rest palette into
+    // m_jointPalette and destroyed the source; see the .cpp's Build() for
+    // the full story).
+    std::vector<glm::mat4> m_restPalette;
+    std::vector<glm::vec3> m_restJointWorldPos;
+
+    std::shared_ptr<Parsers::AnimationData> m_animData;      // scene.animations, may be null
+    std::unique_ptr<AnimationPlayer>        m_animPlayer;    // created lazily by SetAnimation()
+    float                                   m_lastAppliedAnimTime = -1.0f; // see UpdateAnimation's paused branch
 
     const ScenePipelines* m_pipelines = nullptr; // non-owning, see Build()'s doc comment
 

@@ -74,6 +74,18 @@ set_tests_properties(VkSceneSmoke PROPERTIES SKIP_RETURN_CODE 77 LABELS "render"
 add_test(NAME RenderToImageSmoke COMMAND onyx-oracle --render-to-image-smoke)
 set_tests_properties(RenderToImageSmoke PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")
 
+# VkAnimation (M6 task 4, the animation gate): drives ONE SceneRendererVk's
+# SetAnimation/UpdateAnimation/StopAnimation across four renders of
+# BuildAnimatedChain() (Tools/OnyxOracle/CorpusScenes.cpp; not part of
+# BuildCorpus(), so this test alone builds it) -- reference, set-but-not-
+# advanced, mid-clip (paused + scrubbed), and stopped -- comparing each
+# against the reference with Onyx::TestKit::CompareRGBA under
+# VkOracleParity's own ONYX_PARITY_ARGS tolerance (see that test's comment
+# below). SKIP (77) when no Vulkan-capable device/driver is present, same as
+# every other Vk*/Render*-labeled test above.
+add_test(NAME VkAnimation COMMAND onyx-oracle --vk-animation-smoke)
+set_tests_properties(VkAnimation PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")
+
 # OracleReproducible: renders the corpus twice (WORK/a, WORK/b) through the
 # Vulkan renderer and verifies the two runs are byte-identical (`verify`,
 # the same byte-exact comparator this test used against the GL renderer

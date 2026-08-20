@@ -78,13 +78,6 @@ void AnimationPlayer::Reset() {
     }
 
     m_time = 0.0f;
-
-    if (jointCount > 2) {
-        const auto& v5 = m_skeleton->vectors5[2];
-        const auto& joint = m_skeleton->joints[2];
-        ONYX_LOGF_INFO("[BindDiag] pelvis(j2) bindRot=(%d,%d,%d,%d) isQuat=%d name='%s'",
-                 v5.x, v5.y, v5.z, v5.w, (int)joint.isQuaternion, joint.name.c_str());
-    }
 }
 
 void AnimationPlayer::Stop() {
@@ -222,17 +215,6 @@ BakedAnimation* AnimationPlayer::EnsureBaked() {
 
     const auto& sd = m_currentAct->stateDescrs[m_stateIndex];
     float frameTime = sd.frameTime > 0.0f ? sd.frameTime : (1.0f / 30.0f);
-
-    ONYX_LOGF_INFO("[BakeDiag] act='%s' states=%zu", m_currentActName.c_str(),
-             sd.skinningStates.size());
-    for (size_t si = 0; si < sd.skinningStates.size() && si < 4; ++si) {
-        const auto& ss = sd.skinningStates[si];
-        ONYX_LOGF_INFO("  state[%zu] rotRawCnt=%u rotAddSub=%zu rotRoughSub=%zu posRawCnt=%u posAddSub=%zu posRoughSub=%zu",
-                 si, ss.rotationStream.manager.count,
-                 ss.rotationSubStreamsAdd.size(), ss.rotationSubStreamsRough.size(),
-                 ss.positionStream.manager.count,
-                 ss.positionSubStreamsAdd.size(), ss.positionSubStreamsRough.size());
-    }
 
     // Duration may be 0 for placeholder/idle acts — still bake a single frame
     // so the inspector can highlight the bind pose.
@@ -464,14 +446,34 @@ std::vector<glm::mat4> AnimationPlayer::ComputeJointMatrices() const {
         }
     }
 
+    // Task 3/4 fix round: this used to read m_skeleton->matrixes3[joint.invId]
+    // directly (a straight port of the JS reference's raw-array indexing).
+    // That diverged from every other consumer of ObjectData in this codebase
+    // -- Onyx::Rendering::ComputeJointPalette (JointPalette.cpp) and
+    // Onyx::Exchange::GltfExport (GltfExport.cpp's own top comment: "each
+    // joint's inverse bind matrix -- NOT re-derived here either.
+    // ObjectData::Joint::bindToJointMat already IS that matrix") both read
+    // joint.bindToJointMat, the resolved field ObjectData.h documents as
+    // "Computed by FillJoints() -- final ready-to-use matrices". No loader
+    // in this tree populates matrixes3/invId today (the only ObjectData
+    // producer is Tools/OnyxOracle/CorpusScenes.cpp's synthetic builders,
+    // which set bindToJointMat and leave matrixes3 empty on purpose -- see
+    // BuildSkinnedCube's own comment), so the old invId path silently never
+    // fired for ANY skeleton this codebase can currently construct: it
+    // always fell to the `else` branch, dropping the inverse-bind
+    // correction ComputeJointPalette's rest pose applies. That divergence
+    // was invisible before this task because nothing drove
+    // ComputeJointMatrices() against a real skeleton until SetAnimation()
+    // (SceneRendererVk.cpp) started calling it -- caught by this gate's
+    // (a)-vs-(b) comparison (differingPct ~22%, mae ~15, on a scene that
+    // should have been near-identical). Matching ComputeJointPalette's own
+    // unconditional `globalMats[i] * j.bindToJointMat` (default-identity
+    // bindToJointMat makes the isSkinned gate redundant there too) instead
+    // of re-deriving a matrixes3/invId path nothing in this tree feeds.
     std::vector<glm::mat4> result(jointCount, glm::mat4(1.0f));
     for (size_t i = 0; i < jointCount; ++i) {
         const auto& joint = m_skeleton->joints[i];
-        if (joint.isSkinned && joint.invId >= 0 && joint.invId < (int)m_skeleton->matrixes3.size()) {
-            result[i] = globalMats[i] * m_skeleton->matrixes3[joint.invId];
-        } else {
-            result[i] = globalMats[i];
-        }
+        result[i] = globalMats[i] * joint.bindToJointMat;
     }
     return result;
 }
