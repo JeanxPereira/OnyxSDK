@@ -92,6 +92,12 @@ private:
     void ResizeTarget(int width, int height);
     void RenderFrame(int width, int height);
     void DrawToolbar(ImVec2 avail, ImVec2 cursorPos);
+    // Recovered from the pre-Vulkan Viewport3D (see Source/Viewers/
+    // Viewport3D.cpp's T6 port note) -- draws play/pause/scrub transport
+    // controls in the strip Draw() reserves under the 3D image whenever a
+    // clip is loaded (SetAnimation() has been called via the clip browser
+    // in DrawInspector()).
+    void DrawTransportBar();
     void HandleInput();
     void ComputeBounds();
     bool HasBatches() const; // true once SceneRendererVk::Build() produced >=1 batch
