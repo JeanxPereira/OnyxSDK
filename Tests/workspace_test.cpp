@@ -196,7 +196,85 @@ struct CancelFake : Onyx::Modules::IGameModule {
     }
 };
 
+// Regression fixture for ContainerContext::path (the container-path gap:
+// modules had no way to learn which file they were parsing, so they could
+// not fill Domain::AssetEntry::wadName or do path-relative work at parse
+// time). Captures what ParseContainer actually received so the test can
+// assert it matches the path Workspace was told to open.
+struct PathCaptureFake : Onyx::Modules::IGameModule {
+    std::filesystem::path seenPath;
+    bool sawParseContainer = false;
+
+    ModuleInfo Info() const override {
+        return ModuleInfo{"pathcapture", "PathCapture", {}, {}};
+    }
+
+    ProbeResult Probe(const ProbeInput& in) const override {
+        if (!in.header.empty() && in.header[0] == std::byte{'P'}) {
+            return ProbeResult{90, "'P' magic"};
+        }
+        return ProbeResult{0, "no magic"};
+    }
+
+    void RegisterTypes(Onyx::Types::TypeRegistrar&) override {}
+    void RegisterDecoders(DecoderRegistry&) override {}
+
+    ParseResult ParseContainer(ContainerContext& ctx) override {
+        sawParseContainer = true;
+        seenPath = ctx.path;
+        return ParseResult{true};
+    }
+};
+
 } // namespace
+
+TEST_CASE("ContainerContext::path names the file Workspace::Open was told to open") {
+    auto tmp = write_temp_file("onyx_workspace_test_path_sync.bin", "Prest");
+    {
+        Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+        auto mod = std::make_unique<PathCaptureFake>();
+        PathCaptureFake* raw = mod.get();
+        ws.AddModule(std::move(mod));
+
+        auto id = ws.Open(tmp);
+        REQUIRE(id != 0);
+        REQUIRE(raw->sawParseContainer);
+        CHECK(raw->seenPath == tmp);
+
+        auto* doc = ws.Get(id);
+        REQUIRE(doc);
+        CHECK(doc->path == tmp);
+        CHECK(raw->seenPath == doc->path);   // same value ContainerContext handed the module
+    }
+    std::filesystem::remove(tmp);
+}
+
+TEST_CASE("ContainerContext::path names the file Workspace::OpenAsync was told to open") {
+    auto tmp = write_temp_file("onyx_workspace_test_path_async.bin", "Prest");
+    {
+        Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
+        auto mod = std::make_unique<PathCaptureFake>();
+        PathCaptureFake* raw = mod.get();
+        ws.AddModule(std::move(mod));
+
+        Onyx::Modules::DocumentId readyId = 0;
+        auto sub = ws.Events().On<Onyx::Modules::TreeReady>([&](auto& e) { readyId = e.id; });
+
+        auto id = ws.OpenAsync(tmp);
+        REQUIRE(id != 0);
+
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (readyId == 0 && std::chrono::steady_clock::now() < deadline) {
+            ws.Jobs().Pump();
+            ws.Events().Pump();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        REQUIRE(readyId == id);
+        REQUIRE(raw->sawParseContainer);
+        CHECK(raw->seenPath == tmp);
+    }
+    std::filesystem::remove(tmp);
+}
 
 TEST_CASE("Workspace opens a document through probe and salvages") {
     auto tmp = write_temp_file("onyx_workspace_test_salvage.bin", "B\x03rest");

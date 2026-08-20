@@ -185,6 +185,15 @@ public:
     }
 
     Onyx::Modules::ParseResult ParseContainer(Onyx::Modules::ContainerContext& ctx) override {
+        // ContainerContext::path: the field a consumer (GoWToolkit) found
+        // missing -- a module has no other way to learn which file it is
+        // parsing, needed both to fill Domain::AssetEntry::wadName and for
+        // path-relative work at parse time (e.g. checking for a sibling
+        // config file next to the container). Captured here so main() can
+        // confirm it names the exact fixture path Workspace::Open was
+        // handed, not just that the field compiles.
+        m_lastParsedPath = ctx.path;
+
         char magic[4] = {};
         if (ctx.file.Read(magic, sizeof(magic)) != sizeof(magic) ||
             std::memcmp(magic, kMagic, 4) != 0) {
@@ -224,6 +233,8 @@ public:
         return {any};
     }
 
+    std::filesystem::path m_lastParsedPath;   // what ContainerContext::path handed ParseContainer
+
 private:
     Onyx::Types::TypeId m_note{};
 };
@@ -253,7 +264,9 @@ int main(int argc, char** argv) {
 
     // 1. A Workspace, a module, a real container parsed end to end.
     Onyx::Modules::Workspace ws(Onyx::Types::TypeCatalog::Get());
-    ws.AddModule(std::make_unique<ColdStart::ColdStartModule>());
+    auto                        ownedModule = std::make_unique<ColdStart::ColdStartModule>();
+    ColdStart::ColdStartModule* modulePtr   = ownedModule.get();
+    ws.AddModule(std::move(ownedModule));
 
     const auto                   path = ColdStart::WriteFixture();
     const Onyx::Modules::DocumentId id = ws.Open(path);
@@ -264,6 +277,15 @@ int main(int argc, char** argv) {
     Onyx::Modules::Document* doc = ws.Get(id);
     if (!doc || doc->roots.size() != 1 || doc->roots[0].children.size() != 2) {
         std::fprintf(stderr, "cold-start: parsed tree is not 1 root / 2 children\n");
+        return 1;
+    }
+    // ContainerContext::path must have named exactly the fixture Workspace
+    // was told to open -- the field this milestone added specifically so a
+    // module can answer "which file am I parsing" (see ParseContainer above).
+    if (modulePtr->m_lastParsedPath != path) {
+        std::fprintf(stderr, "cold-start: ContainerContext::path ('%s') did not match "
+                              "the opened fixture ('%s')\n",
+                     modulePtr->m_lastParsedPath.string().c_str(), path.string().c_str());
         return 1;
     }
 

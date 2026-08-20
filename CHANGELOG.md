@@ -242,6 +242,36 @@ has no reachable control in the example Shell.
   Verified to fail against the pre-fix code (path fix stashed, gate run,
   fix restored) before being trusted as a regression gate — see the task
   report for both transcripts.
+- **A module had no way to learn which file it was parsing.**
+  `Modules::ContainerContext` (`Include/Onyx/Modules/Workspace.h`) handed
+  `ParseContainer` an `Vfs::IFile&` plus settings/diags/progress/state/roots,
+  but no path, and `Vfs::IFile` itself exposes no name either. The SDK's own
+  contract makes this a real defect, not a missing convenience:
+  `Domain::AssetEntry::wadName` is a field Onyx defines, and populating the
+  entry tree is documented as the module's job — so the SDK was asking
+  modules to fill a field whose value it structurally withheld. It also
+  blocked ordinary path-relative work at parse time (e.g. a module checking
+  for a sibling file next to the container before it finishes building an
+  index). `Workspace::Document::path` held the answer all along; it simply
+  never reached `ContainerContext`. Fixed by adding
+  `ContainerContext::path` (`const std::filesystem::path&`), populated in
+  `Workspace::RunParse` from the same `Document::path` value, with its
+  mounted-container meaning spelled out in the field's own doc comment: for
+  a mount, `path` still names the OUTER container the user opened, never an
+  inner file reached through `mountedVfs` (`Vfs::IFile` was deliberately
+  left without a name of its own — widening a core stream interface for a
+  case `ContainerContext::path` already covers is how interfaces rot).
+  Gated by module-contract assertions in `Tests/workspace_test.cpp` and
+  `Tests/mounts_test.cpp` (plain-file and mounted cases) plus
+  `Tools/ColdStart/ColdStartOnyx.cpp`'s own `ParseContainer`, each checking
+  the received path against the one `Workspace::Open` was told to open;
+  verified to fail — a compile error, `ContainerContext` has no `path`
+  member — against the pre-fix code (the header/source change stashed, the
+  suite run, the fix restored) before being trusted as a regression gate.
+  **Found by the first external consumer** (GoWToolkit, porting to v1.1),
+  same as the `FetchContent` defect above — the pattern worth naming again
+  is that our own exams run inside our own tree, and a gap only a real
+  consumer's own module can see stays invisible until one shows up.
 
 ### Changed
 - **`SceneRendererVk::RenderSkeleton()` gained a color-taking overload**

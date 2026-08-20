@@ -171,7 +171,7 @@ ParseResult Workspace::RunParse(Document& doc, IGameModule& module,
             std::nullopt});
     }
 
-    ContainerContext ctx{*doc.file, m_settings, doc.diags, progress,
+    ContainerContext ctx{*doc.file, doc.path, m_settings, doc.diags, progress,
                           doc.state, doc.roots,
                           doc.mountedVfs.get(),
                           doc.mountedVfs ? &doc.fileTable : nullptr};

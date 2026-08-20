@@ -25,6 +25,17 @@ using ModuleState = std::shared_ptr<void>;
 
 struct ContainerContext {
     Vfs::IFile&               file;
+    // The container being parsed. Populated from the same value that
+    // becomes Document::path -- the path Workspace::Open/OpenAsync was
+    // asked to open. For a MOUNTED container (mountedVfs != nullptr below),
+    // this still names the OUTER container -- the file the user actually
+    // opened -- never an inner file the module reaches through mountedVfs;
+    // inner files have no path of their own (see the IFile discussion in
+    // the module-contract tests). A module fills
+    // Domain::AssetEntry::wadName from this, and any path-relative work at
+    // parse time (e.g. checking for a sibling file next to the container)
+    // reads it too.
+    const std::filesystem::path& path;
     const Services::Settings& settings;   // workspace-scope settings; read-only
                                            // during parse (a thread-safe
                                            // settings view is scheduled with
