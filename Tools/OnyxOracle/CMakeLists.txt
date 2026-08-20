@@ -21,7 +21,7 @@ add_executable(onyx-oracle
     RenderReport.cpp
     RenderToImageSmoke.cpp
 )
-target_include_directories(onyx-oracle PRIVATE ${CMAKE_SOURCE_DIR}/third_party/stb)
+target_include_directories(onyx-oracle PRIVATE ${ONYX_ROOT_DIR}/third_party/stb)
 target_link_libraries(onyx-oracle PRIVATE Onyx::Render Onyx::TestKit)
 onyx_apply_common(onyx-oracle)
 
@@ -170,7 +170,7 @@ add_test(NAME VkOracleParity
          COMMAND ${CMAKE_COMMAND}
            -DORACLE=$<TARGET_FILE:onyx-oracle>
            -DWORK=${CMAKE_CURRENT_BINARY_DIR}/oracle-vk-parity
-           -DGOLDEN=${CMAKE_SOURCE_DIR}/Tests/Golden/corpus
+           -DGOLDEN=${ONYX_ROOT_DIR}/Tests/Golden/corpus
            "-DPARITY_ARGS=${ONYX_PARITY_ARGS}"
            -P ${CMAKE_CURRENT_SOURCE_DIR}/VkParityTest.cmake)
 set_tests_properties(VkOracleParity PROPERTIES SKIP_RETURN_CODE 77 LABELS "render")

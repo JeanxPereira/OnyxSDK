@@ -1,6 +1,6 @@
 # onyx_add_spirv(<target> <shader1.vert|frag> [<shader2...>] ...)
 #
-# For each GLSL 450 shader source (path relative to CMAKE_SOURCE_DIR),
+# For each GLSL 450 shader source (path relative to ONYX_ROOT_DIR),
 # compiles it to SPIR-V at build time via glslang's standalone compiler
 # (the `glslang-standalone` CMake target, binary OUTPUT_NAME `glslang`;
 # see .superpowers/sdd/2026-08-19-onyx-v1-m4-vulkan/task-1-report.md) and
@@ -30,7 +30,7 @@ function(onyx_add_spirv target)
     foreach(_shader ${ARGN})
         get_filename_component(_name "${_shader}" NAME)      # scene.vert
         string(REPLACE "." "_" _safe_name "${_name}")         # scene_vert
-        set(_source "${CMAKE_SOURCE_DIR}/${_shader}")
+        set(_source "${ONYX_ROOT_DIR}/${_shader}")
         set(_spv    "${_gen_dir}/${_safe_name}.spv")
         set(_header "${_gen_dir}/${_safe_name}_spv.h")
 
@@ -44,10 +44,10 @@ function(onyx_add_spirv target)
                     "-DINPUT_SPV=${_spv}"
                     "-DOUTPUT_HEADER=${_header}"
                     "-DARRAY_NAME=${_safe_name}"
-                    -P "${CMAKE_SOURCE_DIR}/cmake/GenerateSpirvHeader.cmake"
+                    -P "${ONYX_ROOT_DIR}/cmake/GenerateSpirvHeader.cmake"
             DEPENDS "${_source}"
                     glslang-standalone
-                    "${CMAKE_SOURCE_DIR}/cmake/GenerateSpirvHeader.cmake"
+                    "${ONYX_ROOT_DIR}/cmake/GenerateSpirvHeader.cmake"
             COMMENT "onyx_add_spirv: ${_shader} -> ${_safe_name}_spv.h"
             VERBATIM)
         list(APPEND _headers "${_header}")

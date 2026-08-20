@@ -200,6 +200,48 @@ has no reachable control in the example Shell.
   binds really are offset (`bindZ` 1.33/2.67) so the assertion cannot decay
   into a tautology. Reverting the fill to the palette column fails it at a
   2.31-unit delta.
+- **Onyx could not actually be consumed via `FetchContent`/`add_subdirectory`
+  — the one model README's "Consuming Onyx" section documents, in bold, as
+  the supported v1 story.** Six sites resolved paths through
+  `CMAKE_SOURCE_DIR` instead of Onyx's own root:
+  `cmake/ShaderCompile.cmake` (the GLSL shader source path and two
+  references to `cmake/GenerateSpirvHeader.cmake`) and the two
+  `LayerGuard.Core`/`LayerGuard.Render` ctest entries in the root
+  `CMakeLists.txt` (`cmake/LayerGuard.cmake`). `CMAKE_SOURCE_DIR` is the
+  *top-level* project's source directory — Onyx's own root only when Onyx
+  itself is the top-level project. The moment a consumer pulls Onyx in via
+  `FetchContent_MakeAvailable()` or `add_subdirectory()`, as README
+  instructs, `CMAKE_SOURCE_DIR` becomes the *consumer's* root, so these
+  paths pointed into the consumer's own tree looking for Onyx's shaders and
+  helper scripts and hard-failed at configure/build time before any
+  consumer code compiled. A repo-wide grep for the same pattern turned up
+  four more sites with the identical bug, missed by the six-site report
+  that prompted this fix: `Tests/CMakeLists.txt` (three
+  `Tools/OnyxOracle/*.cpp` source references plus one
+  `target_include_directories` call) and `Tools/OnyxOracle/CMakeLists.txt`
+  (its `third_party/stb` include directory and the `Tests/Golden/corpus`
+  golden path `VkOracleParity` compares against). Fixed by introducing
+  `ONYX_ROOT_DIR` — captured once, from `CMAKE_CURRENT_SOURCE_DIR`, at the
+  top of the root `CMakeLists.txt` — and rewriting every one of the ten
+  sites above to resolve through it instead of `CMAKE_SOURCE_DIR`, so Onyx's
+  own paths stay Onyx's own regardless of whether it is the top-level
+  project or nested inside a consumer's tree.
+  **The audit gap this exposes, not just the bug:** v1.0.0's public-surface
+  audit — including `Tools/ColdStart`, the target built specifically to
+  execute README's `target_link_libraries(MyApp PRIVATE Onyx::Onyx)`
+  contract — never caught this because every exam it ran, ColdStart
+  included, configures and builds with Onyx as the top-level project. The
+  one consumption model v1 promises was, until this fix, the one model
+  nothing in the suite exercised end to end. A new ctest gate closes that:
+  `ExternalConsumption` (`Tests/Consumer/`) configures and builds a minimal
+  standalone consumer project that `add_subdirectory()`s this Onyx checkout
+  from *outside* its own source tree, into a fresh out-of-tree build
+  directory — the free, network-independent equivalent of a real
+  `FetchContent_Declare(GIT_REPOSITORY ...)` consumer, reproducing the exact
+  nesting condition that made `CMAKE_SOURCE_DIR` resolve to the wrong root.
+  Verified to fail against the pre-fix code (path fix stashed, gate run,
+  fix restored) before being trusted as a regression gate — see the task
+  report for both transcripts.
 
 ### Changed
 - **`SceneRendererVk::RenderSkeleton()` gained a color-taking overload**

@@ -1,6 +1,12 @@
 # ── Onyx engine-only unit tests (doctest) ─────────────────────────────────
 # doctest is fetched by the root CMakeLists.txt when ONYX_BUILD_TESTS=ON.
 
+# Consumer/ -- the ExternalConsumption gate (add_subdirectory/FetchContent
+# consumability). Its own consumer_project sets ONYX_BUILD_TESTS=OFF when it
+# nests this tree, so that nested configure never re-enters here -- see
+# Consumer/CMakeLists.txt.
+add_subdirectory(Consumer)
+
 add_executable(onyx_tests
     main.cpp
     sanity_test.cpp
@@ -43,12 +49,12 @@ add_executable(onyx_tests
     rendervk_test.cpp
     testkit_test.cpp
     gltf_test.cpp
-    ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle/CorpusTextures.cpp
-    ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle/CorpusScenes.cpp
-    ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle/RenderReport.cpp
+    ${ONYX_ROOT_DIR}/Tools/OnyxOracle/CorpusTextures.cpp
+    ${ONYX_ROOT_DIR}/Tools/OnyxOracle/CorpusScenes.cpp
+    ${ONYX_ROOT_DIR}/Tools/OnyxOracle/RenderReport.cpp
 )
 target_link_libraries(onyx_tests PRIVATE Onyx::Onyx Onyx::Render Onyx::TestKit Onyx::Exchange Onyx_ExampleBox doctest::doctest imgui_lib)
-target_include_directories(onyx_tests PRIVATE ${CMAKE_SOURCE_DIR}/Tools/OnyxOracle ${cgltf_SOURCE_DIR})
+target_include_directories(onyx_tests PRIVATE ${ONYX_ROOT_DIR}/Tools/OnyxOracle ${cgltf_SOURCE_DIR})
 # rendervk_test.cpp is pure (no VkContext/device touched) but needs the
 # generated *_spv.h headers on its include path -- linking Onyx::Render
 # brings that PUBLIC include dir transitively (onyx_add_spirv,
