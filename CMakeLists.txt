@@ -13,7 +13,7 @@ cmake_minimum_required(VERSION 3.20)
 # session to discover. Harmless where the toolchain is already English.
 set(ENV{VSLANG} 1033)
 
-project(OnyxSDK VERSION 1.0.0 LANGUAGES CXX C)
+project(OnyxSDK VERSION 1.1.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

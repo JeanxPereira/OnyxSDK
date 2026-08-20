@@ -1,5 +1,234 @@
 # Changelog
 
+## v1.1.0 — 2026-08-19
+
+Skeletal animation returns to the Vulkan renderer. `SceneRendererVk` had no
+playback path since M4 deleted the GL renderer — every skinned scene
+rendered its rest pose, and the Shell's transport bar/clip browser were
+removed rather than left wired against nothing (see v1.0.0's "Known gaps").
+This tag closes that gap end to end: renderer API, GPU upload path, the
+parity-style gate that proves it, and the Shell UI that reaches it. One
+public-header signature changed along the way (`RenderSkeleton`, see
+"Changed" — classified BREAKING under this project's own stability policy)
+and one pre-existing bug surfaced and was fixed (`ComputeJointMatrices()`'s
+dropped inverse-bind correction, see "Fixed").
+
+### Added
+- **`SceneRendererVk`'s animation API** (`Include/Onyx/Rendering/
+  SceneRendererVk.h`) — `HasAnimations()`, `GetAnimationData()`,
+  `GetAnimPlayer()`, `SetAnimation(int groupIdx, int actIdx)`,
+  `StopAnimation()`, `UpdateAnimation(float dt)`. The names deliberately
+  mirror the deleted GL `SceneRenderer`'s own method names — the header's own
+  comment says so — so a consumer porting call sites off the old GL API does
+  it mechanically, receiver-swapped, with no signature translation. That is
+  exactly how the Shell wiring below was ported back.
+- **The joint palette SSBO is host-visible and persistently mapped**,
+  rewritten in place per pose change via `UploadBatchPalettes()` (a memcpy
+  per batch into already-mapped memory, no allocation, no command buffer).
+  This rests on a serialization PRECONDITION now documented as a named
+  banner at the top of `Include/Onyx/Rendering/SceneRendererVk.h`: every
+  scene submission goes through `Resources::OneShot`, which submits and then
+  blocks on `vkWaitForFences` before returning, so the CPU is never writing
+  a buffer the GPU is still reading — no double-buffering, no barrier,
+  because there is never a second frame in flight for a scene command
+  buffer. The banner is explicit that this precondition covers every other
+  mapped buffer in the file (frame UBOs, overlay VBO, background/grid UBOs),
+  not just the palette, and that an in-flight scene path would break all of
+  them at once, not just this one.
+- **Per-batch visibility culling.** `Render()`'s three passes (sky, opaque,
+  additive) each skip a batch when `!m_batches[idx].isVisible`, including
+  skipping pipeline binding for a culled batch in the additive pass, not
+  just the draw call. The Inspector's visibility checkboxes, which already
+  mutated `RenderBatch::isVisible` with no effect, now work. `isHighlighted`
+  is still unread — no outline pass exists on this renderer (see "Known
+  gaps").
+- **The bone color picker is re-enabled.** `RenderSkeleton` now takes a
+  `boneColor` parameter (see "Changed"); `Viewport3D::RenderFrame` resolves
+  it from `AppConfig::boneR/G/B` the same way it already resolves
+  `gridColor` for `RenderGrid`, and the picker's `BeginDisabled` in
+  `SettingsWindow.cpp` was removed. `Wireframe Color` and `Outline Color`
+  stay disabled — their passes genuinely don't exist on this renderer.
+- **`VkAnimation`**, a new ctest (`Tools/OnyxOracle`'s `--vk-animation-smoke`,
+  wired through `RunVkAnimationSmoke()`): renders one synthetic animated
+  scene five ways from a single `SceneRendererVk` instance and compares them
+  pairwise against render (a), plus a boolean assertion on `UpdateAnimation`'s
+  return value after a stop.
+  - (a)-vs-(b) *animation set, not advanced*: byte-identical, 0.0000%
+    differing. This is the gate's correctness anchor, not merely a "nothing
+    changed" smoke check — it means the animated pose at t=0 reproduces
+    `ComputeJointPalette`'s independently-computed rest pose exactly, which
+    is only possible if the inverse-bind matrix used on the animated path is
+    right.
+  - (a)-vs-(c) *mid-clip*: `maxChannelDelta=255 differingPct=22.1565%
+    highDeltaPct=21.6438% mae=20.1479`, correctly asserted **outside**
+    tolerance — proof the pose moves. This is a motion check, not a
+    correctness check on its own: a renderer that moved the pose *wrong* in
+    a way that still produced a large, non-uniform delta would also pass
+    this comparison. The (a)-vs-(b) anchor above is what pins correctness;
+    this pins that something is actually happening.
+  - (a)-vs-(d) *stopped*: byte-identical, 0.0000% differing — the rest pose
+    is restored exactly, not merely close.
+  - (a)-vs-(e) *one batch culled*: `maxChannelDelta=229 differingPct=17.6334%
+    highDeltaPct=17.6334% mae=17.2809`, correctly asserted outside tolerance
+    — proves the visibility-culling addition above actually skips drawing.
+  - (a)-vs-(f) *one ordinary frame tick after stop*: byte-identical
+    pixel-wise, but this comparison **cannot discriminate** a correct no-op
+    from a stale-sentinel bug that recomputes and reuploads the rest pose
+    (see "Fixed" below) — `EnsureBaked()`'s frame-0 bake and `Stop()`'s
+    restore both compute the identical bytes, so a wrong recompute writes
+    the same pixels as no recompute at all. The actual regression check is
+    the boolean assertion: `UpdateAnimation(0.016f)` immediately after
+    `StopAnimation()` must return `false` (nothing changed); reverting the
+    sentinel fix flips this to `true` and fails the gate
+    (`***Failed 0.47 sec with "returned true (expected false)"`).
+- **`BuildAnimatedChain()`** in `Tools/OnyxOracle/CorpusScenes.{h,cpp}` — a
+  synthetic skinned-cube clone whose skeleton keeps `BuildSkinnedCube()`'s
+  existing 30-degree rest bend on joints 1/2 intact, with a clip sweeping
+  those same joints 60→120 degrees over a 1-second, 31-sample duration.
+  Deliberately **not** called from `BuildCorpus()`, so it is invisible to
+  the parity gate and the frozen goldens (`Tests/Golden/corpus`) never move
+  — confirmed by `VkOracleParity`'s five pixel hashes staying byte-identical
+  before and after this milestone's every commit.
+- **The Shell's animation transport bar and clip browser are back** in
+  `Viewport3D` (`Source/Viewers/Viewport3D.{h,cpp}`): a clip selector combo
+  when the scene has animations but nothing is chosen, growing additively
+  (not replacing) into a full transport (play/pause/step/stop, speed, loop
+  mode, timeline) once a clip is loaded — the two stack to 40px + 86px =
+  126px rather than swapping, so a second clip is reachable without
+  reloading the scene. `Onyx::App::GetActiveAnimationPlayer()` is non-null
+  again while a clip plays, so `Dopesheet` and `AnimCurveView` receive real
+  data. See "Known gaps" for why the browser could not simply be restored
+  to its historical location.
+
+### Fixed
+- **`AnimationPlayer::ComputeJointMatrices()` read a dead code path for the
+  inverse bind matrix, silently dropping it from every animated pose.** It
+  read `m_skeleton->matrixes3[joint.invId]` — a literal port of the JS
+  reference's raw-array indexing — but `joint.invId` defaults to `-1` and
+  nothing in this tree (`Tools/OnyxOracle/CorpusScenes.cpp`'s synthetic
+  builders are the only `ObjectData` producer that exists) ever populates
+  `matrixes3`/`invId`; that path was meant for a not-yet-built real loader.
+  Every other consumer — `ComputeJointPalette` (`JointPalette.cpp`, the
+  frozen-golden rest-pose path) and `GltfExport.cpp` — reads the resolved
+  `joint.bindToJointMat` field instead. So the branch never fired, and the
+  inverse-bind correction was silently absent from every *animated* pose
+  while `ComputeJointPalette`'s *rest* pose applied it correctly the whole
+  time. This was invisible until this milestone because nothing drove
+  `ComputeJointMatrices()` against a real skeleton until `SetAnimation()`
+  existed to call it — the `VkAnimation` gate's (a)-vs-(b) comparison caught
+  it on its very first run, coming back ~22% differing instead of the
+  expected 0%. Fixed by reading `joint.bindToJointMat` directly, matching
+  `ComputeJointPalette`'s own unconditional `globalMats[i] * j.bindToJointMat`.
+  **Consumer-visible semantic delta:** the old `matrixes3` branch gated on
+  `joint.isSkinned`; the new `bindToJointMat` read does not (neither does
+  `ComputeJointPalette`, which this now matches) — a joint with
+  `isSkinned == false` and a non-identity `bindToJointMat` now produces
+  different animated output than before this fix. No loader in this tree
+  can currently construct such a joint, so nothing observed the change, but
+  a future real GOW loader could.
+- **`StopAnimation()`'s rest-pose restore was undone by the very next
+  frame.** The restore itself was correct, but `StopAnimation()` set
+  `m_lastAppliedAnimTime = -1.0f` as a sentinel; `Stop()` (called just
+  before it) separately reset the player's own time to `0.0f` via `Reset()`.
+  The next `UpdateAnimation()` call — an ordinary per-frame tick, not a
+  scrub — then saw `GetTime() (0.0f) != m_lastAppliedAnimTime (-1.0f)`, took
+  the paused/scrub branch, and recomputed and re-uploaded the pose a second
+  time. The recomputed bytes happened to be identical to the already-correct
+  restore (both paths ultimately call the same bake/palette code), so this
+  was never visible as pose corruption in this milestone's own gate — but it
+  meant the "immutable rest pose after Stop" guarantee the palette-caching
+  design depends on lasted exactly one frame, not permanently, and the two
+  computations only agreed *because* the `ComputeJointMatrices()` fix above
+  made them agree; before that fix this same sentinel bug would have been
+  real, visible corruption. Fixed by setting
+  `m_lastAppliedAnimTime = m_animPlayer ? m_animPlayer->GetTime() : -1.0f`
+  (i.e. `0.0f`) instead, so the very next tick's scrub-detection comparison
+  is `0.0f != 0.0f` — false — and `UpdateAnimation` correctly returns
+  `false` (nothing changed), verified by a dedicated boolean assertion in
+  the `VkAnimation` gate (see "Added" above) since the pixel comparison
+  cannot tell the two cases apart.
+
+### Changed
+- **BREAKING (MAJOR-class under this project's own stability policy):
+  `SceneRendererVk::RenderSkeleton()` gained a `boneColor` parameter.**
+  `Include/Onyx/Rendering/SceneRendererVk.h`'s signature changed from
+  `RenderSkeleton(ctx, pipeline, cmd, view, proj, viewportW, viewportH, err)`
+  to `RenderSkeleton(ctx, pipeline, cmd, view, proj, boneColor, viewportW,
+  viewportH, err)` — a new required parameter inserted into an existing
+  public declaration, not appended with a default. This project's README
+  ("Stability policy") reserves that shape of change for MAJOR: "the only
+  version class allowed to remove, rename, or change the meaning of an
+  existing public declaration," and a parameter insertion changes the
+  meaning of every existing call site's argument list. It is classified
+  BREAKING here rather than softened, per that policy read honestly, even
+  though this tag ships as 1.1.0 (a MINOR bump) rather than 2.0.0 — see the
+  note at the end of this entry. The reason for the change: `Onyx::Render`
+  does not, and structurally cannot, link `Onyx::Shell` (where
+  `AppConfig::Get()` lives) — `RenderGrid`'s existing doc comment already
+  said so, and `RenderGrid` already took its color the same way, as a
+  caller-supplied parameter rather than an internal config read. Only
+  caller (`Viewport3D::RenderFrame`) was updated in the same commit.
+  **Note on the version number:** the stability policy's own worked example
+  (the `RenderVk` → `Rendering` header fold, v1.0.0) treated an equivalent
+  MAJOR-class change as requiring a MAJOR bump once the project is past
+  1.0. This tag is released as 1.1.0 regardless, as a deliberate scope
+  decision for this milestone rather than a policy exception silently
+  taken — flagged here so the inconsistency is visible rather than buried.
+
+### Known gaps — the v1.1 promise
+Animation playback, per-batch visibility culling, and the bone color knob
+are removed from this list — see "Added" above. Everything else carried
+forward from v1.0.0 stays, plus one new finding from this milestone's own
+Shell-wiring work.
+- **No outline/hover-highlight pass, no wireframe or matcap shading.**
+  `RenderBatch::isHighlighted` is still unread — no outline pass exists on
+  this renderer. Wireframe and Outline colors remain dead knobs, disabled
+  in Settings with a tooltip explaining why (Matcap was removed outright at
+  T11, v1.0.0).
+- **NEW: `IDocumentContent::DrawInspector()` has no caller anywhere in the
+  Shell.** `InspectorPanel::Draw()` (`Source/App/Panels/InspectorPanel.cpp`)
+  draws only its own `InfoTab` and never delegates to the active document;
+  `DocumentWindow::Draw()` calls `tab->Draw()`, never `tab->DrawInspector()`.
+  This is pre-existing — `git log -S` finds no commit that ever added a
+  caller, at this tag or at the last commit before the GL renderer was
+  deleted — and it silently disables `VideoPlayer`'s stream-metadata
+  inspector too, not just anything animation-related. It is the direct
+  reason this milestone's clip browser moved into `Viewport3D`'s own
+  viewport strip (a new `DrawClipSelector()`) instead of being restored to
+  its historical home inside `DrawInspector()`: code ported faithfully into
+  that hook was confirmed, by construction, to never execute. Recorded here
+  so nobody puts something important into `DrawInspector()` on the
+  assumption it is reachable and loses it the same way.
+- **NEW, honest caveat: the mapped joint-palette (and every other mapped
+  buffer in `SceneRendererVk.cpp`) assumes `HOST_COHERENT`, which VMA does
+  not guarantee for `CPU_TO_GPU`** (it requires `HOST_VISIBLE` and only
+  *prefers* `DEVICE_LOCAL`), and nothing in the tree calls
+  `vmaFlushAllocation`. This is **not a regression introduced this
+  milestone** — every other mapped buffer in this file (frame UBOs, overlay
+  VBO, background/grid UBOs) has ridden the same assumption since M4. It is
+  named here because the PRECONDITION banner this milestone added to
+  `SceneRendererVk.h` enumerates the serialization argument in detail and
+  omits the coherence one entirely, so the banner reads as more complete
+  than it is. Both arguments would need to hold for the mapped-write
+  pattern to be fully justified; only one is currently written down.
+- Carried forward unchanged from v1.0.0: no `install()`/`export()` (audit
+  gap G4), `Services/PathUtils.h` still declaring `namespace PathUtils` at
+  global scope (the open half of audit gap G5), and the parity gate's
+  measured detection floor (roughly 0.41–0.68 percentage points of
+  high-delta pixels, scene dependent — see v1.0.0's entry for the full
+  per-scene breakdown; unchanged and re-confirmed by this milestone's own
+  `VkOracleParity` runs, which reproduced those exact numbers to four
+  decimal places at every task boundary).
+- **The animation UI's layout choices have had no human eye-pass.** The 40px
+  clip-selector strip and the 86px transport strip (stacking to 126px when
+  both are visible) are sized from ImGui default-metric reasoning, not
+  measurement or observation — nobody has run the GUI and looked at them.
+  More broadly, the Shell wiring this milestone added has **no automated
+  gate at all**: `VkAnimation`/`VkOracleParity` cover the renderer and GPU
+  path, but nothing in this suite creates a `Viewport3D`, opens a scene
+  through the Shell, and confirms the transport bar or clip selector
+  actually draws, responds to input, or looks reasonable.
+
 ## v1.0.0 — 2026-08-19
 
 The v1 rewrite closes here: **M1** Target split (`Onyx::Core`/`Render`/
