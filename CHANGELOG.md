@@ -9,9 +9,12 @@ removed rather than left wired against nothing (see v1.0.0's "Known gaps").
 This tag closes that gap end to end: renderer API, GPU upload path, the
 parity-style gate that proves it, and the Shell UI that reaches it. Every
 public-header change this milestone made is additive (see "Changed" for
-`RenderSkeleton`'s new color-taking overload), and one pre-existing bug
-surfaced and was fixed (`ComputeJointMatrices()`'s dropped inverse-bind
-correction, see "Fixed").
+`RenderSkeleton`'s new color-taking overload), and two pre-existing bugs
+surfaced and were fixed (`ComputeJointMatrices()`'s dropped inverse-bind
+correction, and the skeleton overlay reading joint positions out of a
+skinning matrix — see "Fixed"). One deliverable is narrower than it looks
+and says so: per-batch visibility culling is real at the library level and
+has no reachable control in the example Shell.
 
 ### Added
 - **`SceneRendererVk`'s animation API** (`Include/Onyx/Rendering/
@@ -38,10 +41,16 @@ correction, see "Fixed").
 - **Per-batch visibility culling.** `Render()`'s three passes (sky, opaque,
   additive) each skip a batch when `!m_batches[idx].isVisible`, including
   skipping pipeline binding for a culled batch in the additive pass, not
-  just the draw call. The Inspector's visibility checkboxes, which already
-  mutated `RenderBatch::isVisible` with no effect, now work. `isHighlighted`
-  is still unread — no outline pass exists on this renderer (see "Known
-  gaps").
+  just the draw call. This is a **library-level** capability and that is the
+  honest scope of it: `GetBatches()` returns a mutable `RenderBatch` vector
+  and `Render()` now honors the `isVisible` flag on it, so a consumer driving
+  the renderer directly gets working per-batch culling with no further work.
+  The example Shell ships **no reachable control for it**: its own visibility
+  checkboxes live in `Viewport3D::DrawInspector()`, and that hook has no
+  caller anywhere in the Shell (see "Known gaps"), so clicking through the
+  shipped GUI still cannot cull a batch. Nothing regressed — those checkboxes
+  never worked — but neither were they fixed here. `isHighlighted` is still
+  unread — no outline pass exists on this renderer (see "Known gaps").
 - **The bone color picker is re-enabled.** `RenderSkeleton` now takes a
   `boneColor` parameter (see "Changed"); `Viewport3D::RenderFrame` resolves
   it from `AppConfig::boneR/G/B` the same way it already resolves
@@ -126,6 +135,22 @@ correction, see "Fixed").
   different animated output than before this fix. No loader in this tree
   can currently construct such a joint, so nothing observed the change, but
   a future real GOW loader could.
+  **Why this is not MAJOR-class, while `RenderSkeleton`'s added parameter
+  needed an overload to stay MINOR:** README's policy reserves MAJOR for
+  changing the meaning of a *live* public declaration, and this declaration
+  was not live in the sense that matters. `AnimationPlayer::
+  ComputeJointMatrices()` is public, and its meaning did change — but the
+  branch that changed is provably unreachable for every skeleton this
+  codebase can construct: `matrixes3`/`invId` have no producer anywhere in
+  the tree, so the old code always fell through to the `else`, and the
+  `isSkinned` gate it removed could only ever have fired on a joint with a
+  non-identity `bindToJointMat` that no in-tree loader can build. No
+  existing call site can observe the difference. That is a fix to a dead
+  path, not a reshape of a contract someone is holding.
+  `RenderSkeleton` was the opposite case: its parameter was inserted
+  mid-signature, so every existing call site broke *at compile time* —
+  observable by definition, hence the compatibility overload rather than a
+  paragraph. The two are classified by the same rule, not by two rules.
 - **`StopAnimation()`'s rest-pose restore was undone by the very next
   frame.** The restore itself was correct, but `StopAnimation()` set
   `m_lastAppliedAnimTime = -1.0f` as a sentinel; `Stop()` (called just
@@ -147,6 +172,34 @@ correction, see "Fixed").
   `false` (nothing changed), verified by a dedicated boolean assertion in
   the `VkAnimation` gate (see "Added" above) since the pixel comparison
   cannot tell the two cases apart.
+- **The skeleton overlay drew every joint in the wrong place while a clip
+  played.** `SceneRendererVk::UpdateAnimation()` filled `m_jointWorldPos` —
+  the only input to `RenderSkeleton()`'s bone lines, joint dots and
+  orientation axes — from `m_jointPalette[i][3]`. A palette entry is
+  `globalMats[i] * bindToJointMat[i]`, a *skinning* matrix: its translation
+  column is where the bind-pose origin lands after skinning, not the joint
+  origin `globalMats[i][3]` that `Build()` stores through
+  `ComputeJointPalette`'s out-parameter. So the overlay was correct at rest,
+  jumped the instant a clip first applied for every joint whose inverse bind
+  matrix has a non-zero translation (i.e. every joint not at the model
+  origin in bind pose), and snapped back on `StopAnimation()`. This is a
+  faithful port of the deleted GL renderer's own bug and therefore **not a
+  regression** — but this tag is what makes it observable, since it is the
+  first one where playback runs at all and `showBones` is reachable from the
+  toolbar. **`AnimationPlayer::ComputeJointMatrices()` gained an optional
+  `std::vector<glm::vec3>* outWorldPos` out-parameter** (defaulted to
+  `nullptr`, so purely additive — every existing call site compiles and
+  means what it meant) that reports joint origins off the un-multiplied
+  global chain it already computes, deliberately the same shape
+  `ComputeJointPalette(skeleton, outWorldPos)` has carried all along: one
+  contract, two poses. No render gate could have caught this —
+  `RunVkAnimationSmoke` never calls `RenderSkeleton` — so it is pinned
+  CPU-side in `Tests/animclip_test.cpp` instead (the `OnyxAnimClip` entry,
+  device-less): at `t=0` the animated joint origins must equal the rest
+  ones, with two fixture guards asserting that `BuildSkinnedCube`'s inverse
+  binds really are offset (`bindZ` 1.33/2.67) so the assertion cannot decay
+  into a tautology. Reverting the fill to the palette column fails it at a
+  2.31-unit delta.
 
 ### Changed
 - **`SceneRendererVk::RenderSkeleton()` gained a color-taking overload**
@@ -187,14 +240,25 @@ Shell-wiring work.
   `DocumentWindow::Draw()` calls `tab->Draw()`, never `tab->DrawInspector()`.
   This is pre-existing — `git log -S` finds no commit that ever added a
   caller, at this tag or at the last commit before the GL renderer was
-  deleted — and it silently disables `VideoPlayer`'s stream-metadata
-  inspector too, not just anything animation-related. It is the direct
-  reason this milestone's clip browser moved into `Viewport3D`'s own
-  viewport strip (a new `DrawClipSelector()`) instead of being restored to
-  its historical home inside `DrawInspector()`: code ported faithfully into
-  that hook was confirmed, by construction, to never execute. Recorded here
-  so nobody puts something important into `DrawInspector()` on the
-  assumption it is reachable and loses it the same way.
+  deleted — and it silently disables everything that was ever put inside it.
+  Two things are stranded there right now, both worth naming because both
+  look shipped from the outside:
+  - `VideoPlayer`'s stream-metadata inspector.
+  - **`Viewport3D`'s per-batch visibility checkboxes** — the only controls in
+    the Shell that mutate `RenderBatch::isVisible`. So the per-batch culling
+    added at this tag (see "Added") is real in the renderer and unreachable
+    from the shipped GUI. Moving those checkboxes out is not the same
+    one-line relocation the clip selector got — it is a per-batch mesh-part
+    list, real viewport UI — so it was deliberately left for a later
+    milestone rather than rushed in at a release boundary.
+
+  It is also the direct reason this milestone's clip browser moved into
+  `Viewport3D`'s own viewport strip (a new `DrawClipSelector()`) instead of
+  being restored to its historical home inside `DrawInspector()`: code
+  ported faithfully into that hook was confirmed, by construction, to never
+  execute. Recorded here so nobody puts something important into
+  `DrawInspector()` on the assumption it is reachable and loses it the same
+  way.
 - **NEW, honest caveat: the mapped joint-palette (and every other mapped
   buffer in `SceneRendererVk.cpp`) assumes `HOST_COHERENT`, which VMA does
   not guarantee for `CPU_TO_GPU`** (it requires `HOST_VISIBLE` and only
