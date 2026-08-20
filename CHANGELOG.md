@@ -7,11 +7,11 @@ playback path since M4 deleted the GL renderer — every skinned scene
 rendered its rest pose, and the Shell's transport bar/clip browser were
 removed rather than left wired against nothing (see v1.0.0's "Known gaps").
 This tag closes that gap end to end: renderer API, GPU upload path, the
-parity-style gate that proves it, and the Shell UI that reaches it. One
-public-header signature changed along the way (`RenderSkeleton`, see
-"Changed" — classified BREAKING under this project's own stability policy)
-and one pre-existing bug surfaced and was fixed (`ComputeJointMatrices()`'s
-dropped inverse-bind correction, see "Fixed").
+parity-style gate that proves it, and the Shell UI that reaches it. Every
+public-header change this milestone made is additive (see "Changed" for
+`RenderSkeleton`'s new color-taking overload), and one pre-existing bug
+surfaced and was fixed (`ComputeJointMatrices()`'s dropped inverse-bind
+correction, see "Fixed").
 
 ### Added
 - **`SceneRendererVk`'s animation API** (`Include/Onyx/Rendering/
@@ -149,31 +149,27 @@ dropped inverse-bind correction, see "Fixed").
   cannot tell the two cases apart.
 
 ### Changed
-- **BREAKING (MAJOR-class under this project's own stability policy):
-  `SceneRendererVk::RenderSkeleton()` gained a `boneColor` parameter.**
-  `Include/Onyx/Rendering/SceneRendererVk.h`'s signature changed from
-  `RenderSkeleton(ctx, pipeline, cmd, view, proj, viewportW, viewportH, err)`
-  to `RenderSkeleton(ctx, pipeline, cmd, view, proj, boneColor, viewportW,
-  viewportH, err)` — a new required parameter inserted into an existing
-  public declaration, not appended with a default. This project's README
-  ("Stability policy") reserves that shape of change for MAJOR: "the only
-  version class allowed to remove, rename, or change the meaning of an
-  existing public declaration," and a parameter insertion changes the
-  meaning of every existing call site's argument list. It is classified
-  BREAKING here rather than softened, per that policy read honestly, even
-  though this tag ships as 1.1.0 (a MINOR bump) rather than 2.0.0 — see the
-  note at the end of this entry. The reason for the change: `Onyx::Render`
-  does not, and structurally cannot, link `Onyx::Shell` (where
-  `AppConfig::Get()` lives) — `RenderGrid`'s existing doc comment already
-  said so, and `RenderGrid` already took its color the same way, as a
-  caller-supplied parameter rather than an internal config read. Only
-  caller (`Viewport3D::RenderFrame`) was updated in the same commit.
-  **Note on the version number:** the stability policy's own worked example
-  (the `RenderVk` → `Rendering` header fold, v1.0.0) treated an equivalent
-  MAJOR-class change as requiring a MAJOR bump once the project is past
-  1.0. This tag is released as 1.1.0 regardless, as a deliberate scope
-  decision for this milestone rather than a policy exception silently
-  taken — flagged here so the inconsistency is visible rather than buried.
+- **`SceneRendererVk::RenderSkeleton()` gained a color-taking overload**
+  (`Include/Onyx/Rendering/SceneRendererVk.h`) — the same shape `RenderGrid`
+  already uses: `Onyx::Render` does not, and structurally cannot, link
+  `Onyx::Shell` (where `AppConfig::Get()` lives), so the cfg-or-fallback
+  resolution has to happen in a Shell-linked caller and reach the renderer
+  as a plain parameter rather than an internal config read. The original,
+  parameterless `RenderSkeleton(ctx, pipeline, cmd, view, proj, viewportW,
+  viewportH, err)` **remains** — it delegates to the new
+  `RenderSkeleton(..., boneColor, ...)` overload, passing a new named
+  constant, `Rendering::kDefaultBoneColor`, that is byte-identical to the
+  color this method hardcoded before this change. `Viewport3D::RenderFrame`
+  (the one in-tree caller) resolves `AppConfig::boneR/G/B` and calls the
+  color-taking overload directly, referencing the same
+  `kDefaultBoneColor` constant for its own no-config fallback so the two
+  can never drift apart into two different "default" colors. This is
+  purely additive under this project's own stability policy — every
+  pre-1.1 call site of `RenderSkeleton` keeps compiling *and* keeps meaning
+  what it meant before, which is the MINOR bar README's "Stability policy"
+  sets, not the MAJOR one a mid-signature parameter insertion (the
+  originally-shipped shape of this change, corrected in a fix round before
+  this tag closed) would have required.
 
 ### Known gaps — the v1.1 promise
 Animation playback, per-batch visibility culling, and the bone color knob

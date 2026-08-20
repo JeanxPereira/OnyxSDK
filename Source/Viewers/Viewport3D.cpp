@@ -402,10 +402,12 @@ void Viewport3D::RenderFrame(int width, int height) {
 
     // Same cfg-or-fallback pattern as gridColor above: RenderSkeleton
     // (Onyx_Render) has no AppConfig dependency, so the resolution happens
-    // here, in the Shell-linked caller. Fallback matches the constant
-    // RenderSkeleton always hardcoded before Task 5.
+    // here, in the Shell-linked caller. Fallback is the SAME named constant
+    // (Onyx::Rendering::kDefaultBoneColor) RenderSkeleton's own compatibility
+    // overload defaults to -- referenced, not retyped, so the two can never
+    // drift apart.
     const glm::vec4 boneColor = cfg ? glm::vec4(cfg->boneR, cfg->boneG, cfg->boneB, 1.0f)
-                                     : glm::vec4(0.0f, 1.0f, 0.4f, 1.0f);
+                                     : Onyx::Rendering::kDefaultBoneColor;
 
     std::string err;
     const float clear[4] = {0.0f, 0.0f, 0.0f, 1.0f};

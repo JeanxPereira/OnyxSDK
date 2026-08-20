@@ -79,6 +79,17 @@
 
 namespace Onyx::Rendering {
 
+/// The bone-line color RenderSkeleton draws with when no caller-resolved
+/// AppConfig value is available -- byte-identical to the constant this
+/// method hardcoded before Task 5 (M5) added the `boneColor` parameter.
+/// Named here, at namespace scope, so it has exactly one definition:
+/// RenderSkeleton's compatibility overload (below) defaults to it, and
+/// Viewport3D::RenderFrame's own cfg-or-fallback resolution references it
+/// too (Include/Onyx/Services/AppConfig.h's `boneR/G/B` fields are the
+/// caller-supplied case; this is only the no-config fallback), so the two
+/// can never drift apart the way two separately-typed literals could.
+inline constexpr glm::vec4 kDefaultBoneColor{0.0f, 1.0f, 0.4f, 1.0f};
+
 /// Vulkan port of Onyx::Rendering::SceneRenderer (GL) -- builds GPU
 /// resources from a Parsers::SceneData and draws them through T3's
 /// ScenePipelines into whatever dynamic-rendering target the caller has
@@ -225,6 +236,21 @@ public:
     bool RenderSkeleton(VkContext& ctx, const OverlayPipeline& pipeline, VkCommandBuffer cmd,
                         const glm::mat4& view, const glm::mat4& proj, const glm::vec4& boneColor,
                         int viewportW, int viewportH, std::string& err);
+
+    /// Compatibility overload -- the original (pre-Task-5, pre-1.1) parameter
+    /// list, with no `boneColor`. Exists so a pre-1.1 call site keeps
+    /// compiling AND keeps meaning what it meant: it delegates to the
+    /// six-color-argument overload above, passing `kDefaultBoneColor`,
+    /// which is byte-identical to what this method hardcoded before the
+    /// parameter existed. Not used anywhere in this tree (Viewport3D calls
+    /// the color-taking overload directly, since it has an AppConfig to
+    /// resolve); kept purely for external source compatibility under the
+    /// stability policy in README.md.
+    bool RenderSkeleton(VkContext& ctx, const OverlayPipeline& pipeline, VkCommandBuffer cmd,
+                        const glm::mat4& view, const glm::mat4& proj,
+                        int viewportW, int viewportH, std::string& err) {
+        return RenderSkeleton(ctx, pipeline, cmd, view, proj, kDefaultBoneColor, viewportW, viewportH, err);
+    }
 
     /// Destroys every GPU resource this object owns (batches, textures,
     /// frame UBOs, descriptor pools, the background helper's pool/UBO) and
