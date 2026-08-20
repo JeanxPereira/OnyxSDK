@@ -911,7 +911,7 @@ int RunVkAnimationSmoke() {
     };
 
     int rc = 0;
-    std::vector<uint8_t> refImg, setNotAdvancedImg, midClipImg, stoppedImg, oneFrameAfterStopImg;
+    std::vector<uint8_t> refImg, setNotAdvancedImg, midClipImg, stoppedImg, culledImg, oneFrameAfterStopImg;
 
     // ── (a) reference: Build() only, no SetAnimation -- the rest pose ──────
     if (!renderOnce(refImg)) {
@@ -970,6 +970,36 @@ int RunVkAnimationSmoke() {
             std::string pngErr;
             Onyx::OracleTool::WritePng("vk-animation-d-stopped.png", animated.width, animated.height,
                                        stoppedImg, pngErr);
+        }
+    }
+
+    // ── (e) culled: batch[0] hidden via isVisible, same rest pose (d) just
+    // restored -- proves Render() honors RenderBatch::isVisible per batch.
+    // GetBatches()[0] is flipped directly, the exact vector the Inspector's
+    // own visibility checkboxes mutate (RenderBatch.h's field comment) and
+    // Task 5's brief names as the interface this check exercises. The pose
+    // is left untouched -- StopAnimation() already settled it back to rest
+    // in (d), immediately above -- so (a) and (e) share the identical rest
+    // pose and camera; any pixel delta between them can only be the missing
+    // batch. Unlike (f) below, the image comparison here IS the real teeth:
+    // there is no return-value side channel for "did culling apply," so
+    // this check has to fail on pixels if Render() ignores the flag -- and
+    // it does, pre-fix (rc will show "expected to be OUTSIDE tolerance ...
+    // was within -- the renderer appears to be ignoring the animation" for
+    // label e, since a Render() that never reads isVisible draws batch[0]
+    // regardless and (e) comes out pixel-identical to (d)/(a)). Restored to
+    // visible immediately after the render so (f) below is not affected. ──
+    if (rc == 0) {
+        renderer.GetBatches()[0].isVisible = false;
+        bool renderedE = renderOnce(culledImg);
+        renderer.GetBatches()[0].isVisible = true; // restore before (f)
+        if (!renderedE) {
+            std::fprintf(stderr, "vk-animation-smoke: (e) culled render: %s\n", err.c_str());
+            rc = 1;
+        } else {
+            std::string pngErr;
+            Onyx::OracleTool::WritePng("vk-animation-e-culled.png", animated.width, animated.height, culledImg,
+                                       pngErr);
         }
     }
 
@@ -1051,6 +1081,7 @@ int RunVkAnimationSmoke() {
         if (!compareAndPrint("b(set-not-advanced)", setNotAdvancedImg, /*expectWithinTolerance=*/true)) rc = 1;
         if (rc == 0 && !compareAndPrint("c(mid-clip)", midClipImg, /*expectWithinTolerance=*/false)) rc = 1;
         if (rc == 0 && !compareAndPrint("d(stopped)", stoppedImg, /*expectWithinTolerance=*/true)) rc = 1;
+        if (rc == 0 && !compareAndPrint("e(culled)", culledImg, /*expectWithinTolerance=*/false)) rc = 1;
         if (rc == 0 &&
             !compareAndPrint("f(one-frame-after-stop)", oneFrameAfterStopImg, /*expectWithinTolerance=*/true))
             rc = 1;
@@ -1066,7 +1097,7 @@ int RunVkAnimationSmoke() {
         rc = 1;
     }
     if (rc == 0) {
-        std::printf("vk-animation-smoke: %dx%d -- (a)/(b)/(d)/(f) within tolerance, (c) outside -- OK\n",
+        std::printf("vk-animation-smoke: %dx%d -- (a)/(b)/(d)/(f) within tolerance, (c)/(e) outside -- OK\n",
                     animated.width, animated.height);
     }
     return rc;

@@ -570,6 +570,18 @@ void SceneRendererVk::Render(VkCommandBuffer cmd, const glm::mat4& view, const g
     mainUbo.shadingMode = shadingInt;
     WriteMapped(m_frameBufMainMapped, &mainUbo, sizeof(mainUbo));
 
+    // Per-batch visibility: every pass below skips `!isVisible` batches --
+    // matching GL's `if (!batch->gpuMesh || !batch->isVisible) continue;`
+    // (SceneRenderer.cpp's RenderBatches), minus the gpuMesh half, which
+    // has no equivalent on this path (RenderBatch::gpuMesh is a dead
+    // bookkeeping field here -- see RenderBatch.h's own comment). This is
+    // the Inspector's visibility-checkbox consumer: GetBatches() is the
+    // exact vector those checkboxes mutate. isHighlighted stays unread --
+    // the hover-outline pass it would drive does not exist on this
+    // renderer (see CHANGELOG's "Known gaps"). Applied identically in all
+    // three passes (sky/opaque/additive) so a batch culled in one is
+    // culled in every one, never partially drawn.
+    //
     // Sky pass first (GL: RenderSky is called before Render() by the
     // viewport) -- rotation-only view, own frame UBO/set so the sky and
     // main CPU writes never race each other (see the field comment on
@@ -587,7 +599,10 @@ void SceneRendererVk::Render(VkCommandBuffer cmd, const glm::mat4& view, const g
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelines->sky);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelines->layout, 0, 1, &m_frameSetSky, 0,
                                 nullptr);
-        for (size_t idx : m_skyIdx) DrawBatch(cmd, idx);
+        for (size_t idx : m_skyIdx) {
+            if (!m_batches[idx].isVisible) continue;
+            DrawBatch(cmd, idx);
+        }
     }
 
     // Opaque pass -- depth write on, blend off, exactly the batches GL's
@@ -597,7 +612,10 @@ void SceneRendererVk::Render(VkCommandBuffer cmd, const glm::mat4& view, const g
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelines->opaque);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelines->layout, 0, 1, &m_frameSetMain, 0,
                             nullptr);
-    for (size_t idx : m_opaqueIdx) DrawBatch(cmd, idx);
+    for (size_t idx : m_opaqueIdx) {
+        if (!m_batches[idx].isVisible) continue;
+        DrawBatch(cmd, idx);
+    }
 
     // Additive/blended pass -- per-batch pipeline selection mirrors GL's
     // RenderBatches blend-func switch exactly (SceneRenderer.cpp:654-658):
@@ -606,6 +624,7 @@ void SceneRendererVk::Render(VkCommandBuffer cmd, const glm::mat4& view, const g
     // set 0 is still m_frameSetMain from the opaque pass above -- binding a
     // different pipeline does not disturb an already-bound descriptor set.
     for (size_t idx : m_additiveIdx) {
+        if (!m_batches[idx].isVisible) continue;
         VkPipeline pipe = (m_batches[idx].blendMode == BlendMode::Additive) ? m_pipelines->blendAdditive
                                                                             : m_pipelines->blendNormal;
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
@@ -852,16 +871,15 @@ bool SceneRendererVk::RenderGrid(VkContext& ctx, const GridPipeline& pipeline, V
 // ── RenderSkeleton ────────────────────────────────────────────────────────
 
 bool SceneRendererVk::RenderSkeleton(VkContext& ctx, const OverlayPipeline& pipeline, VkCommandBuffer cmd,
-                                     const glm::mat4& view, const glm::mat4& proj, int viewportW,
-                                     int viewportH, std::string& err) {
+                                     const glm::mat4& view, const glm::mat4& proj, const glm::vec4& boneColor,
+                                     int viewportW, int viewportH, std::string& err) {
     if (!m_skeleton || m_jointWorldPos.empty()) return true;
 
     // ── build the line buffer -- exact port of GL's RenderSkeleton
     // (Source/Rendering/SceneRenderer.cpp), one OverlayVertex per LineVert.
-    // Colors: GL's own cfg-null fallback constants, unconditionally -- see
-    // this method's doc comment for why the Render layer never reaches for
-    // Onyx::Services::AppConfig itself. ─────────────────────────────────
-    const glm::vec4 boneColor(0.0f, 1.0f, 0.4f, 1.0f);
+    // `boneColor` is the caller's already-resolved cfg-or-fallback value
+    // (see this method's doc comment) -- rootColor stays the hardcoded
+    // constant GL always used; no config field exists for it. ───────────
     const glm::vec4 rootColor(1.0f, 0.3f, 0.1f, 1.0f);
     glm::vec4 jointDot = boneColor * 0.5f + glm::vec4(0.5f);
     jointDot.a = 1.0f;

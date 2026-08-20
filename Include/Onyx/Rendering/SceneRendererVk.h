@@ -196,20 +196,24 @@ public:
     /// built from the same m_jointWorldPos Build() already computed via
     /// the shared Rendering::ComputeJointPalette (JointPalette.h/.cpp),
     /// baked through m_instanceTransform exactly like GL bakes it into
-    /// every point before pushing it to its own line buffer. Colors use
-    /// GL's own hardcoded fallback constants (the now-deleted GL
-    /// SceneRenderer.cpp's `cfg ? ... : glm::vec4(...)` branch)
-    /// unconditionally -- the Render layer has no dependency on
-    /// Onyx::Services::AppConfig at all (its Get() definition lives in
-    /// Onyx_Shell, which this target never links; Task 11 closed the two
-    /// gaps that used to make an AppConfig stub necessary anywhere in this
-    /// tree -- Onyx::Rendering::Camera's own former AppConfig read moved to
-    /// Onyx::Viewers::Viewport3D, and Onyx::Rendering::ResolveRoleIndices
-    /// moved out of the GL-only SceneRenderer.cpp -- so neither onyx-oracle
-    /// nor onyxbox-cli carry a per-executable AppConfigStub.cpp any more),
-    /// so GL's own cfg-null fallback is the only value that could ever be
-    /// observed here. A no-op (returns true without touching `cmd`) if
-    /// Build() built no skeleton, matching GL's own early-return.
+    /// every point before pushing it to its own line buffer.
+    ///
+    /// `boneColor` colors bone lines and, mixed 50/50 with white, the
+    /// joint-position dot cross -- same `boneColor * 0.5f + vec4(0.5f)`
+    /// GL used. Root-cross and orientation-axis colors are NOT
+    /// configurable (GL never made them so either) and stay the hardcoded
+    /// constants this method has always used. Task 5 (M5, "the bone color
+    /// knob") added the parameter: the Render layer still has no
+    /// dependency on Onyx::Services::AppConfig at all (its Get()
+    /// definition lives in Onyx_Shell, which this target never links --
+    /// same reason RenderGrid above takes `gridColor` as a parameter
+    /// rather than reading AppConfig itself), so the cfg-vs-hardcoded-
+    /// fallback branch lives in the caller (Viewport3D::RenderFrame,
+    /// mirroring exactly how it already builds `gridColor` for
+    /// RenderGrid), not here.
+    ///
+    /// A no-op (returns true without touching `cmd`) if Build() built no
+    /// skeleton, matching GL's own early-return.
     ///
     /// The overlay vertex buffer is sized once in Build() (joints.size() *
     /// 16, an exact upper bound on this method's own per-joint vertex
@@ -219,8 +223,8 @@ public:
     /// upload path is not legal to invoke against a command buffer that is
     /// itself still being recorded.
     bool RenderSkeleton(VkContext& ctx, const OverlayPipeline& pipeline, VkCommandBuffer cmd,
-                        const glm::mat4& view, const glm::mat4& proj, int viewportW, int viewportH,
-                        std::string& err);
+                        const glm::mat4& view, const glm::mat4& proj, const glm::vec4& boneColor,
+                        int viewportW, int viewportH, std::string& err);
 
     /// Destroys every GPU resource this object owns (batches, textures,
     /// frame UBOs, descriptor pools, the background helper's pool/UBO) and

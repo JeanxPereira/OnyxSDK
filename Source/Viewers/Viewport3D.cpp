@@ -57,12 +57,15 @@
 //     play-pause UI is therefore dropped entirely rather than wired
 //     against nothing; showBones + RenderSkeleton() still work (rest
 //     pose).
-//   - Render() does not read RenderBatch::isVisible/isHighlighted (no
-//     per-batch culling, no hover-outline pass) -- the inspector's
-//     visibility checkboxes and hover highlight still mutate those fields
-//     (via GetBatches(), the exact same Rendering::RenderBatch struct GL's
-//     SceneRenderer also fills -- see SceneRendererVk.h's own "RenderBatch
-//     reuse" comment), they simply have no visible effect yet.
+//   - Task 5 (M5) closed the isVisible half of this gap: Render() now
+//     skips `!isVisible` batches in every pass, so the inspector's
+//     visibility checkboxes (which mutate GetBatches() -- the exact same
+//     Rendering::RenderBatch struct GL's SceneRenderer also filled -- see
+//     SceneRendererVk.h's own "RenderBatch reuse" comment) have a real
+//     effect again. isHighlighted stays unread -- no hover-outline pass
+//     exists on this renderer, and reading the flag with no pass to show
+//     it would be worse than the declared gap (see CHANGELOG's "Known
+//     gaps").
 //
 // Y-flip on display: GL's ImGui::Image() call used uv0=(0,1)/uv1=(1,0) to
 // flip vertically (GL's texture origin is bottom-left). Vulkan's resolve
@@ -355,6 +358,13 @@ void Viewport3D::RenderFrame(int width, int height) {
     const glm::vec4 gridColor = cfg ? glm::vec4(cfg->gridR, cfg->gridG, cfg->gridB, cfg->gridA)
                                      : glm::vec4(0.35f, 0.35f, 0.35f, 0.5f);
 
+    // Same cfg-or-fallback pattern as gridColor above: RenderSkeleton
+    // (Onyx_Render) has no AppConfig dependency, so the resolution happens
+    // here, in the Shell-linked caller. Fallback matches the constant
+    // RenderSkeleton always hardcoded before Task 5.
+    const glm::vec4 boneColor = cfg ? glm::vec4(cfg->boneR, cfg->boneG, cfg->boneB, 1.0f)
+                                     : glm::vec4(0.0f, 1.0f, 0.4f, 1.0f);
+
     std::string err;
     const float clear[4] = {0.0f, 0.0f, 0.0f, 1.0f};
     bool ok = Resources::OneShot(*m_ctx, [&](VkCommandBuffer cmd) {
@@ -369,7 +379,8 @@ void Viewport3D::RenderFrame(int width, int height) {
 
         if (showBones && m_sceneData && m_sceneData->HasSkeleton()) {
             std::string skelErr;
-            if (!m_vk->sceneRendererVk.RenderSkeleton(*m_ctx, m_vk->overlayPipeline, cmd, view, proj, width, height, skelErr))
+            if (!m_vk->sceneRendererVk.RenderSkeleton(*m_ctx, m_vk->overlayPipeline, cmd, view, proj, boneColor,
+                                                       width, height, skelErr))
                 ONYX_LOGF_ERR("[Viewport3D] RenderSkeleton failed: %s", skelErr.c_str());
         }
 
