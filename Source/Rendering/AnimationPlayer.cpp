@@ -390,8 +390,11 @@ bool AnimationPlayer::Update(float dt) {
 
 // ── ComputeJointMatrices ───────────────────────────────────────────────────
 
-std::vector<glm::mat4> AnimationPlayer::ComputeJointMatrices() const {
-    if (!m_skeleton) return {};
+std::vector<glm::mat4> AnimationPlayer::ComputeJointMatrices(std::vector<glm::vec3>* outWorldPos) const {
+    if (!m_skeleton) {
+        if (outWorldPos) outWorldPos->clear();
+        return {};
+    }
 
     size_t jointCount = m_skeleton->joints.size();
     std::vector<glm::mat4> localMats(jointCount, glm::mat4(1.0f));
@@ -494,10 +497,30 @@ std::vector<glm::mat4> AnimationPlayer::ComputeJointMatrices() const {
     // the REST pose first, long before this animated path was ever
     // exercised. There is no loader shape under which the old
     // matrixes3/invId read was correct and this one is not.
+    //
+    // Final-review Important #2: `outWorldPos` reports joint ORIGINS off the
+    // UN-multiplied global chain, and it exists because the caller cannot
+    // derive them from the returned palette. `result[i][3]` is
+    // `globalMats[i] * joint.bindToJointMat` column 3 -- a skinning matrix's
+    // translation, i.e. where the bind-pose origin lands after skinning, not
+    // where the joint is. The two coincide only for a bindToJointMat with a
+    // zero translation column, which is exactly the case a straight-chain
+    // bind pose does NOT produce (BuildSkinnedCube's joints 1 and 2 carry
+    // inverse(translate(0,0,1.33)) and inverse(translate(0,0,2.67))). The
+    // skeleton overlay in SceneRendererVk::RenderSkeleton() consumed
+    // `m_jointPalette[i][3]` before this fix and therefore drew every such
+    // joint in the wrong place the moment a clip advanced -- snapping back on
+    // StopAnimation(), whose restore path goes through ComputeJointPalette,
+    // which has always reported `globalMats[i][3]` here (JointPalette.cpp).
+    // This is the same out-parameter shape as that function's, on purpose:
+    // one contract, two poses.
+    if (outWorldPos) outWorldPos->assign(jointCount, glm::vec3(0.0f));
+
     std::vector<glm::mat4> result(jointCount, glm::mat4(1.0f));
     for (size_t i = 0; i < jointCount; ++i) {
         const auto& joint = m_skeleton->joints[i];
         result[i] = globalMats[i] * joint.bindToJointMat;
+        if (outWorldPos) (*outWorldPos)[i] = glm::vec3(globalMats[i][3]);
     }
     return result;
 }

@@ -204,9 +204,13 @@ public:
     /// RenderSkeleton): per joint, a parent-to-child bone line (or a
     /// 6-point root cross when the joint has no parent), a small
     /// joint-position dot cross, and 3 RGB orientation-axis line pairs --
-    /// built from the same m_jointWorldPos Build() already computed via
-    /// the shared Rendering::ComputeJointPalette (JointPalette.h/.cpp),
-    /// baked through m_instanceTransform exactly like GL bakes it into
+    /// built from m_jointWorldPos, which holds world-space joint ORIGINS in
+    /// both poses: Build() fills it from the shared
+    /// Rendering::ComputeJointPalette's out-parameter (JointPalette.h/.cpp)
+    /// and UpdateAnimation() from AnimationPlayer::ComputeJointMatrices()'
+    /// identically-shaped one. Neither reads a palette entry's translation
+    /// column -- a skinning matrix's translation is not a joint origin.
+    /// Baked through m_instanceTransform exactly like GL bakes it into
     /// every point before pushing it to its own line buffer.
     ///
     /// `boneColor` colors bone lines and, mixed 50/50 with white, the

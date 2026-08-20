@@ -35,6 +35,13 @@ float MaxMatDelta(const std::vector<glm::mat4>& a, const std::vector<glm::mat4>&
     return worst;
 }
 
+// Largest absolute per-component difference between two world-space points.
+float MaxVec3Delta(const glm::vec3& a, const glm::vec3& b) {
+    float worst = 0.0f;
+    for (int c = 0; c < 3; ++c) worst = std::max(worst, std::fabs(a[c] - b[c]));
+    return worst;
+}
+
 } // namespace
 
 TEST_CASE("AnimClip: BuildAnimatedChain carries one skinning act with a baked clip") {
@@ -145,4 +152,77 @@ TEST_CASE("AnimClip: ComputeJointMatrices at t=0 matches ComputeJointPalette's r
     REQUIRE(animated.size() == rest.size());
     REQUIRE(animated.size() == cs.scene.skeleton->joints.size());
     CHECK(MaxMatDelta(animated, rest) == doctest::Approx(0.0f).epsilon(0.0001));
+}
+
+// Final whole-branch review, Important #2 (the skeleton overlay drew the
+// wrong joint positions during playback). SceneRendererVk::UpdateAnimation()
+// used to fill m_jointWorldPos -- the ONLY input to RenderSkeleton's bone
+// lines -- from `m_jointPalette[i][3]`. A palette entry is
+// `globalMats[i] * bindToJointMat[i]`, a SKINNING matrix; its translation
+// column is where the bind-pose origin lands after skinning, not the joint
+// origin `globalMats[i][3]` that Build()'s rest path stores via
+// ComputeJointPalette's out-parameter. So the overlay was correct at rest
+// and wrong the instant a clip applied, snapping back on StopAnimation().
+//
+// The repair gave ComputeJointMatrices() the same out-parameter shape
+// ComputeJointPalette() already had, and this is its device-less gate: at
+// t=0 the animated pose IS the rest pose (the case above proves the
+// palettes match), so the joint ORIGINS the two report must match too. No
+// render gate can catch this -- RunVkAnimationSmoke never calls
+// RenderSkeleton -- and this file runs with no Vulkan device at all.
+//
+// Not vacuous: BuildSkinnedCube (which BuildAnimatedChain clones) sets
+// bindToJointMat = inverse(translate(0,0,bindZ[i])) with bindZ =
+// {0, 1.33, 2.67}, so joints 1 and 2 carry a genuinely non-identity inverse
+// bind with a NON-ZERO translation column -- exactly the condition under
+// which palette[i][3] != globalMats[i][3]. The two REQUIREs below assert
+// that fixture property directly rather than assuming it, so if the fixture
+// ever loses its offset binds this test fails loudly instead of quietly
+// degrading into a tautology.
+TEST_CASE("AnimClip: ComputeJointMatrices reports joint ORIGINS, not palette translations") {
+    auto cs = Onyx::OracleTool::BuildAnimatedChain();
+    REQUIRE(cs.scene.skeleton.get() != nullptr);
+
+    // Fixture guard 1: at least one joint must carry an inverse bind matrix
+    // with a non-zero translation column. With identity inverse binds the
+    // palette column and the joint origin coincide, and everything below
+    // would pass against the very bug it exists to catch.
+    float worstBindTranslation = 0.0f;
+    for (const auto& j : cs.scene.skeleton->joints)
+        for (int row = 0; row < 3; ++row)
+            worstBindTranslation = std::max(worstBindTranslation, std::fabs(j.bindToJointMat[3][row]));
+    REQUIRE(worstBindTranslation > 0.5f);
+
+    std::vector<glm::vec3> restWorldPos;
+    std::vector<glm::mat4> restPalette = Onyx::Rendering::ComputeJointPalette(*cs.scene.skeleton, &restWorldPos);
+
+    // Fixture guard 2, the one that actually gives this test teeth: for this
+    // skeleton the palette's translation column is measurably NOT the joint
+    // origin. Reading palette[i][3] as a position -- what the renderer did --
+    // is a different answer here, not a harmless alias.
+    float paletteVsOrigin = 0.0f;
+    for (size_t i = 0; i < restPalette.size(); ++i)
+        paletteVsOrigin = std::max(paletteVsOrigin,
+                                   MaxVec3Delta(glm::vec3(restPalette[i][3]), restWorldPos[i]));
+    REQUIRE(paletteVsOrigin > 0.5f);
+
+    Onyx::Rendering::AnimationPlayer player;
+    player.SetAnimation(cs.scene.animations.get(), 0, 0, cs.scene.skeleton.get());
+    REQUIRE(player.GetTime() == doctest::Approx(0.0f));
+
+    std::vector<glm::vec3> animWorldPos;
+    std::vector<glm::mat4> animated = player.ComputeJointMatrices(&animWorldPos);
+
+    REQUIRE(animWorldPos.size() == restWorldPos.size());
+    REQUIRE(animWorldPos.size() == cs.scene.skeleton->joints.size());
+
+    float worst = 0.0f;
+    for (size_t i = 0; i < animWorldPos.size(); ++i)
+        worst = std::max(worst, MaxVec3Delta(animWorldPos[i], restWorldPos[i]));
+    CHECK(worst == doctest::Approx(0.0f).epsilon(0.0001));
+
+    // The no-argument form must keep behaving exactly as before for callers
+    // that want no positions -- the out-parameter defaults to null.
+    std::vector<glm::mat4> noOutParam = player.ComputeJointMatrices();
+    CHECK(MaxMatDelta(animated, noOutParam) == doctest::Approx(0.0f).epsilon(0.0001));
 }

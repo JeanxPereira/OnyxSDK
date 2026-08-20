@@ -684,12 +684,25 @@ bool SceneRendererVk::UpdateAnimation(float dt) {
     }
     if (!changed) return false;
 
-    std::vector<glm::mat4> animated = m_animPlayer->ComputeJointMatrices();
+    // Both outputs come from the player in one pass, and the overlay
+    // positions come from the OUT-PARAMETER, never from the palette. This
+    // used to read `m_jointPalette[i][3]` -- a faithful port of the GL
+    // renderer's own bug. A palette entry is `globalMats[i] *
+    // bindToJointMat[i]`, a skinning matrix, so its translation column is
+    // the bind-pose origin pushed through the skin, not the joint origin
+    // `globalMats[i][3]` that Build()'s rest path stores (via
+    // ComputeJointPalette's identically-shaped out-param, JointPalette.cpp).
+    // For any joint whose inverse bind matrix has a non-zero translation --
+    // i.e. any joint not sitting at the model origin in bind pose -- the two
+    // differ, so the bone overlay jumped the instant a clip first applied
+    // and snapped back on StopAnimation(). Pinned CPU-side in
+    // Tests/animclip_test.cpp ("AnimClip: ComputeJointMatrices reports joint
+    // ORIGINS ..."), because no render gate calls RenderSkeleton.
+    std::vector<glm::vec3> animatedWorldPos;
+    std::vector<glm::mat4> animated = m_animPlayer->ComputeJointMatrices(&animatedWorldPos);
     if (!animated.empty()) {
         m_jointPalette = std::move(animated);
-        m_jointWorldPos.resize(m_jointPalette.size());
-        for (size_t i = 0; i < m_jointPalette.size(); ++i)
-            m_jointWorldPos[i] = glm::vec3(m_jointPalette[i][3]); // skeleton overlay follows
+        m_jointWorldPos = std::move(animatedWorldPos); // skeleton overlay follows
         UploadBatchPalettes();
     }
     m_lastAppliedAnimTime = m_animPlayer->GetTime();
