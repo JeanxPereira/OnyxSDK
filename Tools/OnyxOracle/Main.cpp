@@ -103,16 +103,18 @@ void PrintHelp() {
         "  onyx-oracle --vk-animation-smoke\n"
         "      M6: renders Onyx::OracleTool::BuildAnimatedChain() (BuildSkinnedCube\n"
         "      plus a 1s clip sweeping joints 1/2 from 60deg to 120deg) through ONE\n"
-        "      SceneRendererVk instance four times: (a) reference (no SetAnimation),\n"
+        "      SceneRendererVk instance five times: (a) reference (no SetAnimation),\n"
         "      (b) SetAnimation(0,0) then UpdateAnimation(0.0f) without advancing,\n"
         "      (c) paused and scrubbed to t=0.5s via GetAnimPlayer()->SetTime(),\n"
         "      asserting UpdateAnimation(0.0f) returns true (the paused/scrub\n"
-        "      branch), (d) StopAnimation(). Compares each against (a) with\n"
+        "      branch), (d) StopAnimation(), (f) one ordinary UpdateAnimation(0.016f)\n"
+        "      frame tick after (d) -- a live-viewport-loop regression check (d)\n"
+        "      alone cannot see. Compares each against (a) with\n"
         "      Onyx::TestKit::CompareRGBA under VkOracleParity's own tolerance\n"
-        "      (Tools/OnyxOracle/CMakeLists.txt's ONYX_PARITY_ARGS): (a)/(b)/(d)\n"
+        "      (Tools/OnyxOracle/CMakeLists.txt's ONYX_PARITY_ARGS): (a)/(b)/(d)/(f)\n"
         "      must be within it, (c) must be far outside it. Prints the measured\n"
         "      percentages for every comparison, success or failure, and writes\n"
-        "      all four PNGs. Exit 0 on success, 1 on any tolerance violation or\n"
+        "      all five PNGs. Exit 0 on success, 1 on any tolerance violation or\n"
         "      validation message, 77 if no Vulkan-capable device/driver is found.\n"
         "\n"
         "  onyx-oracle render-corpus --out DIR [--renderer vk]\n"
@@ -813,15 +815,27 @@ int RunVkSceneSmoke() {
 // Renders Onyx::OracleTool::BuildAnimatedChain() (a clone of BuildSkinnedCube
 // carrying a 1s "bend" clip that sweeps joints 1/2 from 60deg to 120deg --
 // see that builder's own top comment for why the range starts at 60deg
-// rather than 0deg) FOUR times through ONE SceneRendererVk instance, driving
+// rather than 0deg) FIVE times through ONE SceneRendererVk instance, driving
 // its animation API between renders: (a) the untouched rest pose, (b) an
 // animation set but never advanced, (c) scrubbed to the clip's midpoint
-// while paused, (d) stopped. (a)/(b)/(d) must agree within the same
-// four-knob tolerance VkOracleParity's ONYX_PARITY_ARGS uses (Tools/
-// OnyxOracle/CMakeLists.txt) -- the only tolerance already adjudicated for
-// Onyx::TestKit::CompareRGBA in this codebase; (c) must land far outside it,
-// proving the renderer actually samples the animated pose and not just the
-// rest pose it started from.
+// while paused, (d) stopped, (f) one ordinary frame tick after (d). (a)/(b)/
+// (d)/(f) must agree within the same four-knob tolerance VkOracleParity's
+// ONYX_PARITY_ARGS uses (Tools/OnyxOracle/CMakeLists.txt) -- the only
+// tolerance already adjudicated for Onyx::TestKit::CompareRGBA in this
+// codebase; (c) must land far outside it, proving the renderer actually
+// samples the animated pose and not just the rest pose it started from.
+//
+// (f) exists specifically because (d) alone cannot see a one-frame-later
+// regression (fix-round Finding 2): StopAnimation() used to reset the
+// "last applied" sentinel to -1.0f unconditionally, but Stop() -> Reset()
+// already sets the player's own time to 0.0f -- so the very next
+// UpdateAnimation() call in a live viewport loop (0.0f != -1.0f) took the
+// paused/scrub branch and immediately overwrote the just-restored rest
+// palette with ComputeJointMatrices(). Render (d) happens before any
+// further UpdateAnimation() call, so it could not have caught this; (f)
+// calls UpdateAnimation(0.016f) -- an ordinary frame tick, exactly what a
+// live viewport does the frame after a stop -- and renders again, which
+// would have differed from (a) before the fix and must not after it.
 int RunVkAnimationSmoke() {
     Onyx::Rendering::VkContext ctx;
     std::string err;
@@ -877,7 +891,7 @@ int RunVkAnimationSmoke() {
     };
 
     int rc = 0;
-    std::vector<uint8_t> refImg, setNotAdvancedImg, midClipImg, stoppedImg;
+    std::vector<uint8_t> refImg, setNotAdvancedImg, midClipImg, stoppedImg, oneFrameAfterStopImg;
 
     // ── (a) reference: Build() only, no SetAnimation -- the rest pose ──────
     if (!renderOnce(refImg)) {
@@ -939,6 +953,24 @@ int RunVkAnimationSmoke() {
         }
     }
 
+    // ── (f) one ordinary frame tick after (d): UpdateAnimation(0.016f), the
+    // exact call a live viewport makes every frame -- this is the fix-round
+    // Finding 2 regression check; see this function's top comment for why
+    // (d) alone cannot see it. Must still match (a): a fixed sentinel bug
+    // would make this render silently drift onto the mid-clip-ish pose one
+    // frame after every stop. ───────────────────────────────────────────
+    if (rc == 0) {
+        renderer.UpdateAnimation(0.016f);
+        if (!renderOnce(oneFrameAfterStopImg)) {
+            std::fprintf(stderr, "vk-animation-smoke: (f) one-frame-after-stop render: %s\n", err.c_str());
+            rc = 1;
+        } else {
+            std::string pngErr;
+            Onyx::OracleTool::WritePng("vk-animation-f-one-frame-after-stop.png", animated.width,
+                                       animated.height, oneFrameAfterStopImg, pngErr);
+        }
+    }
+
     // ── comparisons -- same four-knob tolerance VkOracleParity's
     // ONYX_PARITY_ARGS uses (Tools/OnyxOracle/CMakeLists.txt): the only
     // tolerance already adjudicated for CompareRGBA in this codebase, so
@@ -981,6 +1013,9 @@ int RunVkAnimationSmoke() {
         if (!compareAndPrint("b(set-not-advanced)", setNotAdvancedImg, /*expectWithinTolerance=*/true)) rc = 1;
         if (rc == 0 && !compareAndPrint("c(mid-clip)", midClipImg, /*expectWithinTolerance=*/false)) rc = 1;
         if (rc == 0 && !compareAndPrint("d(stopped)", stoppedImg, /*expectWithinTolerance=*/true)) rc = 1;
+        if (rc == 0 &&
+            !compareAndPrint("f(one-frame-after-stop)", oneFrameAfterStopImg, /*expectWithinTolerance=*/true))
+            rc = 1;
     }
 
     renderer.Clear(ctx);
@@ -993,7 +1028,7 @@ int RunVkAnimationSmoke() {
         rc = 1;
     }
     if (rc == 0) {
-        std::printf("vk-animation-smoke: %dx%d -- (a)/(b)/(d) within tolerance, (c) outside -- OK\n",
+        std::printf("vk-animation-smoke: %dx%d -- (a)/(b)/(d)/(f) within tolerance, (c) outside -- OK\n",
                     animated.width, animated.height);
     }
     return rc;

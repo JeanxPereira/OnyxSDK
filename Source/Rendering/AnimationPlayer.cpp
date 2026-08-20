@@ -470,6 +470,30 @@ std::vector<glm::mat4> AnimationPlayer::ComputeJointMatrices() const {
     // unconditional `globalMats[i] * j.bindToJointMat` (default-identity
     // bindToJointMat makes the isSkinned gate redundant there too) instead
     // of re-deriving a matrixes3/invId path nothing in this tree feeds.
+    //
+    // Fix-round note (real semantic delta, not just a bug fix): the OLD code
+    // gated on `joint.isSkinned` (falling to plain `globalMats[i]` for an
+    // unskinned joint); the new code does not gate at all, matching
+    // ComputeJointPalette exactly. For a joint with `isSkinned == false` AND
+    // a non-identity `bindToJointMat`, this changes the animated output --
+    // the inverse-bind correction now applies where it previously did not.
+    // This is the desired direction (the rest-pose path never gated on
+    // isSkinned either, so the two paths were already inconsistent with
+    // each other on exactly this axis), but it is worth naming explicitly:
+    // it is not purely a bugfix-with-no-behavior-change for every skeleton,
+    // only for every skeleton where isSkinned==false implies an identity
+    // bindToJointMat (true of every skeleton this codebase can currently
+    // construct -- see above -- but not a guarantee the type system
+    // enforces).
+    //
+    // Also independently confirmed (fix-round review): a hypothetical real
+    // GOW loader that populated matrixes3/invId but left bindToJointMat at
+    // its identity default could NOT have made this fix a regression --
+    // ComputeJointPalette (the frozen-golden rest-pose path) already reads
+    // bindToJointMat unconditionally, so such a loader would have broken
+    // the REST pose first, long before this animated path was ever
+    // exercised. There is no loader shape under which the old
+    // matrixes3/invId read was correct and this one is not.
     std::vector<glm::mat4> result(jointCount, glm::mat4(1.0f));
     for (size_t i = 0; i < jointCount; ++i) {
         const auto& joint = m_skeleton->joints[i];

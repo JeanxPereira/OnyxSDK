@@ -5,6 +5,7 @@
 #include <doctest/doctest.h>
 
 #include <Onyx/Rendering/AnimationPlayer.h>
+#include <Onyx/Rendering/JointPalette.h>
 #include "CorpusScenes.h"
 
 #include <cmath>
@@ -19,6 +20,18 @@ float MaxRotDelta(const std::vector<glm::vec4>& a, const std::vector<glm::vec4>&
     for (size_t i = 0; i < n; ++i)
         for (int c = 0; c < 4; ++c)
             worst = std::max(worst, std::fabs(a[i][c] - b[i][c]));
+    return worst;
+}
+
+// Largest absolute per-element difference between two same-length joint
+// palettes (glm::mat4 is 4 glm::vec4 columns -- walk all 16 floats of each).
+float MaxMatDelta(const std::vector<glm::mat4>& a, const std::vector<glm::mat4>& b) {
+    float worst = 0.0f;
+    const size_t n = a.size() < b.size() ? a.size() : b.size();
+    for (size_t i = 0; i < n; ++i)
+        for (int col = 0; col < 4; ++col)
+            for (int row = 0; row < 4; ++row)
+                worst = std::max(worst, std::fabs(a[i][col][row] - b[i][col][row]));
     return worst;
 }
 
@@ -94,4 +107,42 @@ TEST_CASE("AnimClip: Stop returns the player to the rest pose") {
     player.Stop();
     CHECK(player.IsPlaying() == false);
     CHECK(MaxRotDelta(rest, player.GetJointRotations()) == doctest::Approx(0.0f));
+}
+
+// Fix-round Finding 1 (device-less coverage for the Task 3/4 bugfix): the
+// VkAnimation oracle gate's (a)-vs-(b) render comparison (0.0000% differing,
+// every run) demonstrated "animated pose at t=0 IS the rest pose" -- but
+// that gate returns 77 (skip) on any machine with no Vulkan device, and
+// nothing in this file (which runs everywhere, no GPU needed) pinned the
+// same property at the AnimationPlayer::ComputeJointMatrices() level. This
+// is exactly the invariant that AnimationPlayer.cpp's ComputeJointMatrices
+// fix (reading joint.bindToJointMat instead of the dead
+// matrixes3[joint.invId] path) restores: a fresh player, right after
+// SetAnimation() (which bakes and applies frame 0 -- the rest pose, per
+// BuildAnimatedChain's own comment: "Sample index 0 is never read by the
+// bake... so it is written for completeness only"), must produce the exact
+// same joint palette Rendering::ComputeJointPalette() computes directly
+// from the skeleton's rest-pose Vectors4/5/6 -- same TRS chain, same
+// bindToJointMat, just reached through two different code paths. Before
+// the fix this would have failed with a large delta (the animated path
+// dropped the inverse-bind correction the rest-pose path applies); a
+// regression back to the old matrixes3/invId read would fail this again,
+// on any machine, no Vulkan device required.
+TEST_CASE("AnimClip: ComputeJointMatrices at t=0 matches ComputeJointPalette's rest pose") {
+    auto cs = Onyx::OracleTool::BuildAnimatedChain();
+
+    Onyx::Rendering::AnimationPlayer player;
+    // SetAnimation() bakes the clip and applies frame 0 (ApplyBakedAt(0.0f))
+    // before returning, leaving the player at t=0 with no further SetTime()
+    // needed -- this is deliberately the player's state right after the
+    // call, not a state this test has to construct.
+    player.SetAnimation(cs.scene.animations.get(), 0, 0, cs.scene.skeleton.get());
+    REQUIRE(player.GetTime() == doctest::Approx(0.0f));
+
+    std::vector<glm::mat4> animated = player.ComputeJointMatrices();
+    std::vector<glm::mat4> rest = Onyx::Rendering::ComputeJointPalette(*cs.scene.skeleton, nullptr);
+
+    REQUIRE(animated.size() == rest.size());
+    REQUIRE(animated.size() == cs.scene.skeleton->joints.size());
+    CHECK(MaxMatDelta(animated, rest) == doctest::Approx(0.0f).epsilon(0.0001));
 }

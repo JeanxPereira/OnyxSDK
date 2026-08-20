@@ -631,7 +631,23 @@ void SceneRendererVk::StopAnimation() {
     m_jointPalette = m_restPalette;
     m_jointWorldPos = m_restJointWorldPos;
     UploadBatchPalettes();
-    m_lastAppliedAnimTime = -1.0f;
+
+    // Fix-round finding (design defect in the brief this line was ported
+    // from verbatim, not this implementation's own invention): Stop() ->
+    // Reset() sets the player's time to 0.0f, so a sentinel of -1.0f here
+    // made the very next UpdateAnimation() in a live viewport loop take the
+    // paused/scrub branch (0.0f != -1.0f) and immediately overwrite the
+    // rest palette just restored above with ComputeJointMatrices() -- the
+    // "immutable rest pose restored by StopAnimation()" guarantee would
+    // have lasted exactly one frame. Setting the sentinel to the player's
+    // OWN time (0.0f, matching what Reset() just set it to) instead makes
+    // that same next UpdateAnimation() correctly see "nothing changed" and
+    // no-op, so the restored rest pose actually sticks. Do NOT copy this
+    // `m_animPlayer ? ... : -1.0f` pattern into SetAnimation() above --
+    // there the -1.0f sentinel is correct and deliberate (it must force the
+    // first UpdateAnimation after a clip is chosen to apply, not trust that
+    // the renderer's palette already agrees with the player's fresh pose).
+    m_lastAppliedAnimTime = m_animPlayer ? m_animPlayer->GetTime() : -1.0f;
 }
 
 bool SceneRendererVk::UpdateAnimation(float dt) {
