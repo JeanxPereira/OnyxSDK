@@ -200,3 +200,56 @@ milestone does not reopen them.
 The buffer memory-type change touches every skinned scene the parity gate
 covers, and gate 1 is what catches it. The rest is additive: a renderer that
 never has `SetAnimation` called on it takes exactly the path it takes today.
+
+## Corrections recorded after implementation
+
+Kept as an appended note rather than an edit in place, so the record shows
+what was designed and what actually happened, not a spec retconned to match
+its own output. (The plan document's own "Self-review notes" records the one
+correction made *before* implementation — gate 2 originally compared against
+a rest-pose golden that cannot exist, and was rewritten to be self-contained
+before any code was written. The entries below are different: they are things
+the shipped code taught us, found at the final whole-branch review.)
+
+**"The Inspector checkboxes start working" was not met.** Under "The two
+trivial gaps" this spec says culling makes the Inspector's visibility
+checkboxes start working, and the "Why this exists" section repeats v1.0.0's
+framing that `Render()` ignoring `isVisible` is why they do nothing. The
+renderer half shipped and is correct — all three passes skip an invisible
+batch, gated by `VkAnimation` render (e). The UI half did not: the only
+checkboxes that mutate `RenderBatch::isVisible` live in
+`Viewport3D::DrawInspector()`, and this milestone discovered (Task 6) that
+`IDocumentContent::DrawInspector()` has **no caller anywhere in the Shell** —
+`InspectorPanel::Draw()` draws only its own `InfoTab`. The checkboxes were
+therefore already unreachable before this milestone and remain so after it;
+nothing regressed, but the promised outcome did not arrive. The clip browser
+hit the identical hole one function away and was relocated into the viewport
+strip; the visibility checkboxes were not, because relocating them means
+building a per-batch mesh-part list — real viewport UI, not a combo — and
+that was judged out of budget at a release boundary rather than worth rushing.
+Shipped as a declared gap in v1.1.0's CHANGELOG ("Known gaps"), with the
+"Added" entry rewritten to claim only the library-level contract:
+`GetBatches()` returns a mutable batch vector and `Render()` honors the flag,
+which is what a consumer driving the renderer directly actually needs.
+
+**`m_jointWorldPos[i] = m_jointPalette[i][3]` (under "Behaviour") was wrong,
+and was implemented before it was caught.** A palette entry is
+`globalMats[i] * bindToJointMat[i]`, a skinning matrix; its translation column
+is not the joint origin, so the skeleton overlay drew every joint with a
+non-zero-translation inverse bind in the wrong place the moment a clip
+applied. The spec inherited the line verbatim from the GL renderer, bug
+included. Fixed after the whole-branch review by giving
+`AnimationPlayer::ComputeJointMatrices()` the same optional world-position
+out-parameter `ComputeJointPalette()` already had, and reading origins off the
+un-multiplied global chain. Gate: a CPU-only assertion in the `OnyxAnimClip`
+entry, since no render gate calls `RenderSkeleton`.
+
+**Gate 2 shipped with six renders, not four.** The list above names (a)-(d);
+the implemented gate adds (e) *one batch culled* (the culling deliverable's
+only automated proof) and (f) *one ordinary frame tick after stop*, plus a
+boolean assertion on `UpdateAnimation`'s return value after a stop — which is
+what actually discriminates the stale-sentinel bug, since (f)'s pixels cannot.
+Also, (a)-vs-(b) and (a)-vs-(d) came back **byte-identical** rather than
+merely within tolerance, so the ULP hedge this spec argues for above turned
+out to be unnecessary — the tolerance stays, but the stronger result is what
+pins the `bindToJointMat` fix.

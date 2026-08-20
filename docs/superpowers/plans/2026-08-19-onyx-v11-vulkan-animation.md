@@ -37,7 +37,7 @@ everything downstream tests nothing.
 
 **Interfaces:**
 - Consumes: `Onyx::Parsers::{AnimationData, AnimGroup, AnimAct, AnimStateDescr, SkinningState, AnimSubstream, AnimSamplesManager, AnimDataType, ANIM_DATATYPE_SKINNING}`, `Onyx::Rendering::AnimationPlayer`, the existing file-local `EncodeEulerDegreesQ14()` in `CorpusScenes.cpp`.
-- Produces: `Onyx::OracleTool::CorpusScene BuildAnimatedChain();` — a `BuildSkinnedCube()` clone whose `scene.animations` holds one group (`"test"`) with one act (`"bend"`), duration 1.0s, bending joints 1 and 2 from 0° to 60° around X across 31 samples at 1/30s. Tasks 4 and 5 render it.
+- Produces: `Onyx::OracleTool::CorpusScene BuildAnimatedChain();` — a `BuildSkinnedCube()` clone whose `scene.animations` holds one group (`"test"`) with one act (`"bend"`), duration 1.0s, bending joints 1 and 2 from 60° to 120° around X across 31 samples at 1/30s (the range moved off an original 0°→60° during Task 1 — see the builder comment below). Tasks 4 and 5 render it.
 
 **Background the implementer needs (do not rediscover this):**
 
@@ -193,10 +193,20 @@ In `Tools/OnyxOracle/CorpusScenes.cpp`, immediately after `BuildSkinnedCube()`:
 // ── animated-chain ───────────────────────────────────────────────────────
 //
 // BuildSkinnedCube's geometry and skeleton verbatim, plus the one thing the
-// whole corpus lacks: an actual clip. Joints 1 and 2 sweep 0deg -> 60deg
+// whole corpus lacks: an actual clip. Joints 1 and 2 sweep 60deg -> 120deg
 // around X over 1.0s at 1/30s, written as absolute (non-additive) samples,
 // which is the branch of HandleSkinningStream that assigns rather than
 // accumulates -- see that function in Source/Rendering/AnimationPlayer.cpp.
+//
+// The range starts at 60deg, not 0deg, and this document was corrected to
+// match the shipped code: a 0 -> 60 sweep passes back through
+// BuildSkinnedCube's fixed 30deg rest bend at exactly its own t=0.5
+// midpoint, which is the point Step 6's test samples -- making the animated
+// pose there numerically indistinguishable from the unmoved rest pose and
+// the "mid-clip moves away from rest" assertion vacuous. Moving the RANGE
+// rather than the sample time closes it for every t, not just the one this
+// test happens to look at. Two named constants replace the single
+// kBendDegrees this plan originally specified.
 //
 // Sample index 0 is never read by the bake (EnsureBaked captures frame 0 from
 // the rest pose before its walk starts at f=1), so it is written for
@@ -207,7 +217,8 @@ CorpusScene BuildAnimatedChain() {
 
     constexpr int   kSampleCount = 31;    // frames 0..30 == 1.0s at 1/30
     constexpr float kFrameTime   = 1.0f / 30.0f;
-    constexpr double kBendDegrees = 60.0;
+    constexpr double kBendStartDegrees = 60.0;
+    constexpr double kBendEndDegrees   = 120.0;
 
     auto anim = std::make_shared<AnimationData>();
     anim->dataTypes.push_back(AnimDataType{ANIM_DATATYPE_SKINNING, 0, 0});
@@ -224,7 +235,8 @@ CorpusScene BuildAnimatedChain() {
         samples.reserve(kSampleCount);
         for (int f = 0; f < kSampleCount; ++f) {
             const double t = double(f) / double(kSampleCount - 1);
-            samples.push_back(float(EncodeEulerDegreesQ14(kBendDegrees * t)));
+            samples.push_back(float(EncodeEulerDegreesQ14(
+                kBendStartDegrees + (kBendEndDegrees - kBendStartDegrees) * t)));
         }
         rot.samples[joint * 4 + 0] = std::move(samples); // X coordinate
     }
