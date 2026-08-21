@@ -92,6 +92,20 @@ private:
     void ResizeTarget(int width, int height);
     void RenderFrame(int width, int height);
     void DrawToolbar(ImVec2 avail, ImVec2 cursorPos);
+    // Recovered from the pre-Vulkan Viewport3D (see Source/Viewers/
+    // Viewport3D.cpp's T6 port note) -- draws play/pause/scrub transport
+    // controls in the strip Draw() reserves under the 3D image once a clip
+    // is loaded (SetAnimation() has been called, now via DrawClipSelector()
+    // below rather than the unreachable DrawInspector() hook -- see the T6
+    // fix-round-1 note on both).
+    void DrawTransportBar();
+    // Fix round 1 (task-6-report.md): the clip browser used to live in
+    // DrawInspector(), which has no caller anywhere in this Shell -- moved
+    // here so picking a clip is actually reachable. Draws a compact combo
+    // (not the inspector's tree) in the same strip DrawTransportBar() uses,
+    // shown instead of the transport when a scene has animations but no
+    // clip is loaded yet.
+    void DrawClipSelector();
     void HandleInput();
     void ComputeBounds();
     bool HasBatches() const; // true once SceneRendererVk::Build() produced >=1 batch

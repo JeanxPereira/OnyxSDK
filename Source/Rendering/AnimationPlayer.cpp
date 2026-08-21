@@ -78,13 +78,6 @@ void AnimationPlayer::Reset() {
     }
 
     m_time = 0.0f;
-
-    if (jointCount > 2) {
-        const auto& v5 = m_skeleton->vectors5[2];
-        const auto& joint = m_skeleton->joints[2];
-        ONYX_LOGF_INFO("[BindDiag] pelvis(j2) bindRot=(%d,%d,%d,%d) isQuat=%d name='%s'",
-                 v5.x, v5.y, v5.z, v5.w, (int)joint.isQuaternion, joint.name.c_str());
-    }
 }
 
 void AnimationPlayer::Stop() {
@@ -222,17 +215,6 @@ BakedAnimation* AnimationPlayer::EnsureBaked() {
 
     const auto& sd = m_currentAct->stateDescrs[m_stateIndex];
     float frameTime = sd.frameTime > 0.0f ? sd.frameTime : (1.0f / 30.0f);
-
-    ONYX_LOGF_INFO("[BakeDiag] act='%s' states=%zu", m_currentActName.c_str(),
-             sd.skinningStates.size());
-    for (size_t si = 0; si < sd.skinningStates.size() && si < 4; ++si) {
-        const auto& ss = sd.skinningStates[si];
-        ONYX_LOGF_INFO("  state[%zu] rotRawCnt=%u rotAddSub=%zu rotRoughSub=%zu posRawCnt=%u posAddSub=%zu posRoughSub=%zu",
-                 si, ss.rotationStream.manager.count,
-                 ss.rotationSubStreamsAdd.size(), ss.rotationSubStreamsRough.size(),
-                 ss.positionStream.manager.count,
-                 ss.positionSubStreamsAdd.size(), ss.positionSubStreamsRough.size());
-    }
 
     // Duration may be 0 for placeholder/idle acts — still bake a single frame
     // so the inspector can highlight the bind pose.
@@ -408,8 +390,11 @@ bool AnimationPlayer::Update(float dt) {
 
 // ── ComputeJointMatrices ───────────────────────────────────────────────────
 
-std::vector<glm::mat4> AnimationPlayer::ComputeJointMatrices() const {
-    if (!m_skeleton) return {};
+std::vector<glm::mat4> AnimationPlayer::ComputeJointMatrices(std::vector<glm::vec3>* outWorldPos) const {
+    if (!m_skeleton) {
+        if (outWorldPos) outWorldPos->clear();
+        return {};
+    }
 
     size_t jointCount = m_skeleton->joints.size();
     std::vector<glm::mat4> localMats(jointCount, glm::mat4(1.0f));
@@ -464,14 +449,78 @@ std::vector<glm::mat4> AnimationPlayer::ComputeJointMatrices() const {
         }
     }
 
+    // Task 3/4 fix round: this used to read m_skeleton->matrixes3[joint.invId]
+    // directly (a straight port of the JS reference's raw-array indexing).
+    // That diverged from every other consumer of ObjectData in this codebase
+    // -- Onyx::Rendering::ComputeJointPalette (JointPalette.cpp) and
+    // Onyx::Exchange::GltfExport (GltfExport.cpp's own top comment: "each
+    // joint's inverse bind matrix -- NOT re-derived here either.
+    // ObjectData::Joint::bindToJointMat already IS that matrix") both read
+    // joint.bindToJointMat, the resolved field ObjectData.h documents as
+    // "Computed by FillJoints() -- final ready-to-use matrices". No loader
+    // in this tree populates matrixes3/invId today (the only ObjectData
+    // producer is Tools/OnyxOracle/CorpusScenes.cpp's synthetic builders,
+    // which set bindToJointMat and leave matrixes3 empty on purpose -- see
+    // BuildSkinnedCube's own comment), so the old invId path silently never
+    // fired for ANY skeleton this codebase can currently construct: it
+    // always fell to the `else` branch, dropping the inverse-bind
+    // correction ComputeJointPalette's rest pose applies. That divergence
+    // was invisible before this task because nothing drove
+    // ComputeJointMatrices() against a real skeleton until SetAnimation()
+    // (SceneRendererVk.cpp) started calling it -- caught by this gate's
+    // (a)-vs-(b) comparison (differingPct ~22%, mae ~15, on a scene that
+    // should have been near-identical). Matching ComputeJointPalette's own
+    // unconditional `globalMats[i] * j.bindToJointMat` (default-identity
+    // bindToJointMat makes the isSkinned gate redundant there too) instead
+    // of re-deriving a matrixes3/invId path nothing in this tree feeds.
+    //
+    // Fix-round note (real semantic delta, not just a bug fix): the OLD code
+    // gated on `joint.isSkinned` (falling to plain `globalMats[i]` for an
+    // unskinned joint); the new code does not gate at all, matching
+    // ComputeJointPalette exactly. For a joint with `isSkinned == false` AND
+    // a non-identity `bindToJointMat`, this changes the animated output --
+    // the inverse-bind correction now applies where it previously did not.
+    // This is the desired direction (the rest-pose path never gated on
+    // isSkinned either, so the two paths were already inconsistent with
+    // each other on exactly this axis), but it is worth naming explicitly:
+    // it is not purely a bugfix-with-no-behavior-change for every skeleton,
+    // only for every skeleton where isSkinned==false implies an identity
+    // bindToJointMat (true of every skeleton this codebase can currently
+    // construct -- see above -- but not a guarantee the type system
+    // enforces).
+    //
+    // Also independently confirmed (fix-round review): a hypothetical real
+    // GOW loader that populated matrixes3/invId but left bindToJointMat at
+    // its identity default could NOT have made this fix a regression --
+    // ComputeJointPalette (the frozen-golden rest-pose path) already reads
+    // bindToJointMat unconditionally, so such a loader would have broken
+    // the REST pose first, long before this animated path was ever
+    // exercised. There is no loader shape under which the old
+    // matrixes3/invId read was correct and this one is not.
+    //
+    // Final-review Important #2: `outWorldPos` reports joint ORIGINS off the
+    // UN-multiplied global chain, and it exists because the caller cannot
+    // derive them from the returned palette. `result[i][3]` is
+    // `globalMats[i] * joint.bindToJointMat` column 3 -- a skinning matrix's
+    // translation, i.e. where the bind-pose origin lands after skinning, not
+    // where the joint is. The two coincide only for a bindToJointMat with a
+    // zero translation column, which is exactly the case a straight-chain
+    // bind pose does NOT produce (BuildSkinnedCube's joints 1 and 2 carry
+    // inverse(translate(0,0,1.33)) and inverse(translate(0,0,2.67))). The
+    // skeleton overlay in SceneRendererVk::RenderSkeleton() consumed
+    // `m_jointPalette[i][3]` before this fix and therefore drew every such
+    // joint in the wrong place the moment a clip advanced -- snapping back on
+    // StopAnimation(), whose restore path goes through ComputeJointPalette,
+    // which has always reported `globalMats[i][3]` here (JointPalette.cpp).
+    // This is the same out-parameter shape as that function's, on purpose:
+    // one contract, two poses.
+    if (outWorldPos) outWorldPos->assign(jointCount, glm::vec3(0.0f));
+
     std::vector<glm::mat4> result(jointCount, glm::mat4(1.0f));
     for (size_t i = 0; i < jointCount; ++i) {
         const auto& joint = m_skeleton->joints[i];
-        if (joint.isSkinned && joint.invId >= 0 && joint.invId < (int)m_skeleton->matrixes3.size()) {
-            result[i] = globalMats[i] * m_skeleton->matrixes3[joint.invId];
-        } else {
-            result[i] = globalMats[i];
-        }
+        result[i] = globalMats[i] * joint.bindToJointMat;
+        if (outWorldPos) (*outWorldPos)[i] = glm::vec3(globalMats[i][3]);
     }
     return result;
 }

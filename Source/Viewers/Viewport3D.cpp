@@ -39,30 +39,44 @@
 // flight machinery for a second target) is a reasonable follow-up but is
 // not what this task's file list or time budget covers.
 //
-// No scene decoder exists in OnyxBox yet (T14 gap, stated in the task
-// brief): LoadScene() is exercised by nothing today, so this whole path
-// compiles and initializes correctly but is NOT visually verified by any
-// test in this milestone -- MinimalViewer's --open-first-image proof
-// (Examples/MinimalViewer) opens an IMAGE entry, not a scene, precisely
-// because no scene entry exists to open. Stated here, honestly, rather
-// than implied.
+// [Fix round 2 (task-6-report.md) correction: this paragraph used to claim
+// "no scene decoder exists in OnyxBox yet... LoadScene() is exercised by
+// nothing today." That is stale -- DecoderRegistry::DecodeScene exists
+// (Source/Modules/DecoderRegistry.cpp) and DocumentBrowser.cpp's
+// opener.openScene handler calls Viewport3D::LoadScene() directly on its
+// result (Source/App/Panels/DocumentBrowser.cpp:82), so the path has a
+// real caller through the live Shell UI, not none. What remains true and
+// undemonstrated: this task never ran the app to confirm a scene actually
+// reaches this class through that UI path at runtime (headless -- see
+// task-6-report.md's unverified list); MinimalViewer's --open-first-image
+// proof (Examples/MinimalViewer) still opens an IMAGE entry, not a scene.]
 //
 // Feature gaps inherited from SceneRendererVk (Include/Onyx/Rendering/
 // SceneRendererVk.h), not introduced by this task -- do not "fix" these
 // here, per the brief's "MSAA + outline parity comes from the renderer --
 // do not reimplement effects in the viewer":
-//   - No animation playback API (SetAnimation/UpdateAnimation/AnimPlayer)
-//     exists on SceneRendererVk this milestone -- every skinned scene
-//     renders its rest pose. The GL path's transport bar/clip browser/
-//     play-pause UI is therefore dropped entirely rather than wired
-//     against nothing; showBones + RenderSkeleton() still work (rest
-//     pose).
-//   - Render() does not read RenderBatch::isVisible/isHighlighted (no
-//     per-batch culling, no hover-outline pass) -- the inspector's
-//     visibility checkboxes and hover highlight still mutate those fields
-//     (via GetBatches(), the exact same Rendering::RenderBatch struct GL's
-//     SceneRenderer also fills -- see SceneRendererVk.h's own "RenderBatch
-//     reuse" comment), they simply have no visible effect yet.
+//   - [Milestone T6 update: SceneRendererVk gained SetAnimation/
+//     UpdateAnimation/StopAnimation/GetAnimPlayer (Task 3, then Task 5's
+//     host-writable joint palette SSBO) -- the line that used to be here
+//     ("no animation playback API exists on SceneRendererVk this
+//     milestone") is no longer true. The GL path's transport bar, clip
+//     browser, and per-frame UpdateAnimation() are restored below (see
+//     DrawTransportBar(), DrawInspector()'s clip tree, and Draw()'s
+//     animation-update block) -- ported from the pre-Vulkan Viewport3D
+//     (git show 71fe575^:Source/Viewers/Viewport3D.cpp), receiver swapped
+//     from the deleted GL m_sceneRenderer to m_vk->sceneRendererVk. The
+//     "debug disable skin" toggle the GL toolbar also had is NOT restored
+//     -- SceneRendererVk has no equivalent knob, and adding one is outside
+//     this task's scope.]
+//   - Task 5 (M5) closed the isVisible half of this gap: Render() now
+//     skips `!isVisible` batches in every pass, so the inspector's
+//     visibility checkboxes (which mutate GetBatches() -- the exact same
+//     Rendering::RenderBatch struct GL's SceneRenderer also filled -- see
+//     SceneRendererVk.h's own "RenderBatch reuse" comment) have a real
+//     effect again. isHighlighted stays unread -- no hover-outline pass
+//     exists on this renderer, and reading the flag with no pass to show
+//     it would be worse than the declared gap (see CHANGELOG's "Known
+//     gaps").
 //
 // Y-flip on display: GL's ImGui::Image() call used uv0=(0,1)/uv1=(1,0) to
 // flip vertically (GL's texture origin is bottom-left). Vulkan's resolve
@@ -104,6 +118,8 @@
 #include <Onyx/Fonts/SFSymbols.h>
 #include <Onyx/App/Panels/CameraPanel.h>
 #include <Onyx/App/Widgets.h>
+#include "App/AnimationTimeline.h"
+#include "App/ActiveAnimation.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <limits>
@@ -112,6 +128,16 @@ namespace Onyx::Viewers {
 
 using Onyx::Rendering::Resources;
 using Onyx::Rendering::VulkanProjection;
+
+// Heights of the animation strip Draw() reserves under the 3D image (fix
+// round 1, task-6-report.md). Full height matches the historical GL
+// transport bar's constant exactly (two rows: buttons + rich timeline,
+// git show 71fe575^:Source/Viewers/Viewport3D.cpp line 131). Selector
+// height is new -- DrawClipSelector() is one row (a label + one combo)
+// inside a child window with the ImGui default ~8px top/bottom padding, so
+// 40px seats one ~24px-tall combo without a visibly empty band beneath it.
+constexpr float kAnimTransportHeight = 86.0f;
+constexpr float kAnimSelectorHeight  = 40.0f;
 
 // ── VulkanState -- see Viewport3D.h's top comment for why this is a
 // forward-declared, .cpp-only struct ─────────────────────────────────────
@@ -159,6 +185,17 @@ Viewport3D::~Viewport3D() {
     // cleared it -- everything below is deliberately skipped (leaked) in
     // that case rather than risking UB against an already-torn-down
     // device; the process is exiting either way.
+    // Recovered from the pre-Vulkan Viewport3D (T6 restoration): clear the
+    // cross-panel active-player broker (Dopesheet/AnimCurveView read it) if
+    // we're the one who published it -- otherwise those two panels keep a
+    // dangling AnimationPlayer* into the SceneRendererVk this destructor is
+    // about to tear down. GetAnimPlayer() is a plain pointer read (no
+    // Vulkan call), so this runs unconditionally, unlike the guarded block
+    // below.
+    if (Onyx::App::GetActiveAnimationPlayer() == m_vk->sceneRendererVk.GetAnimPlayer()) {
+        Onyx::App::SetActiveAnimationPlayer(nullptr);
+    }
+
     m_texPool.reset(); // safe either way -- TexturePool::~TexturePool() carries the same guard itself
 
     Onyx::Rendering::VkContext* live = Onyx::Rendering::GetGlobalContext();
@@ -179,6 +216,14 @@ bool Viewport3D::HasBatches() const {
 }
 
 void Viewport3D::ClearScene() {
+    // Recovered from the pre-Vulkan Viewport3D (T6 restoration): same
+    // active-player guard as the destructor, but here it must run BEFORE
+    // sceneRendererVk.Clear() below destroys the AnimationPlayer it may be
+    // pointing at.
+    if (Onyx::App::GetActiveAnimationPlayer() == m_vk->sceneRendererVk.GetAnimPlayer()) {
+        Onyx::App::SetActiveAnimationPlayer(nullptr);
+    }
+
     m_sceneData.reset();
     m_bounds = Onyx::Domain::BoundingBox{};
     if (m_vkReady) {
@@ -355,6 +400,15 @@ void Viewport3D::RenderFrame(int width, int height) {
     const glm::vec4 gridColor = cfg ? glm::vec4(cfg->gridR, cfg->gridG, cfg->gridB, cfg->gridA)
                                      : glm::vec4(0.35f, 0.35f, 0.35f, 0.5f);
 
+    // Same cfg-or-fallback pattern as gridColor above: RenderSkeleton
+    // (Onyx_Render) has no AppConfig dependency, so the resolution happens
+    // here, in the Shell-linked caller. Fallback is the SAME named constant
+    // (Onyx::Rendering::kDefaultBoneColor) RenderSkeleton's own compatibility
+    // overload defaults to -- referenced, not retyped, so the two can never
+    // drift apart.
+    const glm::vec4 boneColor = cfg ? glm::vec4(cfg->boneR, cfg->boneG, cfg->boneB, 1.0f)
+                                     : Onyx::Rendering::kDefaultBoneColor;
+
     std::string err;
     const float clear[4] = {0.0f, 0.0f, 0.0f, 1.0f};
     bool ok = Resources::OneShot(*m_ctx, [&](VkCommandBuffer cmd) {
@@ -369,7 +423,8 @@ void Viewport3D::RenderFrame(int width, int height) {
 
         if (showBones && m_sceneData && m_sceneData->HasSkeleton()) {
             std::string skelErr;
-            if (!m_vk->sceneRendererVk.RenderSkeleton(*m_ctx, m_vk->overlayPipeline, cmd, view, proj, width, height, skelErr))
+            if (!m_vk->sceneRendererVk.RenderSkeleton(*m_ctx, m_vk->overlayPipeline, cmd, view, proj, boneColor,
+                                                       width, height, skelErr))
                 ONYX_LOGF_ERR("[Viewport3D] RenderSkeleton failed: %s", skelErr.c_str());
         }
 
@@ -395,13 +450,71 @@ void Viewport3D::Draw() {
 
     EnsureVulkanReady();
 
-    ImVec2 viewSize(avail.x, std::max(50.0f, avail.y));
+    // Reserve a strip at the bottom of the viewport for the animation
+    // transport/clip-selector. Image render area shrinks by that height so
+    // the strip lives directly under the 3D scene. Recovered from the
+    // pre-Vulkan Viewport3D (T6 restoration) -- receiver swapped from the
+    // deleted GL m_sceneRenderer to m_vk->sceneRendererVk; GetAnimPlayer()
+    // is a safe plain-pointer read even before EnsureVulkanReady() has
+    // succeeded (nullptr until SetAnimation() is ever called).
+    //
+    // Fix round 1 (task-6-report.md): the original condition ("clip already
+    // loaded") left no reachable path to ever LOAD one -- the clip browser
+    // that called SetAnimation() lived in DrawInspector(), which has no
+    // caller anywhere in this Shell (verified tree-wide). Keyed on
+    // HasAnimations() instead: a scene with clips but nothing chosen yet
+    // gets the compact DrawClipSelector() strip.
+    //
+    // Fix round 2 (task-6-report.md): round 1 made the selector and the
+    // transport MUTUALLY EXCLUSIVE (selector while no clip, transport once
+    // one loaded) -- but nothing ever drives a loaded clip back to
+    // "unloaded" (AnimationPlayer::Stop() clears m_playing but leaves
+    // m_currentActIdx/m_currentBaked intact, so hasClip stays true forever
+    // after the first pick), which made picking a SECOND clip unreachable.
+    // The selector is now visible whenever hasAnimations, in BOTH states;
+    // only the transport rows additionally appear once hasClip. Heights
+    // ADD rather than swap.
+    Onyx::Rendering::AnimationPlayer* transportPlayer = m_vk->sceneRendererVk.GetAnimPlayer();
+    const bool hasClip = transportPlayer && transportPlayer->GetCurrentActIndex() >= 0 &&
+        transportPlayer->GetFrameCount() > 0;
+    const bool hasAnimations = m_vk->sceneRendererVk.HasAnimations();
+    const float transportHeight = hasAnimations
+        ? (kAnimSelectorHeight + (hasClip ? kAnimTransportHeight : 0.0f))
+        : 0.0f;
 
-    // ── Camera flight animation only (mesh animation has no Vulkan API
-    // this milestone -- see this file's top comment) ───────────────────
+    ImVec2 viewSize(avail.x, std::max(50.0f, avail.y - transportHeight));
+
+    // Publish whichever player this viewport currently owns so cross-cutting
+    // panels (Anim Curves, Dopesheet) can read its playhead. Recovered from
+    // the pre-Vulkan Viewport3D (T6 restoration; originally in
+    // DrawInspector(), moved here in fix round 1 for the same unreachable-
+    // hook reason as the clip browser above -- DrawInspector() never runs,
+    // so a broadcast placed there would never run either, and this is the
+    // one call this whole task exists to make land).
+    //
+    // Fix round 2 (task-6-report.md): gated on transportPlayer being
+    // non-null. The unconditional version published nullptr from EVERY
+    // Viewport3D's every Draw() call, including one with no animations at
+    // all -- with more than one document docked, a second viewport with no
+    // player would wipe out a first viewport's live, playing
+    // AnimationPlayer* from the broker on its very next frame, blanking
+    // Dopesheet/AnimCurveView while a clip is actually playing elsewhere.
+    // A viewport that never had a player now leaves the broker alone;
+    // ~Viewport3D() and ClearScene() still clear it via their existing
+    // identity comparison (GetActiveAnimationPlayer() == this viewport's
+    // player) when this viewport's player is the one that goes away.
+    if (transportPlayer) {
+        Onyx::App::SetActiveAnimationPlayer(transportPlayer);
+    }
+
+    // ── Animation update (every frame, regardless of redraw) ───────────
+    // Mesh animation now has a Vulkan API (SceneRendererVk::UpdateAnimation,
+    // this milestone's Task 3/5) -- restored beside the camera-flight
+    // update it used to run alone next to (see this file's top comment).
     float currentTime = (float)ImGui::GetTime();
     float dt = (m_lastFrameTime > 0.0f) ? (currentTime - m_lastFrameTime) : 0.0f;
     m_lastFrameTime = currentTime;
+    if (m_vkReady && m_vk->sceneRendererVk.UpdateAnimation(dt)) m_needsRedraw = true;
     if (m_camera.UpdateAnimation(dt)) {
         m_needsRedraw = true;
     }
@@ -449,6 +562,20 @@ void Viewport3D::Draw() {
             cursorPos.y - avail.y * 0.5f - textSize.y * 0.5f
         ));
         ImGui::TextDisabled("%s", msg);
+    }
+
+    // ── Animation strip: clip selector, plus the transport once a clip is
+    // chosen ────────────────────────────────────────────────────────────
+    // Recovered from the pre-Vulkan Viewport3D (T6 restoration); split into
+    // two widgets in fix round 1 so a clip can actually be reached, then
+    // made ADDITIVE (not mutually exclusive) in fix round 2 so a second
+    // clip can be reached too, once the first is loaded (see the height
+    // computation above for why).
+    if (hasAnimations) {
+        DrawClipSelector();
+    }
+    if (hasClip) {
+        DrawTransportBar();
     }
 
     if (m_texPool) m_texPool->AdvanceFrame();
@@ -621,6 +748,229 @@ void Viewport3D::DrawToolbar(ImVec2 avail, ImVec2 cursorPos) {
     ImGui::PopStyleColor(3);
 }
 
+// Fix round 1 (task-6-report.md): the clip browser this logic is ported
+// from used to live in DrawInspector() (git show 71fe575^:Source/Viewers/
+// Viewport3D.cpp, lines ~501-539) as a group/act TreeNodeEx tree with
+// double-click-to-play. DrawInspector() has no caller anywhere in this
+// Shell -- verified tree-wide, both at HEAD and at that historical commit
+// -- so nothing living there is reachable, no matter how correct it is.
+// Relocated into the strip Draw() reserves under the viewport, and
+// simplified from a multi-row tree to a single combo to match that strip's
+// compact horizontal idiom rather than importing the inspector's tree
+// styling wholesale. The underlying logic -- skip isExternal groups
+// (AnimationPlayer::SetAnimation refuses them anyway, Source/Rendering/
+// AnimationPlayer.cpp's own `if (group.isExternal) return;`), skip groups
+// with no acts, restrict to the skinning data type via
+// FindSkinningTypeIndex(), call SetAnimation(ig, ia) on selection -- is
+// unchanged from the historical browser.
+//
+// Fix round 2 (task-6-report.md): round 1 made this mutually exclusive
+// with DrawTransportBar() (selector while no clip, transport once one's
+// loaded), which made a SECOND clip unreachable -- nothing ever drives a
+// loaded clip back to "unloaded" (AnimationPlayer::Stop() clears m_playing
+// but leaves m_currentActIdx/m_currentBaked intact, so the old "clip
+// loaded" predicate never goes false again). Now called unconditionally
+// whenever the scene has animations, alongside the transport rather than
+// instead of them, so this strip stays the one place to change clips.
+// Round 1 also hardcoded the combo's preview to "Select a clip..." and
+// never marked the active entry `Selectable`-selected -- invisible while
+// this widget vanished on pick, but wrong now that it's permanent. Both
+// now read the live selection off the player's GetCurrentGroupIndex()/
+// GetCurrentActIndex(), matching how the historical tree's `isSelected`
+// flag worked.
+void Viewport3D::DrawClipSelector() {
+    const Parsers::AnimationData* animData = m_vk->sceneRendererVk.GetAnimationData();
+    if (!animData) return; // HasAnimations() was already checked by the caller; defensive only
+
+    Onyx::Rendering::AnimationPlayer* player = m_vk->sceneRendererVk.GetAnimPlayer();
+    const int curGroup = player ? player->GetCurrentGroupIndex() : -1;
+    const int curAct   = player ? player->GetCurrentActIndex()   : -1;
+
+    ImVec4 bgCol = ImGui::GetStyleColorVec4(ImGuiCol_ChildBg);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(bgCol.x, bgCol.y, bgCol.z, 0.9f));
+    ImGui::BeginChild("##clip_selector", ImVec2(0, kAnimSelectorHeight), false,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
+    struct ClipEntry { int groupIdx; int actIdx; std::string label; };
+    std::vector<ClipEntry> entries;
+    const int skinIdx = animData->FindSkinningTypeIndex();
+    if (skinIdx >= 0) {
+        for (int ig = 0; ig < (int)animData->groups.size(); ++ig) {
+            const auto& group = animData->groups[ig];
+            // isExternal groups are omitted outright rather than listed
+            // disabled -- SetAnimation() silently no-ops on them, and this
+            // Shell has no per-file act catalog to resolve an external
+            // reference against, so a disabled entry could only ever say
+            // "not available here" with no path to make it available.
+            if (group.isExternal || group.acts.empty()) continue;
+            for (int ia = 0; ia < (int)group.acts.size(); ++ia) {
+                const auto& act = group.acts[ia];
+                char label[160];
+                snprintf(label, sizeof(label), "%s: %s  [%.1fs]",
+                         group.name.c_str(), act.name.c_str(), act.duration);
+                // Store the REAL group/act indices (ig/ia), not a position
+                // in this filtered vector -- omitting external groups must
+                // not shift which clip a later selection targets.
+                entries.push_back({ig, ia, std::string(label)});
+            }
+        }
+    }
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("Clip:");
+    ImGui::SameLine();
+
+    if (entries.empty()) {
+        ImGui::TextDisabled("No playable clips (only external groups present).");
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+        return;
+    }
+
+    // Preview shows the currently loaded clip's own label (found by real
+    // index, matching entries[i].groupIdx/actIdx against the player's
+    // current indices) so the combo doesn't silently disagree with what's
+    // actually playing. Falls back to the player's own name strings if the
+    // current clip somehow isn't in this filtered list (shouldn't happen:
+    // SetAnimation() is only ever called from entries in this same list),
+    // and to "Select a clip..." only when nothing is loaded yet.
+    std::string preview = "Select a clip...";
+    if (curGroup >= 0 && curAct >= 0) {
+        preview.clear();
+        for (const ClipEntry& entry : entries) {
+            if (entry.groupIdx == curGroup && entry.actIdx == curAct) {
+                preview = entry.label;
+                break;
+            }
+        }
+        if (preview.empty() && player) {
+            preview = player->GetCurrentGroupName() + ": " + player->GetCurrentActName();
+        }
+    }
+
+    ImGui::SetNextItemWidth(std::min(360.0f, ImGui::GetContentRegionAvail().x));
+    if (ImGui::BeginCombo("##clip_combo", preview.c_str())) {
+        for (const ClipEntry& entry : entries) {
+            const bool isSelected = (entry.groupIdx == curGroup && entry.actIdx == curAct);
+            if (ImGui::Selectable(entry.label.c_str(), isSelected)) {
+                // AnimationPlayer::SetAnimation leaves the new act playing
+                // (m_playing = true at the end of SetAnimation()), so the
+                // very next Draw() sees hasClip == true and DrawTransportBar()
+                // joins this selector rather than replacing it.
+                m_vk->sceneRendererVk.SetAnimation(entry.groupIdx, entry.actIdx);
+                m_needsRedraw = true;
+            }
+            if (isSelected) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+}
+
+// Recovered from the pre-Vulkan Viewport3D (T6 restoration) -- receiver
+// swapped from the deleted GL m_sceneRenderer to m_vk->sceneRendererVk;
+// every AnimationPlayer/DrawAnimationTimeline call below is otherwise
+// unchanged from git show 71fe575^:Source/Viewers/Viewport3D.cpp.
+void Viewport3D::DrawTransportBar() {
+    Onyx::Rendering::AnimationPlayer* player = m_vk->sceneRendererVk.GetAnimPlayer();
+    if (!player || player->GetCurrentActIndex() < 0) return;
+
+    bool  isPlaying   = player->IsPlaying();
+    float dur         = player->GetDuration();
+    int   totalFrames = std::max(1, player->GetFrameCount());
+    int   curFrame    = player->GetCurrentFrame();
+
+    // Tinted background that visually separates the strip from the 3D image.
+    // Fix round 2 (task-6-report.md): explicit kAnimTransportHeight rather
+    // than (0,0) -- this child now draws BELOW DrawClipSelector()'s child
+    // in the same window rather than alone, so "fill remaining content
+    // region" would still be correct today (the two heights are computed
+    // to sum to exactly what Draw() reserved) but is fragile: an explicit
+    // size doesn't depend on being the last widget in the window to be
+    // correct.
+    ImVec4 bgCol = ImGui::GetStyleColorVec4(ImGuiCol_ChildBg);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(bgCol.x, bgCol.y, bgCol.z, 0.9f));
+    ImGui::BeginChild("##transport", ImVec2(0, kAnimTransportHeight), false,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
+    // Row 1: transport buttons + speed + loop mode
+    const float btnW = 28.0f;
+    if (ImGui::Button("|<", ImVec2(btnW, 0))) { player->SetFrame(0); m_needsRedraw = true; }
+    ImGui::SameLine();
+    if (ImGui::Button("<",  ImVec2(btnW, 0))) { player->SetFrame(curFrame - 1); m_needsRedraw = true; }
+    ImGui::SameLine();
+    if (ImGui::Button(isPlaying ? "Pause" : "Play", ImVec2(60, 0))) {
+        if (dur > 0.0f) { player->Toggle(); m_needsRedraw = true; }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(">",  ImVec2(btnW, 0))) { player->SetFrame(curFrame + 1); m_needsRedraw = true; }
+    ImGui::SameLine();
+    if (ImGui::Button(">|", ImVec2(btnW, 0))) { player->SetFrame(totalFrames - 1); m_needsRedraw = true; }
+    ImGui::SameLine();
+    if (ImGui::Button("Stop", ImVec2(50, 0))) { m_vk->sceneRendererVk.StopAnimation(); m_needsRedraw = true; }
+
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8);
+    ImGui::Text("F %d/%d  %.2fs/%.2fs", curFrame, totalFrames - 1, player->GetTime(), dur);
+
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8);
+    ImGui::PushItemWidth(70);
+    float speed = player->GetSpeed();
+    if (ImGui::DragFloat("##speed", &speed, 0.05f, -4.0f, 4.0f, "%.2fx")) {
+        player->SetSpeed(speed);
+    }
+    ImGui::PopItemWidth();
+    ImGui::SameLine();
+
+    const struct { const char* lbl; float val; } presets[] = {
+        {".25", 0.25f}, {".5", 0.5f}, {"1x", 1.0f}, {"2x", 2.0f}, {"-1x", -1.0f},
+    };
+    for (auto& p : presets) {
+        if (ImGui::SmallButton(p.lbl)) player->SetSpeed(p.val);
+        ImGui::SameLine();
+    }
+
+    ImGui::PushItemWidth(90);
+    int loopMode = (int)player->GetLoopMode();
+    const char* loopLabels[] = { "No Loop", "Loop", "PingPong" };
+    if (ImGui::Combo("##loop", &loopMode, loopLabels, IM_ARRAYSIZE(loopLabels))) {
+        player->SetLoopMode((Rendering::AnimationPlayer::LoopMode)loopMode);
+    }
+    ImGui::PopItemWidth();
+
+    // Keyboard shortcuts: Space/arrows/Home/End. Active while the viewport
+    // window has focus (covers both the image hover and the transport).
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) ||
+        m_viewportHovered) {
+        if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
+            if (dur > 0.0f) { player->Toggle(); m_needsRedraw = true; }
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true)) {
+            player->SetFrame(player->GetCurrentFrame() - 1); m_needsRedraw = true;
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, true)) {
+            player->SetFrame(player->GetCurrentFrame() + 1); m_needsRedraw = true;
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_Home, false)) {
+            player->SetFrame(0); m_needsRedraw = true;
+        }
+        if (ImGui::IsKeyPressed(ImGuiKey_End, false)) {
+            player->SetFrame(totalFrames - 1); m_needsRedraw = true;
+        }
+    }
+
+    // Row 2: rich timeline with frame ticks, keyframe markers, scrub
+    if (Onyx::App::DrawAnimationTimeline("anim_timeline", *player)) {
+        m_needsRedraw = true;
+    }
+
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+}
+
 void Viewport3D::DrawInspector() {
     ImGui::Text("Viewport Settings");
     ImGui::Separator();
@@ -645,11 +995,25 @@ void Viewport3D::DrawInspector() {
         if (ImGui::Checkbox("Show Bones", &showBones)) m_needsRedraw = true;
     }
 
-    if (m_sceneData && m_sceneData->animations) {
-        ImGui::Separator();
-        ImGui::TextDisabled("Animation clips are present but playback has no Vulkan renderer "
-                            "API yet (M4 gap) -- scenes render their rest pose.");
-    }
+    // NOTE (T6 fix round 1, task-6-report.md): the animation clip browser
+    // and the Onyx::App::SetActiveAnimationPlayer() broadcast used to live
+    // here. Both were moved to the strip Draw() reserves under the 3D
+    // image (DrawClipSelector() / DrawTransportBar()) because
+    // IDocumentContent::DrawInspector() -- this very method -- has NO
+    // caller anywhere in this Shell. Verified tree-wide, both at HEAD and
+    // at the historical commit this class's animation UI was recovered
+    // from (71fe575^): DocumentWindow::Draw() calls tab->Draw() on the
+    // active tab every frame, never tab->DrawInspector(); the panel
+    // actually titled "Inspector" (InspectorPanel -> InfoTab,
+    // Source/App/Panels/InspectorPanel.cpp) is an unrelated asset-metadata
+    // viewer wired to Workspace's selection bus, not to this hook; and
+    // CameraPanel resolves the active viewport via GetEmbeddedViewport()
+    // but only ever touches GetCamera(). This is pre-existing Shell debt
+    // (likely a residue of the InfoTab migration), not introduced by this
+    // task, and wiring a caller is out of this task's scope (it would mean
+    // editing InspectorPanel.cpp, not Viewport3D). Left recorded here, in
+    // plain text, so the next person doesn't put something load-bearing
+    // in this method and lose it the same way.
 
     // ── Mesh Batches ────────────────────────────────────────────────
     ImGui::Separator();

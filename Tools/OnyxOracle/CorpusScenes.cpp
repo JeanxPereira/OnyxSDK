@@ -18,6 +18,14 @@ using Onyx::Parsers::MeshPart;
 using Onyx::Parsers::ObjectData;
 using Onyx::Parsers::SceneData;
 using Onyx::Parsers::TextureRole;
+using Onyx::Parsers::AnimationData;
+using Onyx::Parsers::AnimDataType;
+using Onyx::Parsers::AnimGroup;
+using Onyx::Parsers::AnimAct;
+using Onyx::Parsers::AnimStateDescr;
+using Onyx::Parsers::SkinningState;
+using Onyx::Parsers::AnimSubstream;
+using Onyx::Parsers::ANIM_DATATYPE_SKINNING;
 
 namespace {
 
@@ -313,6 +321,81 @@ CorpusScene BuildSkinnedCube() {
     cs.view = glm::lookAt(glm::vec3(4.0f, -6.0f, 2.0f), glm::vec3(0.0f, 0.0f, 1.5f),
                            glm::vec3(0.0f, 0.0f, 1.0f));
     cs.proj = glm::perspective(glm::radians(45.0f), 1.0f, 0.1f, 100.0f);
+    return cs;
+}
+
+// ── animated-chain ───────────────────────────────────────────────────────
+//
+// BuildSkinnedCube's geometry and skeleton verbatim -- rest != bind pose is
+// that scene's whole point (see its own comment), and Tasks 4/5 render this
+// clip's t=0 as the "animation set but not advanced" baseline against that
+// same nonzero rest pose, so a renderer bug that silently substituted the
+// bind pose for the rest pose still has something real to disagree with.
+// Do not zero the skeleton here.
+//
+// Joints 1 and 2 sweep 60deg -> 120deg around X over 1.0s at 1/30s, written
+// as absolute (non-additive) samples, which is the branch of
+// HandleSkinningStream that assigns rather than accumulates -- see that
+// function in Source/Rendering/AnimationPlayer.cpp. The range starts at
+// 60deg rather than 0deg specifically so it never revisits BuildSkinnedCube's
+// fixed 30deg rest bend: a 0deg -> 60deg sweep would pass back through 30deg
+// at its own t=0.5s midpoint, making the animated pose there numerically
+// indistinguishable from the (unmoved) rest pose. Moving the range instead
+// of the sample time closes this for every t, not just the one this task's
+// test happens to sample.
+//
+// Sample index 0 is never read by the bake (EnsureBaked captures frame 0 from
+// the rest pose before its walk starts at f=1), so it is written for
+// completeness only.
+CorpusScene BuildAnimatedChain() {
+    CorpusScene cs = BuildSkinnedCube();
+    cs.name = "animated-chain";
+
+    constexpr int   kSampleCount = 31;    // frames 0..30 == 1.0s at 1/30
+    constexpr float kFrameTime   = 1.0f / 30.0f;
+    constexpr double kBendStartDegrees = 60.0;
+    constexpr double kBendEndDegrees   = 120.0;
+
+    auto anim = std::make_shared<AnimationData>();
+    anim->dataTypes.push_back(AnimDataType{ANIM_DATATYPE_SKINNING, 0, 0});
+
+    AnimSubstream rot;
+    rot.isAdditive = false;
+    rot.manager.count        = kSampleCount;
+    rot.manager.offset       = 0;
+    rot.manager.datasCount3  = 0;
+    rot.manager.offsetToData = 0;
+
+    for (int joint = 1; joint <= 2; ++joint) {
+        std::vector<float> samples;
+        samples.reserve(kSampleCount);
+        for (int f = 0; f < kSampleCount; ++f) {
+            const double t = double(f) / double(kSampleCount - 1);
+            samples.push_back(float(EncodeEulerDegreesQ14(
+                kBendStartDegrees + (kBendEndDegrees - kBendStartDegrees) * t)));
+        }
+        rot.samples[joint * 4 + 0] = std::move(samples); // X coordinate
+    }
+
+    SkinningState state;
+    state.rotationStream = std::move(rot);
+
+    AnimStateDescr sd;
+    sd.frameTime = kFrameTime;
+    sd.skinningStates.push_back(std::move(state));
+
+    AnimAct act;
+    act.name     = "bend";
+    act.duration = 1.0f;
+    act.stateDescrs.push_back(std::move(sd));
+
+    AnimGroup group;
+    group.name = "test";
+    group.acts.push_back(std::move(act));
+
+    anim->groups.push_back(std::move(group));
+    cs.scene.animations = std::move(anim);
+
     return cs;
 }
 

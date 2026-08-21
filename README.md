@@ -77,11 +77,13 @@ Then run the example viewer against the example module's own synthetic container
 
 **The supported model is source consumption via `FetchContent` or `add_subdirectory` — there is no `install()`, no `export()`, and no `find_package(OnyxSDK)` config, by design, in v1.** Onyx is built exactly once, as part of your own project's configure, from source you pin to a tag or commit; there is no separate "install Onyx system-wide, then `find_package` it from unrelated projects" step, and no prebuilt package is published. This is a deliberate scope decision, not an oversight the SDK will "get around to" — it keeps the surface honest about what actually exists rather than shipping a packaging story nobody has exercised. If a future milestone adds real `install()`/`export()` support, it will be documented here alongside the version it landed in; until then, treat any `find_package(OnyxSDK)` invocation you might see elsewhere as unsupported.
 
+Pin to **v1.1.0 or later**. Before that tag, every path Onyx's own build resolved internally (shader sources, `cmake/` helper scripts, test fixtures) was computed from `CMAKE_SOURCE_DIR`, which CMake defines as the *top-level* project's root — Onyx's own root only when Onyx is the top-level project. Nesting Onyx exactly as shown below made `CMAKE_SOURCE_DIR` resolve to *your* project's root instead, and the configure/build hard-failed before any of your own code compiled. v1.1.0 fixes this (every such path now resolves through an `ONYX_ROOT_DIR` captured once at the top of the root `CMakeLists.txt`, immune to nesting) and adds a permanent regression gate, `ExternalConsumption` (`Tests/Consumer/`), that configures and builds a standalone consumer project against this repo the same way `FetchContent`/`add_subdirectory` do, from outside Onyx's own source tree, on every run of the suite.
+
 ```cmake
 include(FetchContent)
 FetchContent_Declare(OnyxSDK
     GIT_REPOSITORY https://github.com/JeanxPereira/OnyxSDK.git
-    GIT_TAG        v1.0.0)
+    GIT_TAG        v1.1.0)
 set(ONYX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(ONYX_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(OnyxSDK)

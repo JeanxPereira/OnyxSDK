@@ -533,26 +533,19 @@ void SettingsWindow::DrawViewportCategory() {
   ImGui::NewLine();
 
   if (BeginSubWindow("Debugging Overlays")) {
-    // T11-review F2: these three knobs have zero readers at HEAD --
-    // SceneRendererVk::RenderSkeleton draws the bone overlay with its own
-    // hardcoded colors (boneColor/rootColor, Source/Rendering/
-    // SceneRendererVk.cpp), and the hover-highlight/wireframe passes T10
-    // disclosed as not-yet-implemented (Viewport3D.cpp's own top comment:
-    // "Render() does not read RenderBatch::isVisible/isHighlighted ...
-    // they simply have no visible effect yet") never existed on the
-    // Vulkan side to read wireR either. Disabled (not removed) rather
-    // than silently live and doing nothing -- the skeleton overlay in
-    // particular DOES draw every frame, so a color picker that looks
-    // like it controls it but doesn't is actively misleading. The
-    // config field itself keeps persisting so a real reader can pick it
-    // up later with no config migration.
-    ImGui::BeginDisabled();
+    // Bones Color: Task 5 (M5) wired SceneRendererVk::RenderSkeleton to
+    // read this via Viewport3D::RenderFrame's cfg-or-fallback boneColor
+    // (mirrors gridColor's own resolution right above it), so the picker
+    // is live -- no BeginDisabled here.
     ImGui::ColorEdit3("Bones Color", &config->boneR, flags);
-    ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-      ImGui::SetTooltip("Not wired up yet -- the skeleton overlay currently "
-                         "draws with a fixed color, not this one.");
 
+    // T11-review F2: Wireframe/Outline still have zero readers at HEAD --
+    // the hover-highlight/wireframe passes T10 disclosed as
+    // not-yet-implemented (Viewport3D.cpp's own top comment) never
+    // existed on the Vulkan side to read wireR/hlR either. Disabled (not
+    // removed) rather than silently live and doing nothing. The config
+    // fields themselves keep persisting so a real reader can pick them up
+    // later with no config migration.
     ImGui::BeginDisabled();
     ImGui::ColorEdit3("Wireframe Color", &config->wireR, flags);
     ImGui::EndDisabled();

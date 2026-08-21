@@ -47,7 +47,28 @@
 // ═══════════════════════════════════════════════════════════════════════
 #include <Onyx/Rendering/RenderBatch.h> // Rendering::RenderBatch, Rendering::ShadingMode, Rendering::ResolveRoleIndices
 
+// ═══════════════════════════════════════════════════════════════════════
+// PRECONDITION -- scene submission is serialized.
+//
+// Every buffer this class rewrites per frame (the main and sky frame UBOs,
+// the overlay VBO, the background and grid UBOs, and -- since v1.1 -- each
+// batch's joint palette SSBO) is host-visible, mapped once at Build() time,
+// and written directly by the CPU with no double-buffering and no barrier.
+//
+// That is safe only because every scene submission goes through
+// Resources::OneShot, which submits and then blocks on vkWaitForFences
+// before returning (VkResources.cpp) -- Viewport3D::RenderFrame, the oracle,
+// and RenderToImage all take that path, so the CPU can never be writing a
+// buffer the GPU is still reading. kFramesInFlight == 2 belongs to the ImGui
+// swapchain, which only samples the already-resolved offscreen texture and
+// never has a scene command buffer in flight.
+//
+// If anyone builds a real in-flight scene path, EVERY buffer named above
+// needs per-frame copies or a fence before its write -- not just the palette.
+// ═══════════════════════════════════════════════════════════════════════
+
 #include <Onyx/Parsers/SceneNode.h>
+#include <Onyx/Rendering/AnimationPlayer.h>
 
 #include <glm/glm.hpp>
 
@@ -57,6 +78,17 @@
 #include <vector>
 
 namespace Onyx::Rendering {
+
+/// The bone-line color RenderSkeleton draws with when no caller-resolved
+/// AppConfig value is available -- byte-identical to the constant this
+/// method hardcoded before Task 5 (M5) added the `boneColor` parameter.
+/// Named here, at namespace scope, so it has exactly one definition:
+/// RenderSkeleton's compatibility overload (below) defaults to it, and
+/// Viewport3D::RenderFrame's own cfg-or-fallback resolution references it
+/// too (Include/Onyx/Services/AppConfig.h's `boneR/G/B` fields are the
+/// caller-supplied case; this is only the no-config fallback), so the two
+/// can never drift apart the way two separately-typed literals could.
+inline constexpr glm::vec4 kDefaultBoneColor{0.0f, 1.0f, 0.4f, 1.0f};
 
 /// Vulkan port of Onyx::Rendering::SceneRenderer (GL) -- builds GPU
 /// resources from a Parsers::SceneData and draws them through T3's
@@ -172,23 +204,31 @@ public:
     /// RenderSkeleton): per joint, a parent-to-child bone line (or a
     /// 6-point root cross when the joint has no parent), a small
     /// joint-position dot cross, and 3 RGB orientation-axis line pairs --
-    /// built from the same m_jointWorldPos Build() already computed via
-    /// the shared Rendering::ComputeJointPalette (JointPalette.h/.cpp),
-    /// baked through m_instanceTransform exactly like GL bakes it into
-    /// every point before pushing it to its own line buffer. Colors use
-    /// GL's own hardcoded fallback constants (the now-deleted GL
-    /// SceneRenderer.cpp's `cfg ? ... : glm::vec4(...)` branch)
-    /// unconditionally -- the Render layer has no dependency on
-    /// Onyx::Services::AppConfig at all (its Get() definition lives in
-    /// Onyx_Shell, which this target never links; Task 11 closed the two
-    /// gaps that used to make an AppConfig stub necessary anywhere in this
-    /// tree -- Onyx::Rendering::Camera's own former AppConfig read moved to
-    /// Onyx::Viewers::Viewport3D, and Onyx::Rendering::ResolveRoleIndices
-    /// moved out of the GL-only SceneRenderer.cpp -- so neither onyx-oracle
-    /// nor onyxbox-cli carry a per-executable AppConfigStub.cpp any more),
-    /// so GL's own cfg-null fallback is the only value that could ever be
-    /// observed here. A no-op (returns true without touching `cmd`) if
-    /// Build() built no skeleton, matching GL's own early-return.
+    /// built from m_jointWorldPos, which holds world-space joint ORIGINS in
+    /// both poses: Build() fills it from the shared
+    /// Rendering::ComputeJointPalette's out-parameter (JointPalette.h/.cpp)
+    /// and UpdateAnimation() from AnimationPlayer::ComputeJointMatrices()'
+    /// identically-shaped one. Neither reads a palette entry's translation
+    /// column -- a skinning matrix's translation is not a joint origin.
+    /// Baked through m_instanceTransform exactly like GL bakes it into
+    /// every point before pushing it to its own line buffer.
+    ///
+    /// `boneColor` colors bone lines and, mixed 50/50 with white, the
+    /// joint-position dot cross -- same `boneColor * 0.5f + vec4(0.5f)`
+    /// GL used. Root-cross and orientation-axis colors are NOT
+    /// configurable (GL never made them so either) and stay the hardcoded
+    /// constants this method has always used. Task 5 (M5, "the bone color
+    /// knob") added the parameter: the Render layer still has no
+    /// dependency on Onyx::Services::AppConfig at all (its Get()
+    /// definition lives in Onyx_Shell, which this target never links --
+    /// same reason RenderGrid above takes `gridColor` as a parameter
+    /// rather than reading AppConfig itself), so the cfg-vs-hardcoded-
+    /// fallback branch lives in the caller (Viewport3D::RenderFrame,
+    /// mirroring exactly how it already builds `gridColor` for
+    /// RenderGrid), not here.
+    ///
+    /// A no-op (returns true without touching `cmd`) if Build() built no
+    /// skeleton, matching GL's own early-return.
     ///
     /// The overlay vertex buffer is sized once in Build() (joints.size() *
     /// 16, an exact upper bound on this method's own per-joint vertex
@@ -198,8 +238,23 @@ public:
     /// upload path is not legal to invoke against a command buffer that is
     /// itself still being recorded.
     bool RenderSkeleton(VkContext& ctx, const OverlayPipeline& pipeline, VkCommandBuffer cmd,
-                        const glm::mat4& view, const glm::mat4& proj, int viewportW, int viewportH,
-                        std::string& err);
+                        const glm::mat4& view, const glm::mat4& proj, const glm::vec4& boneColor,
+                        int viewportW, int viewportH, std::string& err);
+
+    /// Compatibility overload -- the original (pre-Task-5, pre-1.1) parameter
+    /// list, with no `boneColor`. Exists so a pre-1.1 call site keeps
+    /// compiling AND keeps meaning what it meant: it delegates to the
+    /// six-color-argument overload above, passing `kDefaultBoneColor`,
+    /// which is byte-identical to what this method hardcoded before the
+    /// parameter existed. Not used anywhere in this tree (Viewport3D calls
+    /// the color-taking overload directly, since it has an AppConfig to
+    /// resolve); kept purely for external source compatibility under the
+    /// stability policy in README.md.
+    bool RenderSkeleton(VkContext& ctx, const OverlayPipeline& pipeline, VkCommandBuffer cmd,
+                        const glm::mat4& view, const glm::mat4& proj,
+                        int viewportW, int viewportH, std::string& err) {
+        return RenderSkeleton(ctx, pipeline, cmd, view, proj, kDefaultBoneColor, viewportW, viewportH, err);
+    }
 
     /// Destroys every GPU resource this object owns (batches, textures,
     /// frame UBOs, descriptor pools, the background helper's pool/UBO) and
@@ -211,6 +266,36 @@ public:
     /// see the RenderBatch-reuse note at the top of this file. The oracle
     /// report (Tools/OnyxOracle/RenderReport.cpp) reads this directly.
     std::vector<Rendering::RenderBatch>& GetBatches() { return m_batches; }
+
+    // ── Animation ─────────────────────────────────────────────────────────
+    // Names mirror the deleted GL SceneRenderer's animation block exactly,
+    // so consumers port across without rewriting call sites. Build() must
+    // have run first (SetAnimation is a no-op without a scene's animations/
+    // skeleton -- see the .cpp); UpdateAnimation/StopAnimation are safe to
+    // call even if SetAnimation was never called (both no-op without a live
+    // m_animPlayer).
+    bool HasAnimations() const { return m_animData != nullptr; }
+    const Parsers::AnimationData* GetAnimationData() const { return m_animData.get(); }
+    AnimationPlayer* GetAnimPlayer() { return m_animPlayer.get(); }
+
+    /// Starts playing `groupIdx`/`actIdx` of the scene's animation data
+    /// (Build() must have captured a non-null m_animData/m_skeleton, or
+    /// this is a no-op). Creates the player on first use.
+    void SetAnimation(int groupIdx, int actIdx);
+
+    /// Stops playback and restores the rest pose Build() captured
+    /// (m_restPalette/m_restJointWorldPos) -- unlike GL, this needs no
+    /// rebuild, since the rest pose is kept immutable rather than moved
+    /// out of.
+    void StopAnimation();
+
+    /// Advances a playing player by `dt`, or -- for a paused player --
+    /// notices a UI-driven SetTime()/SetFrame() scrub and applies it
+    /// (see the .cpp for why this second branch is load-bearing). Returns
+    /// true and re-uploads every batch's joint palette iff the pose
+    /// actually changed; false (no-op) otherwise, including when no
+    /// SetAnimation() has ever been called.
+    bool UpdateAnimation(float dt);
 
 private:
     /// The real Vulkan-side GPU resources for one batch -- index-aligned
@@ -225,12 +310,21 @@ private:
         uint32_t indexCount = 0;
         Buffer materialUbo;
         Buffer jointSsbo;
+        void*    jointSsboMapped = nullptr; // persistently mapped, see the header's PRECONDITION
+        uint32_t paletteJointCount = 0;     // entries the SSBO was sized for
         VkDescriptorSet set = VK_NULL_HANDLE; // set 1, from m_descriptorPool
     };
 
     bool BuildBatch(VkContext& ctx, const ScenePipelines& pipelines, const Parsers::SceneData& scene,
                      const Parsers::MeshPart& part, std::string& err);
     void DrawBatch(VkCommandBuffer cmd, size_t index) const;
+
+    // Rewrites every batch's palette SSBO from m_jointPalette. Cheap: a
+    // memcpy per batch into already-mapped memory, no allocation, no
+    // command buffer. Batches that carry the one-entry identity palette
+    // (unskinned) are left alone. See the header's PRECONDITION banner for
+    // why an unfenced mapped write is safe here.
+    void UploadBatchPalettes();
 
     std::vector<Rendering::RenderBatch> m_batches;
     std::vector<GpuBatch>               m_gpuBatches; // index-aligned with m_batches
@@ -258,6 +352,19 @@ private:
     std::vector<glm::mat4>               m_jointPalette;   // global joint index -> skinning matrix
     std::shared_ptr<Parsers::ObjectData> m_skeleton;       // kept for RenderSkeleton only
     std::vector<glm::vec3>               m_jointWorldPos;  // world-space joint origins, RenderSkeleton only
+
+    // Immutable rest pose, captured once in Build() right after
+    // m_jointPalette/m_jointWorldPos above. StopAnimation() restores from
+    // these rather than rebuilding -- GL's own StopAnimation could not do
+    // this (its Build() std::move'd its only copy of the rest palette into
+    // m_jointPalette and destroyed the source; see the .cpp's Build() for
+    // the full story).
+    std::vector<glm::mat4> m_restPalette;
+    std::vector<glm::vec3> m_restJointWorldPos;
+
+    std::shared_ptr<Parsers::AnimationData> m_animData;      // scene.animations, may be null
+    std::unique_ptr<AnimationPlayer>        m_animPlayer;    // created lazily by SetAnimation()
+    float                                   m_lastAppliedAnimTime = -1.0f; // see UpdateAnimation's paused branch
 
     const ScenePipelines* m_pipelines = nullptr; // non-owning, see Build()'s doc comment
 

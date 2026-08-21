@@ -186,6 +186,9 @@ struct MountFake : Onyx::Modules::IGameModule {
 
     bool sawParseContainer = false;
     const Onyx::Vfs::IVirtualFileSystem* seenMountedVfs = nullptr;
+    std::filesystem::path seenPath;   // ContainerContext::path, captured for the
+                                       // mounted-case gate below -- must name the
+                                       // OUTER container, never "inner"
 
     Onyx::Modules::ModuleInfo Info() const override {
         return Onyx::Modules::ModuleInfo{"mountfake", "MountFake", {}, {}};
@@ -214,6 +217,7 @@ struct MountFake : Onyx::Modules::IGameModule {
     Onyx::Modules::ParseResult ParseContainer(Onyx::Modules::ContainerContext& ctx) override {
         sawParseContainer = true;
         seenMountedVfs = ctx.mountedVfs;
+        seenPath = ctx.path;
 
         Onyx::Domain::AssetEntry root;
         root.name = "root";
@@ -427,6 +431,32 @@ TEST_CASE("MountSpec: extension match mounts, mismatch leaves mountedVfs null") 
 
     std::filesystem::remove(pakPath);
     std::filesystem::remove(obxPath);
+}
+
+TEST_CASE("ContainerContext::path names the outer container even when a mount succeeds") {
+    auto pakPath = write_temp_file("onyx_mounts_test_path.pak", "root file bytes");
+    {
+        Workspace ws(Onyx::Types::TypeCatalog::Get());
+        auto mod = std::make_unique<MountFake>();
+        MountFake* raw = mod.get();
+        ws.AddModule(std::move(mod));
+
+        auto id = ws.Open(pakPath);
+        REQUIRE(id != 0);
+        REQUIRE(raw->sawParseContainer);
+        REQUIRE(raw->seenMountedVfs != nullptr);   // the mount really did succeed
+
+        // The path handed to ParseContainer must still be the OUTER .pak the
+        // user opened -- never "inner", and never empty -- exactly as the
+        // ContainerContext::path doc comment promises for the mounted case.
+        CHECK(raw->seenPath == pakPath);
+
+        auto* doc = ws.Get(id);
+        REQUIRE(doc);
+        CHECK(doc->path == pakPath);
+        CHECK(raw->seenPath == doc->path);
+    }
+    std::filesystem::remove(pakPath);
 }
 
 TEST_CASE("MountSpec: a refused mount falls through to a flat-file parse with exactly one Warning diag") {

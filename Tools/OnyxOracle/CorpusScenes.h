@@ -50,4 +50,10 @@ CorpusScene BuildSkinnedCube();   // 3-joint chain, rest pose != bind pose
 CorpusScene BuildBlendStack();    // checker floor + Normal/Additive/Subtractive quads
 CorpusScene BuildJointChain200(); // 200-joint spiral of skinned segments
 
+// Not part of BuildCorpus() on purpose: the parity goldens pin BuildCorpus()'s
+// exact output, so a sixth scene there would force a golden regeneration --
+// which the milestone's first gate exists to forbid. This one is built only by
+// the animation gate (onyx-oracle --vk-animation-smoke) and by Tests/animclip_test.cpp.
+CorpusScene BuildAnimatedChain(); // BuildSkinnedCube + a 1s bend clip on joints 1,2
+
 } // namespace Onyx::OracleTool

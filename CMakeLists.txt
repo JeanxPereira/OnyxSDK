@@ -13,7 +13,22 @@ cmake_minimum_required(VERSION 3.20)
 # session to discover. Harmless where the toolchain is already English.
 set(ENV{VSLANG} 1033)
 
-project(OnyxSDK VERSION 1.0.0 LANGUAGES CXX C)
+project(OnyxSDK VERSION 1.1.0 LANGUAGES CXX C)
+
+# Root of the Onyx source tree, valid whether Onyx is the top-level project
+# (its own tests/CI/Tools/ColdStart) or pulled in nested -- via
+# add_subdirectory() or FetchContent_MakeAvailable() -- by a consumer.
+# CMAKE_SOURCE_DIR is the *top-level* project's source dir, which is the
+# consumer's root once Onyx is nested; every path in this build that means
+# "inside the Onyx repo" (shader sources, cmake/ helper scripts, Tests/
+# fixtures, Tools/OnyxOracle sources) must resolve through ONYX_ROOT_DIR
+# instead, never CMAKE_SOURCE_DIR. Captured once here, at the top of the
+# root list file, rather than via CMAKE_CURRENT_SOURCE_DIR sprinkled through
+# every included .cmake file/subdirectory -- inside an include()d file,
+# CMAKE_CURRENT_SOURCE_DIR is the *includer's* current directory (not the
+# included file's own directory), which is subtle enough to be worth
+# removing from the reader's burden entirely.
+set(ONYX_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -880,7 +895,7 @@ if(ONYX_BUILD_TESTS)
     add_test(NAME LayerGuard.Core COMMAND ${CMAKE_COMMAND}
         -DLISTFILE=${CMAKE_BINARY_DIR}/layerguard-core.txt
         "-DFORBIDDEN=imgui|implot|GLFW/|glad/"
-        -P ${CMAKE_SOURCE_DIR}/cmake/LayerGuard.cmake)
+        -P ${ONYX_ROOT_DIR}/cmake/LayerGuard.cmake)
     # The swapchain lives in Shell (Window.cpp) -- GLFW must not appear in
     # Render sources either, same as before Task 11. glad/GL/ join the
     # forbidden set now that the Render layer this guards is Vulkan-only:
@@ -888,7 +903,7 @@ if(ONYX_BUILD_TESTS)
     add_test(NAME LayerGuard.Render COMMAND ${CMAKE_COMMAND}
         -DLISTFILE=${CMAKE_BINARY_DIR}/layerguard-render.txt
         "-DFORBIDDEN=imgui|implot|GLFW/|glad|GL/"
-        -P ${CMAKE_SOURCE_DIR}/cmake/LayerGuard.cmake)
+        -P ${ONYX_ROOT_DIR}/cmake/LayerGuard.cmake)
     # Onyx::Exchange (T5, M5) has no LayerGuard ctest entry of its own --
     # CMake's own target graph already makes the forbidden dependency
     # impossible to build (Onyx_Exchange links Onyx_Core only; linking

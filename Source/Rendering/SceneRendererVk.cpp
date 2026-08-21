@@ -140,6 +140,12 @@ bool SceneRendererVk::Build(VkContext& ctx, const ScenePipelines& pipelines, con
         m_skeleton = scene.skeleton;
         m_jointPalette = Rendering::ComputeJointPalette(*scene.skeleton, &m_jointWorldPos);
 
+        // The rest pose is kept immutable so StopAnimation() can restore it
+        // without a rebuild. GL overwrote its only copy with std::move and
+        // could not go back -- see the spec's "deliberate departures".
+        m_restPalette       = m_jointPalette;
+        m_restJointWorldPos = m_jointWorldPos;
+
         if (!m_skeleton->joints.empty()) {
             // Upper-bound overlay vertex capacity: RenderSkeleton emits, per
             // joint, at most 6 (root cross) + 4 (joint dot) + 6 (3 axis
@@ -169,6 +175,10 @@ bool SceneRendererVk::Build(VkContext& ctx, const ScenePipelines& pipelines, con
             }
         }
     }
+
+    // Kept for SetAnimation() -- may be null (scene carries no animation
+    // data), checked there before touching it.
+    m_animData = scene.animations;
 
     // ── one shared descriptor pool: 2 frame sets + up to one set per
     // mesh part (an upper bound -- some parts may be skipped below for
@@ -404,11 +414,16 @@ bool SceneRendererVk::BuildBatch(VkContext& ctx, const ScenePipelines& pipelines
                                                 : std::vector<glm::mat4>{glm::mat4(1.0f)};
     if (palette.empty()) palette.push_back(glm::mat4(1.0f));
 
+    // Host-visible and persistently mapped (not GPU_ONLY/staged): animation
+    // rewrites this every frame the pose changes via UploadBatchPalettes(),
+    // long after Build() returns -- see the header's PRECONDITION banner for
+    // why an unfenced mapped write is safe. VK_BUFFER_USAGE_TRANSFER_DST_BIT
+    // is dropped since nothing stages into this buffer any more.
+    gb.paletteJointCount = uint32_t(palette.size());
     gb.jointSsbo = Resources::CreateBuffer(ctx, sizeof(glm::mat4) * palette.size(),
-                                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                                           VMA_MEMORY_USAGE_GPU_ONLY, err);
-    if (gb.jointSsbo.buf == VK_NULL_HANDLE ||
-        !Resources::Upload(ctx, gb.jointSsbo, palette.data(), sizeof(glm::mat4) * palette.size(), err)) {
+                                           VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                           VMA_MEMORY_USAGE_CPU_TO_GPU, err);
+    if (gb.jointSsbo.buf == VK_NULL_HANDLE) {
         err = "batch '" + part.name + "' joint SSBO: " + err;
         Resources::Destroy(ctx, gb.vertexBuf);
         Resources::Destroy(ctx, gb.indexBuf);
@@ -416,6 +431,20 @@ bool SceneRendererVk::BuildBatch(VkContext& ctx, const ScenePipelines& pipelines
         Resources::Destroy(ctx, gb.jointSsbo);
         return false;
     }
+    {
+        VmaAllocationInfo info{};
+        vmaGetAllocationInfo(ctx.Allocator(), gb.jointSsbo.alloc, &info);
+        gb.jointSsboMapped = info.pMappedData;
+        if (!gb.jointSsboMapped) {
+            err = "batch '" + part.name + "' joint SSBO is not host-mapped";
+            Resources::Destroy(ctx, gb.vertexBuf);
+            Resources::Destroy(ctx, gb.indexBuf);
+            Resources::Destroy(ctx, gb.materialUbo);
+            Resources::Destroy(ctx, gb.jointSsbo);
+            return false;
+        }
+    }
+    WriteMapped(gb.jointSsboMapped, palette.data(), sizeof(glm::mat4) * palette.size());
 
     VkDescriptorSetAllocateInfo ai{};
     ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -541,6 +570,18 @@ void SceneRendererVk::Render(VkCommandBuffer cmd, const glm::mat4& view, const g
     mainUbo.shadingMode = shadingInt;
     WriteMapped(m_frameBufMainMapped, &mainUbo, sizeof(mainUbo));
 
+    // Per-batch visibility: every pass below skips `!isVisible` batches --
+    // matching GL's `if (!batch->gpuMesh || !batch->isVisible) continue;`
+    // (SceneRenderer.cpp's RenderBatches), minus the gpuMesh half, which
+    // has no equivalent on this path (RenderBatch::gpuMesh is a dead
+    // bookkeeping field here -- see RenderBatch.h's own comment). This is
+    // the Inspector's visibility-checkbox consumer: GetBatches() is the
+    // exact vector those checkboxes mutate. isHighlighted stays unread --
+    // the hover-outline pass it would drive does not exist on this
+    // renderer (see CHANGELOG's "Known gaps"). Applied identically in all
+    // three passes (sky/opaque/additive) so a batch culled in one is
+    // culled in every one, never partially drawn.
+    //
     // Sky pass first (GL: RenderSky is called before Render() by the
     // viewport) -- rotation-only view, own frame UBO/set so the sky and
     // main CPU writes never race each other (see the field comment on
@@ -558,7 +599,10 @@ void SceneRendererVk::Render(VkCommandBuffer cmd, const glm::mat4& view, const g
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelines->sky);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelines->layout, 0, 1, &m_frameSetSky, 0,
                                 nullptr);
-        for (size_t idx : m_skyIdx) DrawBatch(cmd, idx);
+        for (size_t idx : m_skyIdx) {
+            if (!m_batches[idx].isVisible) continue;
+            DrawBatch(cmd, idx);
+        }
     }
 
     // Opaque pass -- depth write on, blend off, exactly the batches GL's
@@ -568,7 +612,10 @@ void SceneRendererVk::Render(VkCommandBuffer cmd, const glm::mat4& view, const g
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelines->opaque);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelines->layout, 0, 1, &m_frameSetMain, 0,
                             nullptr);
-    for (size_t idx : m_opaqueIdx) DrawBatch(cmd, idx);
+    for (size_t idx : m_opaqueIdx) {
+        if (!m_batches[idx].isVisible) continue;
+        DrawBatch(cmd, idx);
+    }
 
     // Additive/blended pass -- per-batch pipeline selection mirrors GL's
     // RenderBatches blend-func switch exactly (SceneRenderer.cpp:654-658):
@@ -577,10 +624,105 @@ void SceneRendererVk::Render(VkCommandBuffer cmd, const glm::mat4& view, const g
     // set 0 is still m_frameSetMain from the opaque pass above -- binding a
     // different pipeline does not disturb an already-bound descriptor set.
     for (size_t idx : m_additiveIdx) {
+        if (!m_batches[idx].isVisible) continue;
         VkPipeline pipe = (m_batches[idx].blendMode == BlendMode::Additive) ? m_pipelines->blendAdditive
                                                                             : m_pipelines->blendNormal;
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
         DrawBatch(cmd, idx);
+    }
+}
+
+// ── Animation ─────────────────────────────────────────────────────────────
+// Names mirror the deleted GL SceneRenderer's animation block exactly, so
+// consumers port across without rewriting call sites.
+
+void SceneRendererVk::SetAnimation(int groupIdx, int actIdx) {
+    if (!m_animData || !m_skeleton) return;
+    if (!m_animPlayer) m_animPlayer = std::make_unique<AnimationPlayer>();
+    m_animPlayer->SetAnimation(m_animData.get(), groupIdx, actIdx, m_skeleton.get());
+    m_lastAppliedAnimTime = -1.0f; // force the next UpdateAnimation to apply
+}
+
+void SceneRendererVk::StopAnimation() {
+    if (m_animPlayer) m_animPlayer->Stop();
+
+    // Restore the pose Build() captured. Unlike GL, this needs no rebuild.
+    m_jointPalette = m_restPalette;
+    m_jointWorldPos = m_restJointWorldPos;
+    UploadBatchPalettes();
+
+    // Fix-round finding (design defect in the brief this line was ported
+    // from verbatim, not this implementation's own invention): Stop() ->
+    // Reset() sets the player's time to 0.0f, so a sentinel of -1.0f here
+    // made the very next UpdateAnimation() in a live viewport loop take the
+    // paused/scrub branch (0.0f != -1.0f) and immediately overwrite the
+    // rest palette just restored above with ComputeJointMatrices() -- the
+    // "immutable rest pose restored by StopAnimation()" guarantee would
+    // have lasted exactly one frame. Setting the sentinel to the player's
+    // OWN time (0.0f, matching what Reset() just set it to) instead makes
+    // that same next UpdateAnimation() correctly see "nothing changed" and
+    // no-op, so the restored rest pose actually sticks. Do NOT copy this
+    // `m_animPlayer ? ... : -1.0f` pattern into SetAnimation() above --
+    // there the -1.0f sentinel is correct and deliberate (it must force the
+    // first UpdateAnimation after a clip is chosen to apply, not trust that
+    // the renderer's palette already agrees with the player's fresh pose).
+    m_lastAppliedAnimTime = m_animPlayer ? m_animPlayer->GetTime() : -1.0f;
+}
+
+bool SceneRendererVk::UpdateAnimation(float dt) {
+    if (!m_animPlayer) return false;
+
+    bool changed = false;
+    if (m_animPlayer->IsPlaying()) {
+        changed = m_animPlayer->Update(dt);
+    } else {
+        // A paused player can still be moved by the UI through SetTime/
+        // SetFrame -- that is what scrubbing the Dopesheet does, and Update()
+        // never runs for it. Without this branch playback would work while
+        // scrubbing silently did nothing.
+        if (m_animPlayer->GetTime() != m_lastAppliedAnimTime) changed = true;
+    }
+    if (!changed) return false;
+
+    // Both outputs come from the player in one pass, and the overlay
+    // positions come from the OUT-PARAMETER, never from the palette. This
+    // used to read `m_jointPalette[i][3]` -- a faithful port of the GL
+    // renderer's own bug. A palette entry is `globalMats[i] *
+    // bindToJointMat[i]`, a skinning matrix, so its translation column is
+    // the bind-pose origin pushed through the skin, not the joint origin
+    // `globalMats[i][3]` that Build()'s rest path stores (via
+    // ComputeJointPalette's identically-shaped out-param, JointPalette.cpp).
+    // For any joint whose inverse bind matrix has a non-zero translation --
+    // i.e. any joint not sitting at the model origin in bind pose -- the two
+    // differ, so the bone overlay jumped the instant a clip first applied
+    // and snapped back on StopAnimation(). Pinned CPU-side in
+    // Tests/animclip_test.cpp ("AnimClip: ComputeJointMatrices reports joint
+    // ORIGINS ..."), because no render gate calls RenderSkeleton.
+    std::vector<glm::vec3> animatedWorldPos;
+    std::vector<glm::mat4> animated = m_animPlayer->ComputeJointMatrices(&animatedWorldPos);
+    if (!animated.empty()) {
+        m_jointPalette = std::move(animated);
+        m_jointWorldPos = std::move(animatedWorldPos); // skeleton overlay follows
+        UploadBatchPalettes();
+    }
+    m_lastAppliedAnimTime = m_animPlayer->GetTime();
+    return true;
+}
+
+// Rewrites every batch's palette SSBO from m_jointPalette. Cheap: a memcpy per
+// batch into already-mapped memory, no allocation, no command buffer. Batches
+// that carry the one-entry identity palette (unskinned) are left alone.
+void SceneRendererVk::UploadBatchPalettes() {
+    for (size_t i = 0; i < m_batches.size() && i < m_gpuBatches.size(); ++i) {
+        auto& gb = m_gpuBatches[i];
+        if (!gb.jointSsboMapped || gb.paletteJointCount == 0) continue;
+        if (!m_batches[i].hasSkeleton || m_batches[i].jointMap.empty()) continue;
+
+        std::vector<glm::mat4> palette = Rendering::BuildBatchPalette(m_jointPalette, m_batches[i].jointMap);
+        if (palette.empty()) continue;
+        if (palette.size() > gb.paletteJointCount) palette.resize(gb.paletteJointCount);
+
+        WriteMapped(gb.jointSsboMapped, palette.data(), sizeof(glm::mat4) * palette.size());
     }
 }
 
@@ -742,16 +884,15 @@ bool SceneRendererVk::RenderGrid(VkContext& ctx, const GridPipeline& pipeline, V
 // ── RenderSkeleton ────────────────────────────────────────────────────────
 
 bool SceneRendererVk::RenderSkeleton(VkContext& ctx, const OverlayPipeline& pipeline, VkCommandBuffer cmd,
-                                     const glm::mat4& view, const glm::mat4& proj, int viewportW,
-                                     int viewportH, std::string& err) {
+                                     const glm::mat4& view, const glm::mat4& proj, const glm::vec4& boneColor,
+                                     int viewportW, int viewportH, std::string& err) {
     if (!m_skeleton || m_jointWorldPos.empty()) return true;
 
     // ── build the line buffer -- exact port of GL's RenderSkeleton
     // (Source/Rendering/SceneRenderer.cpp), one OverlayVertex per LineVert.
-    // Colors: GL's own cfg-null fallback constants, unconditionally -- see
-    // this method's doc comment for why the Render layer never reaches for
-    // Onyx::Services::AppConfig itself. ─────────────────────────────────
-    const glm::vec4 boneColor(0.0f, 1.0f, 0.4f, 1.0f);
+    // `boneColor` is the caller's already-resolved cfg-or-fallback value
+    // (see this method's doc comment) -- rootColor stays the hardcoded
+    // constant GL always used; no config field exists for it. ───────────
     const glm::vec4 rootColor(1.0f, 0.3f, 0.1f, 1.0f);
     glm::vec4 jointDot = boneColor * 0.5f + glm::vec4(0.5f);
     jointDot.a = 1.0f;
@@ -904,6 +1045,8 @@ void SceneRendererVk::Clear(VkContext& ctx) {
         Resources::Destroy(ctx, gb.indexBuf);
         Resources::Destroy(ctx, gb.materialUbo);
         Resources::Destroy(ctx, gb.jointSsbo);
+        gb.jointSsboMapped = nullptr;
+        gb.paletteJointCount = 0;
         // gb.set is freed implicitly when m_descriptorPool is destroyed below
         // (the pool was not created with FREE_DESCRIPTOR_SET_BIT).
     }
@@ -915,6 +1058,11 @@ void SceneRendererVk::Clear(VkContext& ctx) {
     m_jointPalette.clear();
     m_skeleton.reset();
     m_jointWorldPos.clear();
+    m_restPalette.clear();
+    m_restJointWorldPos.clear();
+    m_animData.reset();
+    m_animPlayer.reset();
+    m_lastAppliedAnimTime = -1.0f;
 
     if (m_descriptorPool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(ctx.Device(), m_descriptorPool, nullptr);

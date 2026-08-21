@@ -70,7 +70,24 @@ public:
     const std::vector<glm::vec4>& GetJointRotations() const { return m_jointLocalRot; }
     const std::vector<glm::vec4>& GetJointScales() const { return m_jointLocalScale; }
 
-    std::vector<glm::mat4> ComputeJointMatrices() const;
+    /// Returns the skinning palette for the current pose, index-aligned with
+    /// the skeleton's joints: `palette[i] = worldPose[i] * bindToJointMat[i]`
+    /// — the same product `Rendering::ComputeJointPalette()` forms for the
+    /// rest pose, driven from the baked clip instead of Vectors4/5/6.
+    ///
+    /// When `outWorldPos` is non-null it is resized to the same length and
+    /// filled with each joint's world-space ORIGIN (`worldPose[i][3]`), read
+    /// off the un-multiplied global chain. This deliberately mirrors
+    /// `ComputeJointPalette(skeleton, outWorldPos)`'s out-parameter, and
+    /// exists for the same consumer: a skeleton debug overlay needs joint
+    /// origins, and they are NOT recoverable from the returned palette. The
+    /// palette's own translation column is `worldPose[i] * bindToJointMat[i]`
+    /// column 3, which coincides with the joint origin only when the inverse
+    /// bind matrix has zero translation — so reading `palette[i][3]` as a
+    /// joint position draws the overlay in the wrong place for every joint
+    /// whose bind pose is offset from the origin. Callers with no overlay to
+    /// feed pass nullptr (the default) and pay nothing.
+    std::vector<glm::mat4> ComputeJointMatrices(std::vector<glm::vec3>* outWorldPos = nullptr) const;
 
     // Access to the baked cache for UI (timeline markers, dopesheet, curves).
     const BakedAnimation* GetBaked() const { return m_currentBaked; }
