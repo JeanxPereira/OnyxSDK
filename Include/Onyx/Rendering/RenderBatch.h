@@ -106,6 +106,11 @@ struct RenderBatch {
 /// surviving Render layer (closes the Task-11 "link-completeness" defect:
 /// Onyx::Rendering::SceneRendererVk::Build calls this, and previously the
 /// only definition lived in the now-deleted GL-only SceneRenderer.cpp).
-std::array<int, 9> ResolveRoleIndices(const Parsers::MaterialDesc& mat);
+/// Number of entries in Parsers::TextureRole. Named so the resolver and
+/// its callers cannot drift apart when a role is appended -- they used to
+/// spell the size as a literal 9 in three places.
+inline constexpr size_t kTextureRoleCount = 10;
+
+std::array<int, kTextureRoleCount> ResolveRoleIndices(const Parsers::MaterialDesc& mat);
 
 } // namespace Onyx::Rendering

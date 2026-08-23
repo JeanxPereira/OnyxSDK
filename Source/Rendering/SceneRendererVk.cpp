@@ -335,6 +335,7 @@ bool SceneRendererVk::BuildBatch(VkContext& ctx, const ScenePipelines& pipelines
     const Image2D* glossImg = nullptr;
     const Image2D* envImg = nullptr;
     const Image2D* scatterImg = nullptr;
+    const Image2D* opacityImg = nullptr;
 
     if (part.materialId < scene.materials.size()) {
         const MaterialDesc& mat = scene.materials[part.materialId];
@@ -348,7 +349,8 @@ bool SceneRendererVk::BuildBatch(VkContext& ctx, const ScenePipelines& pipelines
         // Reused verbatim per the brief -- pure, public, no reimplementation.
         // (Task 11: extracted from the deleted GL SceneRenderer into
         // Rendering::ResolveRoleIndices, Include/Onyx/Rendering/RenderBatch.h.)
-        std::array<int, 9> roles = Rendering::ResolveRoleIndices(mat);
+        std::array<int, Rendering::kTextureRoleCount> roles =
+            Rendering::ResolveRoleIndices(mat);
         auto imgFor = [&](TextureRole role) -> const Image2D* {
             int idx = roles[static_cast<size_t>(role)];
             if (idx >= 0 && static_cast<size_t>(idx) < m_textures.size() &&
@@ -363,6 +365,7 @@ bool SceneRendererVk::BuildBatch(VkContext& ctx, const ScenePipelines& pipelines
         glossImg = imgFor(TextureRole::Gloss);
         envImg = imgFor(TextureRole::EnvMap);
         scatterImg = imgFor(TextureRole::Scatter);
+        opacityImg = imgFor(TextureRole::Opacity);
 
         // Sentinel semantics only -- see the RenderBatch-reuse note at the
         // top of SceneRendererVk.h. Height/Detail/Emissive are resolved by
@@ -395,6 +398,7 @@ bool SceneRendererVk::BuildBatch(VkContext& ctx, const ScenePipelines& pipelines
     if (scatterImg) flags |= SceneFlags::kHasScatter;
     if (useJoints) flags |= SceneFlags::kUseJoints;
     if (batch.hasEnvmap) flags |= SceneFlags::kHasEnvmap;
+    if (opacityImg) flags |= SceneFlags::kHasOpacity;
     mubo.flags = flags;
 
     gb.materialUbo = Resources::CreateBuffer(ctx, sizeof(SceneMaterialUBO),
@@ -477,6 +481,7 @@ bool SceneRendererVk::BuildBatch(VkContext& ctx, const ScenePipelines& pipelines
     fillImg(SceneRole::kGloss, glossImg);
     fillImg(SceneRole::kEnvMap, envImg);
     fillImg(SceneRole::kScatter, scatterImg);
+    fillImg(SceneRole::kOpacity, opacityImg);
 
     std::array<VkWriteDescriptorSet, 3> writes{};
     writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;

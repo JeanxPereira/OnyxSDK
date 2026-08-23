@@ -123,16 +123,18 @@ const uint FLAG_HAS_AO      = 1u << 2;
 const uint FLAG_HAS_GLOSS   = 1u << 3;
 const uint FLAG_HAS_SCATTER = 1u << 4;
 const uint FLAG_HAS_ENVMAP  = 1u << 6;   // divergence 3 — mirrors GL's uUseEnvmap
+const uint FLAG_HAS_OPACITY = 1u << 7;
 
 // Fixed 6-slot role array (divergence 6). Onyx::Rendering::SceneRole in
 // Pipelines.h mirrors these indices for the C++ side.
-layout(set = 1, binding = 1) uniform sampler2D uRoleTex[6];
+layout(set = 1, binding = 1) uniform sampler2D uRoleTex[7];
 const int ROLE_DIFFUSE = 0;
 const int ROLE_NORMAL  = 1;
 const int ROLE_AO      = 2;
 const int ROLE_GLOSS   = 3;
 const int ROLE_ENVMAP  = 4;
 const int ROLE_SCATTER = 5;
+const int ROLE_OPACITY = 6;
 
 layout(location = 0) out vec4 FragColor;
 
@@ -207,6 +209,23 @@ void main() {
 
     // Material + layer tint
     clr *= uBaseColor * uLayerColor;
+
+    // Coverage map, when the material ships one separately from the
+    // diffuse's own alpha. Sampled AFTER the envmap block on purpose: that
+    // branch lerps by the DIFFUSE alpha and then forces clr.a to 1, so
+    // folding coverage in earlier would change what the envmap blends
+    // against rather than what survives the cutout.
+    //
+    // A material carrying a dedicated coverage map is a cutout by
+    // construction -- hair cards, foliage, a transparent cornea -- so it
+    // gets the standard 0.5 cutoff (glTF's own alphaCutoff default) rather
+    // than the 0.01 "discard only the fully transparent" rule, which would
+    // leave a soft-edged mask rendering as a solid quad. Materials without
+    // one keep the old threshold exactly.
+    if ((uFlags & FLAG_HAS_OPACITY) != 0u) {
+        clr.a *= texture(uRoleTex[ROLE_OPACITY], vUV).r;
+        if (clr.a < 0.5) discard;
+    }
 
     // Alpha test
     if (clr.a < 0.01) discard;

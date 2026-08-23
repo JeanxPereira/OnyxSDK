@@ -191,6 +191,7 @@ inline constexpr uint32_t kHasGloss   = 1u << 3;
 inline constexpr uint32_t kHasScatter = 1u << 4;
 inline constexpr uint32_t kUseJoints  = 1u << 5;
 inline constexpr uint32_t kHasEnvmap  = 1u << 6;
+inline constexpr uint32_t kHasOpacity = 1u << 7;
 } // namespace SceneFlags
 
 /// set 1, binding 1 combined-sampler slot indices (scene.frag: ROLE_*
@@ -215,7 +216,11 @@ inline constexpr int kAO      = 2;
 inline constexpr int kGloss   = 3;
 inline constexpr int kEnvMap  = 4;
 inline constexpr int kScatter = 5;
-inline constexpr int kCount   = 6;
+/// Coverage map. `Height`, `Detail` and `Emissive` still have no slot --
+/// this one is here because a cutout material is unreadable without it:
+/// hair cards and a transparent cornea render as solid geometry.
+inline constexpr int kOpacity = 6;
+inline constexpr int kCount   = 7;
 } // namespace SceneRole
 
 /// set 0, binding 0 for the grid pipeline — mirrors grid.frag's

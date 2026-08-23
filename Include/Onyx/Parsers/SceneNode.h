@@ -24,8 +24,17 @@ enum class BlendMode : uint8_t {
 /// Explicit texture role a material can bind (spec §8.1). Replaces the old
 /// positional layer index — a role identifies WHAT a texture is for, not
 /// WHERE it happened to land in a per-game layer ordering.
+/// Appended, never reordered: a role's numeric value is the index
+/// `ResolveRoleIndices` writes into and the key a module puts in
+/// `MaterialDesc::textures`, so inserting in the middle would silently
+/// renumber every map an existing consumer already built.
 enum class TextureRole : uint8_t {
-    Diffuse, Normal, Occlusion, Gloss, Height, Scatter, Detail, Emissive, EnvMap
+    Diffuse, Normal, Occlusion, Gloss, Height, Scatter, Detail, Emissive, EnvMap,
+    /// Per-texel coverage, multiplied into the diffuse alpha before the
+    /// cutout test. Distinct from a diffuse that carries its own alpha:
+    /// assets that mask with a separate map (foliage, hair cards, a
+    /// transparent cornea) leave the diffuse opaque.
+    Opacity
 };
 
 /// Material resolved from the WAD, ready to render. Does NOT own the GL
