@@ -9,13 +9,13 @@ namespace Onyx::Rendering {
 // lived as the static method Onyx::Rendering::SceneRenderer::
 // ResolveRoleIndices — see RenderBatch.h's own doc comment for why.
 
-std::array<int, 9> ResolveRoleIndices(const Parsers::MaterialDesc& mat) {
-    std::array<int, 9> roles;
+std::array<int, kTextureRoleCount> ResolveRoleIndices(const Parsers::MaterialDesc& mat) {
+    std::array<int, kTextureRoleCount> roles;
     roles.fill(-1);
     for (const auto& [role, texIndex] : mat.textures) {
         // A module can hand us a MaterialDesc built from a bogus/out-of-range
         // int cast into TextureRole (corrupt or hostile asset data). Guard
-        // the write so that never walks past the fixed 9-slot array.
+        // the write so that never walks past the fixed role array.
         if ((size_t)role < roles.size()) {
             roles[(size_t)role] = texIndex;
         }

@@ -1,5 +1,51 @@
 # Changelog
 
+## v1.2.0 — 2026-08-23
+
+A cutout material is now readable. `Parsers::TextureRole` gained `Opacity`,
+the scene shader gained a seventh sampler slot for it, and a material that
+ships a coverage map separately from its diffuse alpha renders with that
+coverage instead of as solid geometry. Hair cards, foliage and a transparent
+cornea were the cases that had no way to express themselves.
+
+Additive: the role is appended so every existing numeric value is unchanged,
+and a material that declares no opacity map keeps the previous alpha rule
+byte for byte.
+
+### Added
+- **`Parsers::TextureRole::Opacity`** (`Include/Onyx/Parsers/SceneNode.h`) --
+  per-texel coverage, multiplied into the diffuse alpha before the cutout
+  test. Distinct from a diffuse that carries its own alpha: an asset that
+  masks with a separate map leaves the diffuse opaque, so there was nothing
+  for the old test to act on.
+- **`SceneRole::kOpacity`** and **`SceneFlags::kHasOpacity`**
+  (`Include/Onyx/Rendering/Pipelines.h`) -- slot 6 of the combined-sampler
+  array, `kCount` 6 -> 7. Every consumer of the array (descriptor layout,
+  pool sizing, the per-batch write) is already expressed in terms of
+  `kCount`, so they follow without further change.
+- **`Rendering::kTextureRoleCount`** (`Include/Onyx/Rendering/
+  RenderBatch.h`) -- the role-array size, previously spelled as a literal
+  `9` in three separate places. Named so the resolver and its callers cannot
+  drift apart the next time a role is appended.
+
+### Changed
+- **`ResolveRoleIndices` returns `std::array<int, kTextureRoleCount>`**
+  rather than `std::array<int, 9>`. Source-compatible for callers that use
+  `auto`; a caller spelling the old type out has to follow.
+- **A material carrying an opacity map is cut out at 0.5**, not at the
+  `0.01` "discard only the fully transparent" rule the shader applies
+  otherwise. A dedicated coverage map means the asset is a cutout by
+  construction, and 0.01 would leave a soft-edged mask rendering as a solid
+  quad. 0.5 is glTF's own `alphaCutoff` default. Materials without an
+  opacity map are untouched.
+
+### Known gaps
+- Coverage is a cutout, not a blend. A soft mask still resolves to a hard
+  edge at the cutoff, because ordered transparency needs depth-sorted draw
+  submission that `SceneRendererVk` does not do yet.
+- `Height`, `Detail` and `Emissive` remain resolved by `ResolveRoleIndices`
+  and sampled by nothing.
+
 ## v1.1.0 — 2026-08-19
 
 Skeletal animation returns to the Vulkan renderer. `SceneRendererVk` had no
