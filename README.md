@@ -35,6 +35,36 @@ target_link_libraries(MyApp PRIVATE Onyx::Onyx)
 
 `ONYX_FFMPEG_WIN_URL` overrides the pinned Windows FFmpeg archive if you need a newer build.
 
+### Build options
+
+| option | default | effect |
+|---|---|---|
+| `ONYX_BUILD_EXAMPLES` | `ON` | the example apps |
+| `ONYX_BUILD_TESTS` | `ON` | the engine unit tests |
+| `ONYX_BUILD_MEDIA` | `ON` | video playback — `Onyx::Viewers::VideoPlayer`, FFmpeg and miniaudio |
+
+`ONYX_BUILD_MEDIA=OFF` removes the two dependencies Onyx cannot build from source: on
+Windows FFmpeg is a prebuilt archive downloaded during configure, and on Linux/macOS it
+is a `pkg_check_modules(... REQUIRED)` that fails the configure outright when the `-dev`
+packages are absent. An explorer that shows no video needs neither, and with the layer
+off neither is fetched, configured or linked.
+
+```cmake
+set(ONYX_BUILD_MEDIA OFF CACHE BOOL "" FORCE)   # before FetchContent_MakeAvailable
+```
+
+With the layer off, `ONYX_HAS_MEDIA` is undefined and `<Onyx/Viewers/VideoPlayer.h>` must
+not be included — it pulls miniaudio directly. Guard any use of it:
+
+```cpp
+#ifdef ONYX_HAS_MEDIA
+#  include <Onyx/Viewers/VideoPlayer.h>
+#endif
+```
+
+`ONYX_FFMPEG_DLLS` is left unset rather than set empty, so the Windows DLL-copy step in
+the snippet above skips itself without needing to know the option exists.
+
 ## UI test mode
 
 The SDK ships a **UI Gallery** panel: a live catalogue of everything the interface is built from, so the look can be polished without opening a single asset. Open it from **View → UI Gallery**, with **F1**, or start the example with the flag:

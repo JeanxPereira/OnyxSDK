@@ -9,6 +9,16 @@ endif()
 
 option(ONYX_BUILD_EXAMPLES "Build the Onyx example apps" ON)
 option(ONYX_BUILD_TESTS    "Build the Onyx engine unit tests" ON)
+# The media layer is video playback: Source/Viewers/VideoPlayer.{h,cpp}, and with it
+# FFmpeg and miniaudio. Turning it OFF removes the only two dependencies Onyx cannot
+# satisfy from source -- on Windows FFmpeg is a ~70 MB archive downloaded at configure
+# time, and on Linux it is a pkg-config REQUIRED that fails the configure outright when
+# the -dev packages are absent. An asset explorer that shows no video needs neither.
+#
+# Default ON, so every existing consumer is unaffected.
+# When OFF, ONYX_HAS_MEDIA is undefined and <Onyx/Viewers/VideoPlayer.h> must not be
+# included -- it pulls miniaudio directly.
+option(ONYX_BUILD_MEDIA    "Build the media layer (video playback: FFmpeg + miniaudio)" ON)
 
 include(FetchContent)
 
@@ -62,10 +72,13 @@ target_include_directories(glad PUBLIC
 )
 
 # ── miniaudio (single-header audio, vendored) ────────────────────────────
-add_library(miniaudio STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio/miniaudio.c
-)
-target_include_directories(miniaudio PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio)
+# Consumed by exactly one translation unit in the tree: Include/Onyx/Viewers/VideoPlayer.h.
+if(ONYX_BUILD_MEDIA)
+    add_library(miniaudio STATIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio/miniaudio.c
+    )
+    target_include_directories(miniaudio PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/third_party/miniaudio)
+endif()
 
 # ── Dear ImGui (docking) via FetchContent ──────────────────────────────────
 # Pinned to the exact commit previously vendored under third_party/imgui
@@ -127,6 +140,11 @@ target_link_libraries(imgui_color_text_edit PUBLIC imgui_lib)
 target_compile_features(imgui_color_text_edit PUBLIC cxx_std_17)
 
 # ── FFmpeg ────────────────────────────────────────────────────────────────
+# Guarded in full: the Windows branch DOWNLOADS an archive at configure time and the
+# Linux branch is a `pkg_check_modules(... REQUIRED)` that aborts the configure when the
+# dev packages are missing. Neither should run for a consumer that builds no video.
+if(ONYX_BUILD_MEDIA)
+
 add_library(ffmpeg_lib INTERFACE)
 
 if(WIN32)
@@ -189,6 +207,12 @@ endif()
 # Export FFMPEG_DLLS so consumers (FetchContent) can copy the DLLs
 if(WIN32 AND FFMPEG_DLLS)
     set(ONYX_FFMPEG_DLLS "${FFMPEG_DLLS}" CACHE INTERNAL "FFmpeg runtime DLLs for Onyx consumers")
+endif()
+
+else()
+    # ONYX_BUILD_MEDIA=OFF. ONYX_FFMPEG_DLLS is deliberately left unset rather than set
+    # empty, so a consumer's `if(WIN32 AND ONYX_FFMPEG_DLLS)` copy step skips itself
+    # without needing to know this option exists.
 endif()
 
 # ── toml++ (header-only TOML parser for AppConfig) via FetchContent ────────
@@ -268,9 +292,19 @@ set(ONYX_RENDER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Rendering/ShaderManager.cpp
 )
 
-set(ONYX_MEDIA_SOURCES
+# Declared unconditionally, so the completeness check below still SEES these files
+# when the layer is switched off. A file in a disabled layer is assigned; a file in
+# no layer at all is the omission the check exists to catch, and switching a layer
+# off must not turn the second into the first.
+set(ONYX_MEDIA_SOURCES_ALL
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Viewers/VideoPlayer.cpp
 )
+
+if(ONYX_BUILD_MEDIA)
+    set(ONYX_MEDIA_SOURCES ${ONYX_MEDIA_SOURCES_ALL})
+else()
+    set(ONYX_MEDIA_SOURCES)
+endif()
 
 set(ONYX_SHELL_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Source/Api/ToolkitApi.cpp
@@ -328,8 +362,11 @@ endif()
 # error, not a silent omission.
 file(GLOB_RECURSE _onyx_all_cpp CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp")
+# ONYX_MEDIA_SOURCES_ALL, not ONYX_MEDIA_SOURCES: the check asks "is this file
+# assigned to a layer", which is a question about the source tree and not about which
+# layers this build happens to enable.
 set(_onyx_listed ${ONYX_CORE_SOURCES} ${ONYX_RENDER_SOURCES}
-                 ${ONYX_MEDIA_SOURCES} ${ONYX_SHELL_SOURCES})
+                 ${ONYX_MEDIA_SOURCES_ALL} ${ONYX_SHELL_SOURCES})
 foreach(_f ${_onyx_all_cpp})
     if(NOT _f IN_LIST _onyx_listed)
         message(FATAL_ERROR "Source file not assigned to a layer: ${_f}")
@@ -383,9 +420,13 @@ target_link_libraries(Onyx PUBLIC
     imgui_color_text_edit
     glfw
     glad
-    miniaudio
-    ffmpeg_lib
 )
+
+if(ONYX_BUILD_MEDIA)
+    target_link_libraries(Onyx PUBLIC miniaudio ffmpeg_lib)
+    # Consumers guard their own includes of <Onyx/Viewers/VideoPlayer.h> with this.
+    target_compile_definitions(Onyx PUBLIC ONYX_HAS_MEDIA)
+endif()
 
 if(MSVC)
     target_compile_options(Onyx PUBLIC /utf-8)
