@@ -13,6 +13,15 @@
 
 #pragma comment(lib, "dwmapi.lib")
 
+// mingw-w64's <dwmapi.h> stops at DWMWA_LAST = 17; DWMWA_USE_IMMERSIVE_DARK_MODE (20)
+// ships only in the MSVC Windows SDK. Without this guard the call further down is the
+// ONLY compile error in the entire tree under mingw-w64 — worth defining rather than
+// declaring a toolchain unsupported over one constant. The value is the documented one,
+// and is what the MSVC SDK defines, so this is inert wherever the header already has it.
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
+
 namespace Onyx::App::NativeWindow {
 
 static LONG_PTR  s_oldWndProc    = 0;
