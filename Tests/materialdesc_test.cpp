@@ -10,6 +10,7 @@
 #include <doctest/doctest.h>
 
 #include <Onyx/Rendering/RenderBatch.h>
+#include <Onyx/Rendering/Pipelines.h>
 #include <Onyx/Parsers/SceneNode.h>
 
 using namespace Onyx::Rendering;
@@ -25,7 +26,7 @@ TEST_CASE("ResolveRoleIndices: empty MaterialDesc resolves every role to -1") {
     }
 }
 
-TEST_CASE("ResolveRoleIndices: full 9-role map echoes each slot's own index") {
+TEST_CASE("ResolveRoleIndices: full 10-role map echoes each slot's own index") {
     MaterialDesc mat;
     mat.textures[TextureRole::Diffuse]  = 0;
     mat.textures[TextureRole::Normal]   = 1;
@@ -36,12 +37,42 @@ TEST_CASE("ResolveRoleIndices: full 9-role map echoes each slot's own index") {
     mat.textures[TextureRole::Detail]   = 6;
     mat.textures[TextureRole::Emissive] = 7;
     mat.textures[TextureRole::EnvMap]   = 8;
+    mat.textures[TextureRole::Opacity]  = 9;
 
     auto roles = ResolveRoleIndices(mat);
 
     for (size_t i = 0; i < roles.size(); ++i) {
         CHECK(roles[i] == (int)i);
     }
+}
+
+TEST_CASE("Normal-map parameters default to the legacy XY reconstruction contract") {
+    const NormalMapDesc normal;
+
+    const PackedNormalMapParams packed = PackNormalMapParams(normal);
+
+    CHECK(packed.decode.x == doctest::Approx(2.0f));
+    CHECK(packed.decode.y == doctest::Approx(-1.0f));
+    CHECK(packed.decode.z == doctest::Approx(1.0f));
+    CHECK(packed.decode.w == doctest::Approx(1.0f));
+    CHECK((packed.flags & SceneFlags::kNormalXYZ) == 0u);
+}
+
+TEST_CASE("Normal-map parameters preserve authored XYZ and endpoint decode settings") {
+    NormalMapDesc normal;
+    normal.encoding = NormalMapEncoding::XYZ;
+    normal.decodeScale = 2.007874011993408f;
+    normal.decodeBias = -1.0078740119934082f;
+    normal.strength = 0.75f;
+    normal.flipY = true;
+
+    const PackedNormalMapParams packed = PackNormalMapParams(normal);
+
+    CHECK(packed.decode.x == doctest::Approx(2.007874011993408f));
+    CHECK(packed.decode.y == doctest::Approx(-1.0078740119934082f));
+    CHECK(packed.decode.z == doctest::Approx(0.75f));
+    CHECK(packed.decode.w == doctest::Approx(-1.0f));
+    CHECK((packed.flags & SceneFlags::kNormalXYZ) != 0u);
 }
 
 TEST_CASE("ResolveRoleIndices: sparse map resolves only the roles present") {
@@ -69,7 +100,7 @@ TEST_CASE("ResolveRoleIndices: an out-of-range TextureRole is ignored, not writt
 
     auto roles = ResolveRoleIndices(mat);
 
-    // The 9 valid slots are unaffected; no crash / OOB write happened.
+    // The 10 valid slots are unaffected; no crash / OOB write happened.
     CHECK(roles[(size_t)TextureRole::Diffuse] == 1);
     CHECK(roles[(size_t)TextureRole::EnvMap]  == 8);
     for (size_t i = 0; i < roles.size(); ++i) {

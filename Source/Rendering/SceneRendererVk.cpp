@@ -336,6 +336,7 @@ bool SceneRendererVk::BuildBatch(VkContext& ctx, const ScenePipelines& pipelines
     const Image2D* envImg = nullptr;
     const Image2D* scatterImg = nullptr;
     const Image2D* opacityImg = nullptr;
+    Parsers::NormalMapDesc normalMap;
 
     if (part.materialId < scene.materials.size()) {
         const MaterialDesc& mat = scene.materials[part.materialId];
@@ -345,6 +346,7 @@ bool SceneRendererVk::BuildBatch(VkContext& ctx, const ScenePipelines& pipelines
         batch.uvOffset[0] = mat.uvOffset[0];
         batch.uvOffset[1] = mat.uvOffset[1];
         batch.metallic = mat.metallic;
+        normalMap = mat.normalMap;
 
         // Reused verbatim per the brief -- pure, public, no reimplementation.
         // (Task 11: extracted from the deleted GL SceneRenderer into
@@ -399,7 +401,10 @@ bool SceneRendererVk::BuildBatch(VkContext& ctx, const ScenePipelines& pipelines
     if (useJoints) flags |= SceneFlags::kUseJoints;
     if (batch.hasEnvmap) flags |= SceneFlags::kHasEnvmap;
     if (opacityImg) flags |= SceneFlags::kHasOpacity;
+    const PackedNormalMapParams packedNormal = PackNormalMapParams(normalMap);
+    flags |= packedNormal.flags;
     mubo.flags = flags;
+    mubo.normalDecode = packedNormal.decode;
 
     gb.materialUbo = Resources::CreateBuffer(ctx, sizeof(SceneMaterialUBO),
                                              VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,

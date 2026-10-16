@@ -9,9 +9,9 @@
 // this file's own configure_file() call in the root CMakeLists.txt.
 
 #define ONYX_VERSION_MAJOR 1
-#define ONYX_VERSION_MINOR 2
+#define ONYX_VERSION_MINOR 3
 #define ONYX_VERSION_PATCH 0
-#define ONYX_VERSION_STRING "1.2.0"
+#define ONYX_VERSION_STRING "1.3.0"
 
 namespace Onyx {
 

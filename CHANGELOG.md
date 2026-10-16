@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.3.0 — 2026-10-16
+
+Normal-map decoding is now material metadata instead of a renderer-wide
+assumption. Loaders can describe two-channel maps that reconstruct Z or
+three-channel maps that preserve an authored Z component, while existing
+consumers retain the previous BC5-style behavior by default.
+
+### Added
+- **`Parsers::NormalMapDesc` and `NormalMapEncoding`** -- a game-agnostic
+  contract for XY reconstruction versus authored XYZ, UNORM decode scale and
+  bias, XY strength, and Y-axis inversion.
+- **`Rendering::PackNormalMapParams`** -- the pure CPU-to-GPU conversion used
+  by the Vulkan renderer and available to consumers for contract tests.
+
+### Changed
+- **The scene material UBO carries normal decode parameters.** The fragment
+  shader selects XY reconstruction or XYZ preservation per material and no
+  longer assumes every normal texture can discard its blue channel.
+- **`MaterialDesc` defaults are source-compatible.** A material that does not
+  provide normal metadata still uses `sample.rg * 2 - 1`, reconstructs Z, keeps
+  normal strength at 1, and does not flip Y.
+
 ## v1.2.0 — 2026-08-23
 
 A cutout material is now readable. `Parsers::TextureRole` gained `Opacity`,

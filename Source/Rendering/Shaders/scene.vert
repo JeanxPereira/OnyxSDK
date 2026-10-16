@@ -29,6 +29,7 @@ layout(std140, set = 1, binding = 0) uniform MaterialUBO {
     vec2  uUvOffset;
     float uMetallic;
     uint  uFlags;
+    vec4  uNormalDecode;
 };
 
 const uint FLAG_USE_JOINTS = 1u << 5;

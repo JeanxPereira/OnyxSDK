@@ -5,9 +5,11 @@
 // already pulls both in, in that order, so including it first here keeps
 // the rule honored without repeating it.
 #include <Onyx/Rendering/VkContext.h>
+#include <Onyx/Parsers/SceneNode.h>
 
 #include <glm/glm.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -172,8 +174,12 @@ struct alignas(16) SceneMaterialUBO {
     glm::vec2 uvOffset{0.0f, 0.0f};
     float     metallic = 0.0f;
     uint32_t  flags = 0;
+    // x = decode scale, y = decode bias, z = XY strength, w = Y sign.
+    glm::vec4 normalDecode{2.0f, -1.0f, 1.0f, 1.0f};
 };
-static_assert(sizeof(SceneMaterialUBO) == 48, "SceneMaterialUBO must match scene.vert/frag's std140 MaterialUBO");
+static_assert(sizeof(SceneMaterialUBO) == 64, "SceneMaterialUBO must match scene.vert/frag's std140 MaterialUBO");
+static_assert(offsetof(SceneMaterialUBO, flags) == 44, "SceneMaterialUBO flags offset drifted");
+static_assert(offsetof(SceneMaterialUBO, normalDecode) == 48, "SceneMaterialUBO normal decode offset drifted");
 
 /// SceneMaterialUBO::flags bits (scene.vert/scene.frag: FLAG_* consts).
 /// Bits 0-4 mirror GL's per-batch texture-presence uniforms
@@ -192,16 +198,27 @@ inline constexpr uint32_t kHasScatter = 1u << 4;
 inline constexpr uint32_t kUseJoints  = 1u << 5;
 inline constexpr uint32_t kHasEnvmap  = 1u << 6;
 inline constexpr uint32_t kHasOpacity = 1u << 7;
+inline constexpr uint32_t kNormalXYZ  = 1u << 8;
 } // namespace SceneFlags
 
+/// GPU-ready representation of a loader-supplied normal-map contract.
+/// Keeping this conversion public and pure lets non-rendering consumers
+/// validate their material metadata without a Vulkan context.
+struct PackedNormalMapParams {
+    glm::vec4 decode{2.0f, -1.0f, 1.0f, 1.0f};
+    uint32_t flags = 0;
+};
+
+PackedNormalMapParams PackNormalMapParams(const Parsers::NormalMapDesc& normal);
+
 /// set 1, binding 1 combined-sampler slot indices (scene.frag: ROLE_*
-/// consts). NOT a positional reindex of the loader's 9-entry
+/// consts). NOT a positional reindex of the loader's 10-entry
 /// `Parsers::TextureRole` enum (Diffuse, Normal, Occlusion, Gloss,
-/// Height, Scatter, Detail, Emissive, EnvMap) — it is exactly the 6
-/// textures GL's SCENE_FRAG actually samples today, reindexed onto a
-/// packed 0-5 array: diffuse (texture0), normal, AO (GL's "Occlusion"
+/// Height, Scatter, Detail, Emissive, EnvMap, Opacity) — it is the 7
+/// textures the scene shader samples today, reindexed onto a packed 0-6
+/// array: diffuse (texture0), normal, AO (GL's "Occlusion"
 /// role), gloss, envmap (GL's texture1 -- restored here; see
-/// SceneFlags::kHasEnvmap), scatter. `Height`, `Detail`, and `Emissive`
+/// SceneFlags::kHasEnvmap), scatter, opacity. `Height`, `Detail`, and `Emissive`
 /// are resolved by `SceneRenderer::Build` (`roles[]`) but never bound to
 /// a GL texture unit or sampled by SCENE_FRAG
 /// (Source/Rendering/SceneRenderer.cpp:128-131's own comment: "the

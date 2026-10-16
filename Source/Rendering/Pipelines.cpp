@@ -20,6 +20,16 @@
 
 namespace Onyx::Rendering {
 
+PackedNormalMapParams PackNormalMapParams(const Parsers::NormalMapDesc& normal) {
+    PackedNormalMapParams packed;
+    packed.decode = glm::vec4(normal.decodeScale, normal.decodeBias, normal.strength,
+                              normal.flipY ? -1.0f : 1.0f);
+    if (normal.encoding == Parsers::NormalMapEncoding::XYZ) {
+        packed.flags |= SceneFlags::kNormalXYZ;
+    }
+    return packed;
+}
+
 namespace {
 
 VkShaderModule CreateShaderModule(VkContext& ctx, const uint32_t* code, size_t codeSizeBytes,
