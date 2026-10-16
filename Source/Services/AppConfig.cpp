@@ -267,10 +267,10 @@ void AppConfig::save(const std::string& path) const {
     });
 
     auto overrides = AssetVisibility::Get().ExportOverridesByKey(Onyx::Types::TypeCatalog::Get());
-    for (const auto& [key, visible] : pendingVisibility) {
+    for (const auto& pending : pendingVisibility) {
         bool alreadyExported = std::any_of(overrides.begin(), overrides.end(),
-            [&](const auto& kv) { return kv.first == key; });
-        if (!alreadyExported) overrides.emplace_back(key, visible);
+            [&](const auto& kv) { return kv.first == pending.first; });
+        if (!alreadyExported) overrides.emplace_back(pending);
     }
     if (!overrides.empty()) {
         toml::array ov;

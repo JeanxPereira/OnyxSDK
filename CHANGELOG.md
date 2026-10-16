@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.3.1 — 2026-10-16
+
+### Fixed
+- **`AppConfig` now builds with Apple Clang on ARM64.** Visibility override
+  serialization no longer captures a structured-binding name from a nested
+  lambda, avoiding a compiler compatibility failure without changing the
+  persisted configuration behavior.
+
 ## v1.3.0 — 2026-10-16
 
 Normal-map decoding is now material metadata instead of a renderer-wide
