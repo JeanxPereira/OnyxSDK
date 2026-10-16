@@ -11,6 +11,8 @@
 #import <Cocoa/Cocoa.h>
 #import <Foundation/Foundation.h>
 
+namespace Onyx::App {
+
 // ── Platform-specific GL hints ──────────────────────────────────────────────
 void Window::configureGLFW() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -118,6 +120,8 @@ void Window::beginNativeWindowFrame() {
 void Window::endNativeWindowFrame() {
     // No-op
 }
+
+} // namespace Onyx::App
 
 #pragma clang diagnostic pop
 
