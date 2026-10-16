@@ -21,6 +21,25 @@ enum class BlendMode : uint8_t {
     EnvMap        // Environment map blend (strange blended in Go)
 };
 
+/// How the normal texture stores its tangent-space vector.
+/// XYReconstructZ is the backwards-compatible default used by BC5-style
+/// maps. XYZ preserves an authored third channel (for example RGB/BC7 maps).
+enum class NormalMapEncoding : uint8_t {
+    XYReconstructZ,
+    XYZ
+};
+
+/// Format-agnostic normal-map decode contract. A loader describes the data;
+/// the renderer applies the same formula regardless of the source game:
+/// decoded = sampled * decodeScale + decodeBias.
+struct NormalMapDesc {
+    NormalMapEncoding encoding = NormalMapEncoding::XYReconstructZ;
+    float decodeScale = 2.0f;
+    float decodeBias = -1.0f;
+    float strength = 1.0f;
+    bool  flipY = false;
+};
+
 /// Explicit texture role a material can bind (spec §8.1). Replaces the old
 /// positional layer index — a role identifies WHAT a texture is for, not
 /// WHERE it happened to land in a per-game layer ordering.
@@ -45,6 +64,7 @@ struct MaterialDesc {
     BlendMode   blendMode     = BlendMode::Normal;
     float       uvOffset[2]   = {0, 0};            // UV scroll offset
     float       metallic      = 0.0f;              // PBR metallic factor
+    NormalMapDesc normalMap;                        // tangent-space decode metadata
     // role -> index into SceneData::textures; absent role = no map.
     std::map<TextureRole, int> textures;
 };

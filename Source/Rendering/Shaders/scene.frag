@@ -14,7 +14,7 @@
 //  1. Uniforms -> descriptor sets (mechanical, brief-fixed, no math
 //     changed). set 0 = per-frame UBO (view, proj, camera pos, mode);
 //     set 1 = per-batch material UBO (baseColor, layerColor, uvOffset,
-//     metallic, flags) + a fixed 6-slot combined-sampler role array +
+//     metallic, flags, normal decode) + a fixed 7-slot combined-sampler role array +
 //     the skinning SSBO (scene.vert). Push constant = per-draw model
 //     matrix (64B).
 //  2. Matcap mode (GL uShadingMode==1, a `uMatcap` sampler + the
@@ -50,25 +50,24 @@
 //     of the pinned lighting math, and the brief's material UBO has no
 //     field for it. A later task can add a dedicated line-mode pipeline
 //     if the overlay is wanted in Vulkan.
-//  5. uLightDir, uNormalStrength and uUseVertexColor become compile-time
-//     constants instead of uniforms/branches. All three are invariant at
+//  5. uLightDir and uUseVertexColor become compile-time constants instead
+//     of uniforms/branches. Both are invariant at
 //     every GL call site (Source/Rendering/SceneRenderer.cpp:633 sets
 //     uLightDir to the same normalize(0.4,0.8,0.5) literal on every draw;
-//     :637 sets uNormalStrength to the literal 1.0 every draw, so its
-//     `nxy *= uNormalStrength` step was already a no-op; :679 sets
-//     uUseVertexColor to 1 unconditionally every batch) — inlining them
+//     :679 sets uUseVertexColor to 1 unconditionally every batch) — inlining them
 //     changes nothing numerically and keeps them out of the brief's fixed
-//     UBO shape, which lists none of the three.
+//     UBO shape. Normal strength is now material metadata and defaults to
+//     the same 1.0 value.
 //  6. GL's texture units (0 diffuse, 1 envmap, 2 matcap, 3 normal, 4 AO,
-//     5 gloss, 6 scatter) are replaced by the fixed 6-slot role array
+//     5 gloss, 6 scatter) are replaced by the fixed 7-slot role array
 //     from the descriptor scheme: index 0 = diffuse, 1 = normal, 2 = AO
 //     (GL's "Occlusion" role), 3 = gloss, 4 = envmap (divergence 3;
-//     wrongly left unassigned in the first pass), 5 = scatter. This is
-//     NOT a positional reindex of the loader's 9-entry
+//     wrongly left unassigned in the first pass), 5 = scatter, 6 = opacity.
+//     This is NOT a positional reindex of the loader's 10-entry
 //     `Parsers::TextureRole` enum (that has Height at index 4, which GL
 //     never binds to a texture unit or samples here at all) — it is
-//     exactly the 6 textures GL's SCENE_FRAG actually samples today,
-//     repacked onto a dense 0-5 array. See
+//     the seven textures this scene shader samples today, repacked onto a
+//     dense 0-6 array. See
 //     `Onyx::Rendering::SceneRole`'s comment in Pipelines.h for the same
 //     correction on the C++ side. No role's sampling math changed.
 //  7. GL's top-level `uUseJoints` uniform becomes a bit (FLAG_USE_JOINTS)
@@ -115,6 +114,7 @@ layout(std140, set = 1, binding = 0) uniform MaterialUBO {
     vec2  uUvOffset;
     float uMetallic;
     uint  uFlags;
+    vec4  uNormalDecode; // scale, bias, XY strength, Y sign
 };
 
 const uint FLAG_USE_TEXTURE = 1u << 0;
@@ -124,8 +124,9 @@ const uint FLAG_HAS_GLOSS   = 1u << 3;
 const uint FLAG_HAS_SCATTER = 1u << 4;
 const uint FLAG_HAS_ENVMAP  = 1u << 6;   // divergence 3 — mirrors GL's uUseEnvmap
 const uint FLAG_HAS_OPACITY = 1u << 7;
+const uint FLAG_NORMAL_XYZ  = 1u << 8;
 
-// Fixed 6-slot role array (divergence 6). Onyx::Rendering::SceneRole in
+// Fixed 7-slot role array (divergence 6). Onyx::Rendering::SceneRole in
 // Pipelines.h mirrors these indices for the C++ side.
 layout(set = 1, binding = 1) uniform sampler2D uRoleTex[7];
 const int ROLE_DIFFUSE = 0;
@@ -144,12 +145,10 @@ layout(location = 0) out vec4 FragColor;
 // reason (matches the raw literal, `normalize()` at each use site below
 // is idempotent on top of it).
 const vec3  kLightDir       = vec3(0.4, 0.8, 0.5);
-const float kNormalStrength = 1.0;
-
-// Rebuilds the tangent frame and applies the normal map. The map's Z is
-// reconstructed rather than sampled: the shipped normals are BC5, which
-// stores only two channels, and reconstructing stays correct for the BC7
-// ones too.
+// Rebuilds the tangent frame and applies the material's declared normal-map
+// contract. XY maps reconstruct Z (BC5-style); XYZ maps preserve the authored
+// blue channel. Decode scale/bias also supports exact UNORM endpoint formulas
+// rather than forcing every source format through sample * 2 - 1.
 vec3 ApplyNormalMap(vec3 N) {
     vec3 T = vWorldTangent - N * dot(N, vWorldTangent);   // Gram-Schmidt
     float len = length(T);
@@ -158,10 +157,19 @@ vec3 ApplyNormalMap(vec3 N) {
     // A mirroring model transform flips the frame with it.
     vec3 B = cross(N, T) * vHandedness * sign(vDet);
 
-    vec2 nxy = texture(uRoleTex[ROLE_NORMAL], vUV).rg * 2.0 - 1.0;
-    nxy *= kNormalStrength;
-    float nz = sqrt(max(1.0 - dot(nxy, nxy), 0.0));
-    return normalize(T * nxy.x + B * nxy.y + N * nz);
+    vec3 tangentNormal = texture(uRoleTex[ROLE_NORMAL], vUV).rgb
+                       * uNormalDecode.x + uNormalDecode.y;
+    tangentNormal.y *= uNormalDecode.w;
+    tangentNormal.xy *= uNormalDecode.z;
+
+    if ((uFlags & FLAG_NORMAL_XYZ) == 0u) {
+        tangentNormal.z = sqrt(max(1.0 - dot(tangentNormal.xy, tangentNormal.xy), 0.0));
+    }
+
+    float normalLength = length(tangentNormal);
+    if (normalLength < 1e-5) return N;
+    tangentNormal /= normalLength;
+    return normalize(T * tangentNormal.x + B * tangentNormal.y + N * tangentNormal.z);
 }
 
 // GGX / Trowbridge-Reitz
