@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.3.2 — 2026-10-16
+
+### Fixed
+- **The macOS window backend now defines `Window` methods in `Onyx::App`.**
+  This restores Apple Clang builds for SDK consumers that enable the shell.
+
 ## v1.3.1 — 2026-10-16
 
 ### Fixed
