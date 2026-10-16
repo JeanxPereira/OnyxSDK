@@ -13,7 +13,7 @@
 
 static void(*s_fullFrameCallback)() = nullptr;
 
-namespace NativeWindow {
+namespace Onyx::App::NativeWindow {
 
 void setFullFrameCallback(void(*cb)()) {
     s_fullFrameCallback = cb;
@@ -125,7 +125,7 @@ bool macosIsFullScreen(GLFWwindow* window) {
     return (cocoaWindow.styleMask & NSWindowStyleMaskFullScreen) == NSWindowStyleMaskFullScreen;
 }
 
-} // namespace NativeWindow
+} // namespace Onyx::App::NativeWindow
 
 #pragma clang diagnostic pop
 

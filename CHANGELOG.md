@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.3.3 — 2026-10-16
+
+### Fixed
+- **The macOS native-window implementation now matches its public namespace.**
+  SDK consumers can link the shell's title-bar and window-state helpers on
+  Apple platforms.
+
 ## v1.3.2 — 2026-10-16
 
 ### Fixed
