@@ -19,5 +19,6 @@ function(onyx_add_tests layer)
     onyx_add_standalone_headers(${layer})
 endfunction()
 
+add_subdirectory(Cli)
 add_subdirectory(Core)
 add_subdirectory(TestKit)
