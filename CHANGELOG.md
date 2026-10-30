@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — 2.0.0
+
+v2 is a break-and-port: the public surface is redesigned and nothing from 1.x is kept as compatibility. The v1 tree lives in `legacy/` for reference and is not built.
+
+### W0
+- **Legacy move.** The v1 tree moved to `legacy/`.
+- **Layer targets.** The nine `Onyx::*` layer targets, the `ONYX_WITH_*` component options with downward cascade, and the four presets.
+- **Tools.** `tools/check.py` as the build verdict and `tools/lint.py` for layer hygiene.
+- **Tests and CI.** The per-layer doctest rig, the standalone header check, and CI running `check.py` on Windows and Linux.
+
 ## v1.3.3 — 2026-10-16
 
 ### Fixed
