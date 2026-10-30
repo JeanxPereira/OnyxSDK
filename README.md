@@ -20,14 +20,14 @@ Onyx is a C++20 SDK for building game-asset tools. A module describes a game's f
 
 ## How it is built
 
-Onyx is nine static libraries, each with its own `Source/<Layer>/` directory and public `include/` directory, and each linking only the layers below it. When v2 is complete the nine layers are: `Onyx::Core` (will hold the virtual filesystem, type identity, domain data, module contract, workspace, jobs, settings and logging), `Onyx::Gpu` (Vulkan ownership), `Onyx::Render` (scene renderer), `Onyx::Ui` (ImGui components drawn inside your own frame), `Onyx::Shell` (the ready-made application), `Onyx::Media` (video and audio), `Onyx::Cli` (stock verbs), `Onyx::Exchange` (glTF, PNG and WAV export) and `Onyx::TestKit` (goldens and synthetic fixtures); the layer contents described here are the plan; Status lists what exists today. A consumer names the layers it uses and links nothing else; there is no aggregate target. The figure of this stack is planned for W5.
+Onyx is nine static libraries, each with its own `Source/<Layer>/` directory and public `include/` directory, and each linking only the layers below it. When v2 is complete the nine layers are: `Onyx::Core` (holds the virtual filesystem, type identity, domain data, module contract, workspace, jobs, settings and logging), `Onyx::Gpu` (Vulkan ownership), `Onyx::Render` (scene renderer), `Onyx::Ui` (ImGui components drawn inside your own frame), `Onyx::Shell` (the ready-made application), `Onyx::Media` (video and audio), `Onyx::Cli` (stock verbs), `Onyx::Exchange` (glTF, PNG and WAV export) and `Onyx::TestKit` (goldens and synthetic fixtures); the layer contents described here are the plan; Status lists what exists today. A consumer names the layers it uses and links nothing else; there is no aggregate target. The figure of this stack is planned for W5.
 
 ## Status
 
 v2 is in progress on branch `v2`. W0 (the skeleton) and W1 (Core) are done. What works today:
 
 - **Core.** The virtual filesystem (OS, memory and slice files, ISO 9660 mounts, lz4), the type catalog, the game-agnostic domain model, the module contract with capability-aware decoders, the workspace that opens documents synchronously or on the job queue, jobs, events and diagnostics, atomic settings with a declared schema, and the declarative schema reader.
-- **Cli.** The verb table and the stock verbs `probe`, `list`, `extract` and `decode`.
+- **Cli.** The stock verbs `probe`, `list`, `extract` and `decode`; the verb table itself lives in Core (`Onyx/Core/Cli/Verb.h`).
 - **TestKit.** Tree goldens, the decode smoke check and the synthetic ISO builder.
 - **OnyxBox.** A synthetic example module (`Onyx::ExampleBox`) with its container writer, used by the tests and by the consumer gate.
 
@@ -36,8 +36,8 @@ v2 is in progress on branch `v2`. W0 (the skeleton) and W1 (Core) are done. What
 ## Build and run
 
 ```
-py -3 tools/check.py                         # configure, build, ctest, lint; exit code is the verdict
-py -3 tools/check.py --preset linux-release  # pick another preset
+py -3 tools/check.py                           # configure, build, ctest, lint; exit code is the verdict
+py -3 tools/check.py --preset windows-debug    # pick a preset explicitly
 ```
 
 Presets: `windows-debug`, `windows-release`, `linux-debug`, `linux-release`; build trees go to `build/<preset>`. `check.py` finds the Visual Studio toolchain itself on Windows. See `tools/README.md` for its flags.
@@ -67,6 +67,8 @@ FetchContent_MakeAvailable(OnyxSDK)
 
 target_link_libraries(my_tool PRIVATE Onyx::Core)
 ```
+
+On Clang with CMake 3.28 or newer, a consumer without `clang-scan-deps` installed configures with `-DCMAKE_CXX_SCAN_FOR_MODULES=OFF` (Onyx uses no C++ modules).
 
 The ctest entry `Consumer.CoreOnly` is the gate for this: it configures `Tests/Consumer/CoreOnly` as a separate top-level project against this checkout with `ONYX_WITH_GPU=OFF`, builds it, runs it, and fails if the consumer's `_deps` holds any volk, Vulkan, VMA, glslang, ImGui, GLFW, ffmpeg or ImPlot directory.
 
