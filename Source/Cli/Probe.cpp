@@ -9,9 +9,9 @@ namespace Onyx::Cli::Detail {
 Verb ProbeVerb() {
     return Verb{
         "probe", "<file> [--game <hint>]",
-        [](Modules::Workspace& ws, std::span<const std::string_view> argv, std::ostream& out, std::ostream& err) {
-            const Args args = ParseArgs(argv);
-            if (args.positional.empty()) {
+        [](Modules::Workspace& ws, const VerbTable&, std::span<const std::string_view> argv, std::ostream& out, std::ostream& err) {
+            Args args;
+            if (!ParseArgs(argv, args) || args.positional.empty()) {
                 err << "usage: probe <file> [--game <hint>]\n";
                 return kUsage;
             }

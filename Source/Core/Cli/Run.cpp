@@ -53,7 +53,7 @@ int Run(Modules::Workspace& ws, const VerbTable& table, int argc, char** argv, s
 
     std::vector<std::string_view> args;
     for (int i = 2; i < argc; ++i) args.emplace_back(argv[i]);
-    return verb->run(ws, args, out, err);
+    return verb->run(ws, table, args, out, err);
 }
 
 }

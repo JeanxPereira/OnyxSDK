@@ -117,12 +117,14 @@ void ExtractEntries(std::ostream& out, const Modules::Document& doc, const std::
 }
 
 Verb ExtractVerb() {
+    constexpr std::string_view kUsageText =
+        "<file> <dir> [--game <hint>] (entries of secondary files go to <dir>/<fileIndex>/)";
     return Verb{
-        "extract", "<file> <dir> [--game <hint>]",
-        [](Modules::Workspace& ws, std::span<const std::string_view> argv, std::ostream& out, std::ostream& err) {
-            const Args args = ParseArgs(argv);
-            if (args.positional.size() < 2) {
-                err << "usage: extract <file> <dir> [--game <hint>]\n";
+        "extract", std::string(kUsageText),
+        [kUsageText](Modules::Workspace& ws, const VerbTable&, std::span<const std::string_view> argv, std::ostream& out, std::ostream& err) {
+            Args args;
+            if (!ParseArgs(argv, args) || args.positional.size() < 2) {
+                err << "usage: extract " << kUsageText << '\n';
                 return kUsage;
             }
 

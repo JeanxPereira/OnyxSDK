@@ -200,15 +200,15 @@ bool KindMatches(Domain::MediaKind kind, const Modules::Capabilities& caps) {
 
 }
 
-Verb DecodeVerb(const Exporters* exporters) {
+Verb DecodeVerb() {
     constexpr std::string_view kUsageText =
         "<file> <entry|@path> [--strict] [--game <hint>] [--to <format> --out <path>]";
     return Verb{
         "decode", std::string(kUsageText),
-        [exporters, kUsageText](Modules::Workspace& ws, std::span<const std::string_view> argv, std::ostream& out,
-                                std::ostream& err) {
-            const Args args = ParseArgs(argv);
-            if (args.positional.size() < 2) {
+        [kUsageText](Modules::Workspace& ws, const VerbTable& table, std::span<const std::string_view> argv,
+                     std::ostream& out, std::ostream& err) {
+            Args args;
+            if (!ParseArgs(argv, args) || args.positional.size() < 2) {
                 err << "usage: decode " << kUsageText << '\n';
                 return kUsage;
             }
@@ -235,7 +235,7 @@ Verb DecodeVerb(const Exporters* exporters) {
 
             const Exporter* exporter = nullptr;
             if (!args.to.empty()) {
-                exporter = exporters ? exporters->Find(args.to) : nullptr;
+                exporter = table.Exporters().Find(args.to);
                 if (!exporter) {
                     out << "unknown export format: " << args.to << '\n';
                     return kUsage;

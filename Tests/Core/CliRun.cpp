@@ -27,8 +27,8 @@ struct Argv {
 
 Cli::Verb Echo(std::string name, int rc) {
     return Cli::Verb{std::move(name), "<file>",
-                     [rc](Modules::Workspace&, std::span<const std::string_view> args, std::ostream& out,
-                          std::ostream&) {
+                     [rc](Modules::Workspace&, const Cli::VerbTable&, std::span<const std::string_view> args,
+                          std::ostream& out, std::ostream&) {
                          for (std::string_view a : args) out << a << ";";
                          return rc;
                      }};

@@ -4,11 +4,15 @@
 
 namespace Onyx::Cli::Detail {
 
-Args ParseArgs(std::span<const std::string_view> args) {
-    Args parsed;
+bool ParseArgs(std::span<const std::string_view> args, Args& parsed) {
     for (size_t i = 0; i < args.size(); ++i) {
         const std::string_view a = args[i];
         const bool hasValue = i + 1 < args.size();
+        const auto value = [&](std::string_view& into) {
+            if (!hasValue) return false;
+            into = args[++i];
+            return true;
+        };
         if (a == "--json") {
             parsed.json = true;
         } else if (a == "--strict") {
@@ -16,16 +20,18 @@ Args ParseArgs(std::span<const std::string_view> args) {
         } else if (a == "--first") {
             parsed.first = true;
         } else if (a == "--game") {
-            if (hasValue) parsed.game = args[++i];
+            if (!value(parsed.game)) return false;
         } else if (a == "--to") {
-            if (hasValue) parsed.to = args[++i];
+            if (!value(parsed.to)) return false;
         } else if (a == "--out") {
-            if (hasValue) parsed.out = args[++i];
+            if (!value(parsed.out)) return false;
+        } else if (a.starts_with("--")) {
+            return false;
         } else {
             parsed.positional.push_back(a);
         }
     }
-    return parsed;
+    return true;
 }
 
 OpenDocument::OpenDocument(Modules::Workspace& ws, const std::filesystem::path& path, std::string_view moduleHint)
@@ -58,11 +64,7 @@ std::shared_ptr<const Vfs::IFile> FileOf(const Modules::Document& doc, const Dom
 namespace Onyx::Cli {
 
 std::vector<Verb> StockVerbs() {
-    return StockVerbs(nullptr);
-}
-
-std::vector<Verb> StockVerbs(const Exporters* exporters) {
-    return {Detail::ProbeVerb(), Detail::ListVerb(), Detail::ExtractVerb(), Detail::DecodeVerb(exporters)};
+    return {Detail::ProbeVerb(), Detail::ListVerb(), Detail::ExtractVerb(), Detail::DecodeVerb()};
 }
 
 }

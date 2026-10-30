@@ -13,11 +13,13 @@
 
 namespace Onyx::Cli {
 
+class VerbTable;
+
 struct Verb {
     std::string name;
     std::string usage;
-    std::function<int(Modules::Workspace&, std::span<const std::string_view> args, std::ostream& out,
-                      std::ostream& err)>
+    std::function<int(Modules::Workspace&, const VerbTable& table, std::span<const std::string_view> args,
+                      std::ostream& out, std::ostream& err)>
         run;
 };
 

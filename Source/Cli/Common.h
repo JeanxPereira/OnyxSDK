@@ -26,8 +26,9 @@ struct Args {
     std::string_view out;
 };
 
-// Flags may appear anywhere after the verb; a value flag with nothing after it is ignored.
-Args ParseArgs(std::span<const std::string_view> args);
+// Flags may appear anywhere after the verb. False for an unknown `--` token or a value flag with
+// nothing after it.
+bool ParseArgs(std::span<const std::string_view> args, Args& parsed);
 
 // Opens a document for the lifetime of the guard and closes it afterwards.
 class OpenDocument {
@@ -58,6 +59,6 @@ std::shared_ptr<const Vfs::IFile> FileOf(const Modules::Document& doc, const Dom
 Verb ProbeVerb();
 Verb ListVerb();
 Verb ExtractVerb();
-Verb DecodeVerb(const Exporters* exporters);
+Verb DecodeVerb();
 
 }

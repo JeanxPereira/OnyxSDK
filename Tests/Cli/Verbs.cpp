@@ -71,7 +71,7 @@ struct Harness {
     Modules::Workspace ws;
     Cli::VerbTable table;
 
-    Harness() { table.Add(Cli::StockVerbs(&table.Exporters())); }
+    Harness() { table.Add(Cli::StockVerbs()); }
 
     struct Outcome {
         int rc = 0;
@@ -450,4 +450,37 @@ TEST_CASE("Cli.VerbsRejectMissingArguments") {
         CHECK(r.rc == Cli::kUsage);
         CHECK(Contains(r.err, "usage:"));
     }
+}
+
+TEST_CASE("Cli.UnknownFlagReturnsKUsage") {
+    Harness h;
+    h.ws.AddModule(std::make_unique<StubModule>(SampleOptions()));
+    TempFile file("flag_unknown.bin");
+    TempPath dir("flag_unknown_out");
+
+    const auto r = h.Invoke({"extract", file.path.string(), dir.path.string(), "--bogus"});
+    CHECK(r.rc == Cli::kUsage);
+    CHECK(Contains(r.err, "usage: extract"));
+    CHECK_FALSE(std::filesystem::exists(dir.path));
+}
+
+TEST_CASE("Cli.MistypedJsonFlagReturnsKUsage") {
+    Harness h;
+    h.ws.AddModule(std::make_unique<StubModule>(SampleOptions()));
+    TempFile file("flag_jsno.bin");
+
+    const auto r = h.Invoke({"list", file.path.string(), "--jsno"});
+    CHECK(r.rc == Cli::kUsage);
+    CHECK(Contains(r.err, "usage: list"));
+    CHECK(r.out.empty());
+}
+
+TEST_CASE("Cli.ValueFlagWithoutValueReturnsKUsage") {
+    Harness h;
+    h.ws.AddModule(std::make_unique<StubModule>(SampleOptions()));
+
+    const auto r = h.Invoke({"decode", "x", "y", "--to"});
+    CHECK(r.rc == Cli::kUsage);
+    CHECK(Contains(r.err, "usage: decode"));
+    CHECK(h.Invoke({"probe", "x", "--game"}).rc == Cli::kUsage);
 }
