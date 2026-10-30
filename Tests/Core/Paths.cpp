@@ -2,7 +2,9 @@
 
 #include <Onyx/Core/Services/Paths.h>
 
+#include <cstdlib>
 #include <filesystem>
+#include <string>
 
 using namespace Onyx::Services;
 namespace fs = std::filesystem;
@@ -24,4 +26,33 @@ TEST_CASE("Paths.IsInsideRejectsTraversal") {
 TEST_CASE("Paths.UserConfigEndsWithAppName") {
     auto p = Paths::UserConfig("OnyxTest");
     CHECK(p.filename() == "OnyxTest");
+}
+
+#ifdef _WIN32
+TEST_CASE("Paths.IsInsideIsCaseInsensitiveOnWindows") {
+    CHECK(Paths::IsInside("C:/a", "c:\\a\\b"));
+    CHECK_FALSE(Paths::IsInside("C:/a", "c:\\a\\..\\b"));
+}
+#endif
+
+TEST_CASE("Paths.UserConfigNeverRelative") {
+#ifdef _WIN32
+    const char* name = "APPDATA";
+#else
+    const char* name = "XDG_CONFIG_HOME";
+#endif
+    const char* old = std::getenv(name);
+    std::string saved = old ? old : "";
+#ifdef _WIN32
+    _putenv_s(name, "");
+#else
+    setenv(name, "", 1);
+#endif
+    auto p = Paths::UserConfig("OnyxTest");
+    CHECK((p.empty() || p.is_absolute()));
+#ifdef _WIN32
+    _putenv_s(name, saved.c_str());
+#else
+    setenv(name, saved.c_str(), 1);
+#endif
 }

@@ -105,6 +105,7 @@ public:
         if (!m_out.is_open()) return;
         m_out.write(line.data(), static_cast<std::streamsize>(line.size()));
         m_size += line.size();
+        if (e.level >= LogLevel::Error) m_out.flush();
     }
 
 private:
@@ -129,6 +130,10 @@ private:
             fs::rename(m_path, Numbered(1), ec);
         } else {
             fs::remove(m_path, ec);
+        }
+        if (ec) {
+            m_out.open(m_path, std::ios::app | std::ios::binary);
+            return;
         }
         m_out.open(m_path, std::ios::trunc | std::ios::binary);
         m_size = 0;

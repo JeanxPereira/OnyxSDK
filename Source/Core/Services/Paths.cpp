@@ -1,6 +1,7 @@
 #include <Onyx/Core/Services/Paths.h>
 
 #include <cstdlib>
+#include <cwctype>
 #include <string>
 #include <system_error>
 
@@ -56,13 +57,15 @@ fs::path Executable() {
 fs::path UserConfig(std::string_view appName) {
 #if defined(_WIN32)
     std::string root = EnvVar("APPDATA");
-    if (root.empty()) return fs::path(appName);
-    return fs::path(root) / fs::path(appName);
+    if (!root.empty() && fs::path(root).is_absolute()) return fs::path(root) / fs::path(appName);
+    std::string profile = EnvVar("USERPROFILE");
+    if (profile.empty() || !fs::path(profile).is_absolute()) return {};
+    return fs::path(profile) / "AppData" / "Roaming" / fs::path(appName);
 #else
     std::string xdg = EnvVar("XDG_CONFIG_HOME");
-    if (!xdg.empty()) return fs::path(xdg) / fs::path(appName);
+    if (!xdg.empty() && fs::path(xdg).is_absolute()) return fs::path(xdg) / fs::path(appName);
     std::string home = EnvVar("HOME");
-    if (home.empty()) return fs::path(appName);
+    if (home.empty() || !fs::path(home).is_absolute()) return {};
     return fs::path(home) / ".config" / fs::path(appName);
 #endif
 }
@@ -75,6 +78,15 @@ bool IsInside(const fs::path& base, const fs::path& p) {
     std::error_code ec;
     fs::path b = Normalize(fs::absolute(base, ec));
     fs::path t = Normalize(fs::absolute(p, ec));
+#if defined(_WIN32)
+    auto fold = [](const fs::path& x) {
+        std::wstring w = x.wstring();
+        for (wchar_t& c : w) c = static_cast<wchar_t>(::towlower(c));
+        return fs::path(w).make_preferred();
+    };
+    b = fold(b);
+    t = fold(t);
+#endif
     fs::path rel = t.lexically_relative(b);
     if (rel.empty()) return false;
     return *rel.begin() != "..";

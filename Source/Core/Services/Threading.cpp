@@ -7,18 +7,20 @@ namespace Onyx::Services {
 
 namespace {
 
-std::atomic<bool> g_marked{false};
+std::atomic<int> g_state{0};
 std::thread::id g_mainId{};
 
 }
 
 void MarkMainThread() {
+    int expected = 0;
+    if (!g_state.compare_exchange_strong(expected, 1, std::memory_order_acq_rel)) return;
     g_mainId = std::this_thread::get_id();
-    g_marked.store(true, std::memory_order_release);
+    g_state.store(2, std::memory_order_release);
 }
 
 bool IsMainThread() {
-    if (!g_marked.load(std::memory_order_acquire)) return false;
+    if (g_state.load(std::memory_order_acquire) != 2) return false;
     return std::this_thread::get_id() == g_mainId;
 }
 
