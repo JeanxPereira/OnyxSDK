@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <cctype>
 #include <exception>
-#include <unordered_set>
 
 namespace Onyx::Modules {
 
@@ -19,11 +18,15 @@ std::string Utf8(const std::filesystem::path& p) {
     return std::string(u.begin(), u.end());
 }
 
+std::string Lower(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return s;
+}
+
 std::string LowerExtension(const std::filesystem::path& p) {
     std::string ext = Utf8(p.extension());
     if (!ext.empty() && ext.front() == '.') ext.erase(ext.begin());
-    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return ext;
+    return Lower(std::move(ext));
 }
 
 void Report(Services::DiagSink& diags, Services::Severity severity, std::string code, std::string message) {
@@ -41,19 +44,24 @@ Workspace::~Workspace() = default;
 Result<void> Workspace::AddModule(std::unique_ptr<IGameModule> module) {
     if (!module) return Result<void>::Fail({"workspace.nullModule", "module is null", 0});
     const std::string id = module->Info().id;
+    {
+        std::lock_guard lock(m_settingsMutex);
+        if (m_opened) {
+            return Result<void>::Fail({"workspace.locked", "modules must be added before the first open", 0});
+        }
+    }
     if (std::any_of(m_slots.begin(), m_slots.end(), [&](const Slot& s) { return s.module->Info().id == id; })) {
         return Result<void>::Fail({"workspace.duplicateModule", "module id '" + id + "' is already registered", 0});
     }
 
-    const std::vector<Types::TypeId> before = m_catalog.All();
     Types::TypeRegistrar registrar(m_catalog, id);
     module->RegisterTypes(registrar);
     module->RegisterDecoders(m_decoders);
 
     Slot slot;
-    const std::unordered_set<Types::TypeId> known(before.begin(), before.end());
+    const std::string prefix = id + ".";
     for (Types::TypeId t : m_catalog.All()) {
-        if (!known.contains(t)) slot.types.push_back(t);
+        if (m_catalog.Key(t).starts_with(prefix)) slot.types.push_back(t);
     }
 
     Services::SettingsSchema& schema = m_schemas[id];
@@ -180,7 +188,9 @@ bool Workspace::Parse(Document& doc, IGameModule& module, Services::Progress& pr
     const std::string ext = LowerExtension(doc.path);
     try {
         for (const MountSpec& spec : module.Mounts()) {
-            if (std::find(spec.extensions.begin(), spec.extensions.end(), ext) == spec.extensions.end()) continue;
+            const bool matches = std::any_of(spec.extensions.begin(), spec.extensions.end(),
+                                             [&](const std::string& e) { return Lower(e) == ext; });
+            if (!matches) continue;
             if (auto vfs = spec.mount(doc.path)) {
                 doc.mounted = std::move(vfs);
             } else {
@@ -252,6 +262,7 @@ std::span<const std::shared_ptr<Document>> Workspace::Documents() const {
 void Workspace::Close(DocumentId id) {
     auto it = std::find_if(m_documents.begin(), m_documents.end(), [id](const auto& d) { return d->id == id; });
     if (it == m_documents.end()) return;
+    (*it)->parseJob.Cancel();
     m_documents.erase(it);
     m_events.Post(DocumentClosed{id});
 }

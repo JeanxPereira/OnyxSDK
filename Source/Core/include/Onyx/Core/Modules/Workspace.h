@@ -42,7 +42,8 @@ public:
     Workspace(const Workspace&) = delete;
     Workspace& operator=(const Workspace&) = delete;
 
-    // Fails with "workspace.duplicateModule" when a module with the same id is registered.
+    // Modules are registered before the first Open or OpenAsync; afterwards this fails with
+    // "workspace.locked". Also fails with "workspace.duplicateModule" when the id is registered.
     Result<void> AddModule(std::unique_ptr<IGameModule> module);
 
     // Closes the module's documents and unregisters its decoders. False for an unknown id.
@@ -61,6 +62,7 @@ public:
     DocumentId OpenAsync(const std::filesystem::path& path, std::string_view moduleHint = {});
 
     Document* Get(DocumentId id);
+    // Requests cancellation of an in-flight parse; the worker keeps the document alive until done.
     void Close(DocumentId id);
 
     // Flags the parse job for cooperative cancellation. False when the document is unknown or was

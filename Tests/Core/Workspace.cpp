@@ -50,6 +50,7 @@ struct GatedModule : IGameModule {
     std::atomic<bool>* started = nullptr;
     std::atomic<bool>* release = nullptr;
     std::atomic<bool>* finished = nullptr;
+    std::atomic<bool>* sawCancel = nullptr;
 
     ModuleInfo Info() const override { return {"gated", "Gated", {}, {}}; }
     ProbeResult Probe(const ProbeInput&) const override { return {90, "gated"}; }
@@ -58,6 +59,7 @@ struct GatedModule : IGameModule {
     ParseResult ParseContainer(ContainerContext& ctx) override {
         started->store(true);
         while (!release->load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        if (sawCancel) sawCancel->store(ctx.progress.CancelRequested());
         ctx.roots.push_back({});
         finished->store(true);
         return {true};
@@ -106,7 +108,7 @@ struct MountModule : IGameModule {
     void RegisterTypes(Types::TypeRegistrar&) override {}
     void RegisterDecoders(DecoderRegistry&) override {}
     std::vector<MountSpec> Mounts() const override {
-        return {{"bin", {"bin"}, [this](const std::filesystem::path&) -> std::shared_ptr<Vfs::IVirtualFileSystem> {
+        return {{"bin", {"bin", "PAK"}, [this](const std::filesystem::path&) -> std::shared_ptr<Vfs::IVirtualFileSystem> {
                      if (refuse) return nullptr;
                      struct Empty : Vfs::IVirtualFileSystem {
                          std::vector<Vfs::DirEntry> List(std::string_view) const override { return {}; }
@@ -326,10 +328,11 @@ TEST_CASE("Workspace.CloseReportsAndForgets") {
 
 TEST_CASE("Workspace.CloseDuringAsyncParseKeepsTheDocumentAliveForTheWorker") {
     TempFile tmp("onyx_ws_uaf.bin", "data");
-    std::atomic<bool> started{false}, release{false}, finished{false};
+    std::atomic<bool> started{false}, release{false}, finished{false}, sawCancel{false};
     {
         Workspace ws;
         auto mod = std::make_unique<GatedModule>();
+        mod->sawCancel = &sawCancel;
         mod->started = &started;
         mod->release = &release;
         mod->finished = &finished;
@@ -350,6 +353,7 @@ TEST_CASE("Workspace.CloseDuringAsyncParseKeepsTheDocumentAliveForTheWorker") {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         CHECK(readyFor != id);
+        CHECK(sawCancel.load());
     }
 }
 
@@ -466,4 +470,40 @@ TEST_CASE("Workspace.OptionsSettingsPathIsLoaded") {
     }
     std::error_code ec;
     std::filesystem::remove(settingsFile, ec);
+}
+
+TEST_CASE("Workspace.UppercaseMountExtensionInSpecMatches") {
+    TempFile tmp("onyx_ws_mount_upper.pak", "x");
+    Workspace ws;
+    auto mod = std::make_unique<MountModule>();
+    MountModule* raw = mod.get();
+    REQUIRE(ws.AddModule(std::move(mod)));
+    REQUIRE(ws.Open(tmp.path) != 0);
+    CHECK(raw->sawMounted);
+}
+
+TEST_CASE("Workspace.ReAddedModuleRemovesItsDecodersAgain") {
+    Workspace ws;
+    Types::TypeId blob;
+    for (int round = 0; round < 2; ++round) {
+        auto stub = std::make_unique<StubModule>(StubOptions{"x", 90, 1});
+        StubModule* raw = stub.get();
+        REQUIRE(ws.AddModule(std::move(stub)));
+        blob = raw->BlobType();
+        CHECK(ws.Decoders().Of(blob).text);
+        CHECK(ws.RemoveModule("x"));
+        CHECK(ws.Decoders().Of(blob).Empty());
+    }
+    CHECK(ws.Catalog().Find("x.blob").Valid());
+}
+
+TEST_CASE("Workspace.AddModuleAfterOpenIsRefused") {
+    TempFile tmp("onyx_ws_locked.bin", "data");
+    Workspace ws;
+    REQUIRE(ws.AddModule(std::make_unique<StubModule>()));
+    REQUIRE(ws.Open(tmp.path) != 0);
+    const auto late = ws.AddModule(std::make_unique<StubModule>(StubOptions{"late"}));
+    REQUIRE_FALSE(late.ok());
+    CHECK(late.error().code == "workspace.locked");
+    CHECK(ws.Modules().size() == 1);
 }
