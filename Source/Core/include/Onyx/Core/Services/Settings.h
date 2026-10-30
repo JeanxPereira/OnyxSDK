@@ -34,6 +34,9 @@ public:
     // Save() only when Dirty(); otherwise succeeds without touching the file.
     Result<void> SaveIfDirty();
 
+    // True if the key holds a value of any type.
+    bool Has(std::string_view key) const;
+
     std::optional<bool> GetBool(std::string_view key) const;
     std::optional<int64_t> GetInt(std::string_view key) const;
     std::optional<double> GetDouble(std::string_view key) const;

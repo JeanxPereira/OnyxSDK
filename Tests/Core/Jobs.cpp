@@ -139,6 +139,27 @@ TEST_CASE("Jobs.JobQueue destruction releases resources captured by unstarted jo
     CHECK(weak.expired());
 }
 
+TEST_CASE("Jobs.RunsAcrossLanesInArrivalOrder") {
+    Onyx::Services::JobQueue q(1);
+    std::vector<int> order;
+    std::mutex mx;
+    std::atomic<bool> release{false};
+    q.Submit(1000, [&](Onyx::Services::Progress&) {
+        while (!release) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    });
+    for (int i = 0; i < 64; ++i) {
+        q.Submit(static_cast<uint64_t>(i + 1), [&, i](Onyx::Services::Progress&) {
+            std::lock_guard<std::mutex> l(mx);
+            order.push_back(i);
+        });
+    }
+    release = true;
+    while (q.PendingCallbacks() < 65) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    std::vector<int> expected;
+    for (int i = 0; i < 64; ++i) expected.push_back(i);
+    CHECK(order == expected);
+}
+
 TEST_CASE("Jobs.HandleOutlivesQueueWithoutExpiredState") {
     Onyx::Services::JobHandle handle;
     std::atomic<bool> started{false};

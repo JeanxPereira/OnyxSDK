@@ -34,6 +34,7 @@ namespace Detail {
 // `done` are internally synchronized.
 struct JobState {
     uint64_t lane = 0;
+    uint64_t seq = 0;
     std::function<void(Progress&)> work;
     std::function<void()> onDone;
     Progress progress;
@@ -100,6 +101,7 @@ JobHandle JobQueue::Submit(uint64_t lane, Work work, Done onDone) {
 
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+        state->seq = m_nextSeq++;
         m_pending[lane].push_back(state);
     }
     m_cv.notify_one();
@@ -116,16 +118,25 @@ bool JobQueue::HasRunnableLocked() const {
 }
 
 std::shared_ptr<Detail::JobState> JobQueue::PopRunnableLocked(uint64_t& outLane) {
+    std::deque<std::shared_ptr<Detail::JobState>>* best = nullptr;
+    uint64_t bestLane = 0;
     for (auto& [lane, dq] : m_pending) {
-        if (!dq.empty() && m_activeLanes.find(lane) == m_activeLanes.end()) {
-            auto job = dq.front();
-            dq.pop_front();
-            m_activeLanes.insert(lane);
-            outLane = lane;
-            return job;
+        if (dq.empty() || m_activeLanes.find(lane) != m_activeLanes.end()) {
+            continue;
+        }
+        if (!best || dq.front()->seq < best->front()->seq) {
+            best = &dq;
+            bestLane = lane;
         }
     }
-    return nullptr;
+    if (!best) {
+        return nullptr;
+    }
+    auto job = best->front();
+    best->pop_front();
+    m_activeLanes.insert(bestLane);
+    outLane = bestLane;
+    return job;
 }
 
 void JobQueue::WorkerLoop() {

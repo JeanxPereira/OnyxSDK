@@ -41,20 +41,20 @@ void ApplyDefaults(const SettingsSchema& schema, Settings& settings) {
     for (const auto& e : schema.Entries()) {
         switch (e.kind) {
         case Kind::Bool:
-            if (!settings.GetBool(e.key)) settings.Set(e.key, std::get<bool>(e.def));
+            if (!settings.Has(e.key)) settings.Set(e.key, std::get<bool>(e.def));
             break;
         case Kind::Int:
-            if (!settings.GetInt(e.key)) settings.Set(e.key, std::get<int64_t>(e.def));
+            if (!settings.Has(e.key)) settings.Set(e.key, std::get<int64_t>(e.def));
             break;
         case Kind::Double:
-            if (!settings.GetDouble(e.key)) settings.Set(e.key, std::get<double>(e.def));
+            if (!settings.Has(e.key)) settings.Set(e.key, std::get<double>(e.def));
             break;
         case Kind::String:
         case Kind::Path:
-            if (!settings.GetString(e.key)) settings.Set(e.key, std::get<std::string>(e.def));
+            if (!settings.Has(e.key)) settings.Set(e.key, std::get<std::string>(e.def));
             break;
         case Kind::Enum:
-            if (!settings.GetString(e.key)) {
+            if (!settings.Has(e.key)) {
                 size_t index = std::get<size_t>(e.def);
                 if (index < e.options.size()) settings.Set(e.key, e.options[index]);
             }

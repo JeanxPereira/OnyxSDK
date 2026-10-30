@@ -274,6 +274,21 @@ TEST_CASE("Settings.SaveIfDirtyWritesOnlyWhenDirty") {
     std::filesystem::remove_all(dir);
 }
 
+TEST_CASE("Settings.ApplyDefaultsLeavesWrongTypedValueAlone") {
+    auto dir = FreshDir("onyx_settings_wrongtype");
+    auto file = dir / "s.toml";
+    { std::ofstream(file, std::ios::binary) << "[ui]\ncount = \"x\"\n"; }
+    auto s = Settings::Load(file);
+    SettingsSchema schema;
+    schema.Int("ui.count", 7, 0, 100);
+    ApplyDefaults(schema, s);
+    CHECK(s.GetString("ui.count") == "x");
+    CHECK_FALSE(s.GetInt("ui.count").has_value());
+    CHECK(s.Has("ui.count"));
+    CHECK_FALSE(s.Has("ui.other"));
+    std::filesystem::remove_all(dir);
+}
+
 TEST_CASE("Settings.SchemaApplyDefaultsFillsMissingOnly") {
     auto dir = FreshDir("onyx_settings_schema");
     auto s = Settings::Load(dir / "s.toml");

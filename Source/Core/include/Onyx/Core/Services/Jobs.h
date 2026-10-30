@@ -67,7 +67,8 @@ private:
 };
 
 // Lane-serialized worker pool: at most one job per lane runs at a time, jobs of
-// one lane run FIFO, different lanes run concurrently up to the worker count.
+// one lane run FIFO, different lanes run concurrently up to the worker count,
+// and a free worker takes the runnable job that was submitted earliest.
 // Done callbacks run only inside Pump(), on the calling thread.
 class JobQueue {
 public:
@@ -101,6 +102,7 @@ private:
     mutable std::mutex m_mutex;
     std::condition_variable m_cv;
     bool m_stop = false;
+    uint64_t m_nextSeq = 0;
 
     std::unordered_map<uint64_t, std::deque<std::shared_ptr<Detail::JobState>>> m_pending;
     std::unordered_set<uint64_t> m_activeLanes;

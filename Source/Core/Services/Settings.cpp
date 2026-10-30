@@ -99,6 +99,10 @@ Settings Settings::Load(const std::filesystem::path& file) {
     std::string content;
     {
         std::ifstream in(file, std::ios::binary);
+        if (!in.is_open()) {
+            s.impl_->loadError = "settings.read: cannot open " + file.string() + " for reading";
+            return s;
+        }
         std::stringstream ss;
         ss << in.rdbuf();
         content = ss.str();
@@ -108,11 +112,16 @@ Settings Settings::Load(const std::filesystem::path& file) {
         s.impl_->tbl = toml::parse(content);
     } catch (const toml::parse_error& e) {
         s.impl_->tbl = toml::table();
-        s.impl_->loadError = std::string(e.description());
+        std::string message(e.description());
         auto broken = file.parent_path() / (file.stem().string() + ".broken.toml");
         if (!std::filesystem::exists(broken, ec)) {
-            std::filesystem::copy_file(file, broken, ec);
+            std::error_code copyEc;
+            std::filesystem::copy_file(file, broken, copyEc);
+            if (copyEc) {
+                message += " (preserving a copy failed: " + copyEc.message() + ")";
+            }
         }
+        s.impl_->loadError = std::move(message);
     }
 
     return s;
@@ -142,9 +151,8 @@ Result<void> Settings::Save() {
             return Result<void>::Fail({"settings.write", "cannot open " + tmp.string(), 0});
         }
         f << impl_->tbl;
-        f.flush();
+        f.close();
         if (!f) {
-            f.close();
             std::filesystem::remove(tmp, ec);
             return Result<void>::Fail({"settings.write", "cannot write " + tmp.string(), 0});
         }
@@ -162,6 +170,17 @@ Result<void> Settings::Save() {
 Result<void> Settings::SaveIfDirty() {
     if (!impl_->dirty) return Result<void>::Ok();
     return Save();
+}
+
+bool Settings::Has(std::string_view key) const {
+    auto [tableName, name] = SplitKey(key);
+    if (tableName.empty()) {
+        return impl_->tbl.contains(name);
+    }
+    if (const auto* table = impl_->tbl[tableName].as_table()) {
+        return table->contains(name);
+    }
+    return false;
 }
 
 std::optional<bool> Settings::GetBool(std::string_view key) const {
