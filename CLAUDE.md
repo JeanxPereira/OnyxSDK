@@ -6,12 +6,12 @@ Onyx is a C++20 SDK for game-asset tools, rebuilt as v2 in nine layered static l
 
 1. Layers compose and edges only point down. A layer's public headers live only in its own `Source/<Layer>/include/`.
 2. A module writes format knowledge; nothing in `Source/` names a game.
-3. No singletons behind `Get()`/`Instance()`. The one process-wide object is the default log.
+3. No singletons behind `Get()`/`Instance()`. The only process-wide object permitted is the default log (`Log::Default()`); nothing else may be reachable without a reference.
 4. No third-party include leaks across layers. Forbidden per layer (enforced by `tools/lint.py`):
    - Core, Cli, Exchange, TestKit: imgui, volk, VMA, vulkan, GLFW, windows.h, libav, miniaudio.
    - Gpu, Render: imgui, GLFW, libav, miniaudio.
    - Ui: GLFW, libav, miniaudio. Shell: libav. Media: GLFW.
-5. Every public header compiles standalone (`Tests/<Layer>/Standalone.cpp`).
+5. Every public header compiles standalone (`cmake/StandaloneHeaders.cmake`, wired by `onyx_add_tests`).
 6. English only. PascalCase files and types. No comment narrates a task, milestone, review or previous version.
 7. `tools/check.py` is the verdict: configure, build, ctest, lint, exit code.
 8. Commits: Conventional Commits, imperative Sentence-case subject of at most 72 chars, explicit paths, no attribution to AI anywhere. Commit and push only when Jean asks.

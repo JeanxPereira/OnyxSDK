@@ -16,15 +16,15 @@
 
 ## What it is
 
-Onyx is a toolkit for applications that open a game's archives, recognise its containers, decode its assets into plain data, and show them in a docked UI, a headless CLI, or a test. A game enters as a module that declares what is particular to it; everything universal belongs to the SDK. You write format knowledge, and Onyx does not name a game.
+Onyx is a toolkit, in progress, for applications that open a game's archives, recognise its containers, decode its assets into plain data, and show them in a docked UI, a headless CLI, or a test. A game enters as a module that declares what is particular to it; everything universal belongs to the SDK. You write format knowledge, and Onyx does not name a game.
 
 ## How it is built
 
-Onyx is nine static libraries, each with its own `Source/<Layer>/` directory and public `include/` directory, and each linking only the layers below it: `Onyx::Core` (virtual filesystem, type identity, domain data, module contract, workspace, jobs, settings, logging), `Onyx::Gpu` (Vulkan ownership), `Onyx::Render` (scene renderer), `Onyx::Ui` (ImGui components drawn inside your own frame), `Onyx::Shell` (the ready-made application), `Onyx::Media` (video and audio), `Onyx::Cli` (stock verbs), `Onyx::Exchange` (glTF, PNG and WAV export) and `Onyx::TestKit` (goldens and synthetic fixtures). A consumer names the layers it uses and links nothing else; there is no aggregate target. A figure of this stack will be added with the first release.
+Onyx is nine static libraries, each with its own `Source/<Layer>/` directory and public `include/` directory, and each linking only the layers below it. When v2 is complete the nine layers are: `Onyx::Core` (will hold the virtual filesystem, type identity, domain data, module contract, workspace, jobs, settings and logging), `Onyx::Gpu` (Vulkan ownership), `Onyx::Render` (scene renderer), `Onyx::Ui` (ImGui components drawn inside your own frame), `Onyx::Shell` (the ready-made application), `Onyx::Media` (video and audio), `Onyx::Cli` (stock verbs), `Onyx::Exchange` (glTF, PNG and WAV export) and `Onyx::TestKit` (goldens and synthetic fixtures); all of this is planned, not built. A consumer names the layers it uses and links nothing else; there is no aggregate target. The figure of this stack is planned for W5.
 
 ## Status
 
-v2 is in progress on branch `v2`. W0 (the skeleton) is done: the nine layer targets, the component options, the presets, `tools/check.py` and `tools/lint.py`, the per-layer test rig and CI. `legacy/` is the v1 tree and is not built. Nothing below Core's `LayerName()` exists yet; each layer exposes only that function today.
+v2 is in progress on branch `v2`. W0 (the skeleton) is done: the nine layer targets, the component options, the presets, `tools/check.py` and `tools/lint.py`, the per-layer test rig and CI. `legacy/` is the v1 tree and is not built. Nothing below Core's `LayerName()` exists yet; each layer exposes only `LayerName()`, and Core additionally generates `Version.h`. Only `Tests/Core` is wired so far, and CI is defined for both OSes but has not yet run on a hosted runner.
 
 ## Build and run
 
@@ -43,14 +43,14 @@ Onyx is consumed from source.
 include(FetchContent)
 FetchContent_Declare(OnyxSDK
     GIT_REPOSITORY https://github.com/JeanxPereira/OnyxSDK.git
-    GIT_TAG        v2)
-set(ONYX_WITH_GPU OFF)   # Core-only
+    GIT_TAG        v2)   # development branch; 2.0.0 will have a tag
+set(ONYX_WITH_GPU OFF)   # format layers only
 FetchContent_MakeAvailable(OnyxSDK)
 
 target_link_libraries(my_tool PRIVATE Onyx::Core)
 ```
 
-Component options: `ONYX_WITH_GPU` (Gpu and Render), `ONYX_WITH_UI`, `ONYX_WITH_SHELL`, `ONYX_WITH_MEDIA`. Turning a component off turns off those above it, so `-DONYX_WITH_GPU=OFF` alone yields a Core-only build. `ONYX_BUILD_TESTS`, `ONYX_BUILD_EXAMPLES` and `ONYX_BUILD_TOOLS` default to ON only when Onyx is the top-level project.
+Component options: `ONYX_WITH_GPU` (Gpu and Render), `ONYX_WITH_UI`, `ONYX_WITH_SHELL`, `ONYX_WITH_MEDIA`. Turning a component off turns off those above it. Core, Cli, Exchange and TestKit always build; `-DONYX_WITH_GPU=OFF` drops Gpu, Render, Ui, Shell and Media, leaving only the format layers, and a consumer that links `Onyx::Core` fetches nothing GPU- or UI-related. `ONYX_BUILD_TESTS`, `ONYX_BUILD_EXAMPLES` and `ONYX_BUILD_TOOLS` default to ON only when Onyx is the top-level project (`ONYX_BUILD_TOOLS` has no consumer yet).
 
 ## Where to look
 
