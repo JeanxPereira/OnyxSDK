@@ -1,0 +1,7 @@
+function(onyx_dep_stb)
+    if(TARGET stb)
+        return()
+    endif()
+    add_library(stb INTERFACE)
+    target_include_directories(stb INTERFACE "${PROJECT_SOURCE_DIR}/third_party/stb")
+endfunction()

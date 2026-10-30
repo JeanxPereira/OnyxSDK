@@ -1,0 +1,7 @@
+function(onyx_warnings target)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8 /Zc:__cplusplus /wd4100)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Wno-unused-parameter)
+    endif()
+endfunction()
