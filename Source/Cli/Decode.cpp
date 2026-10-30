@@ -183,7 +183,7 @@ int Export(Decoding& d, const Exporter& exporter, const std::filesystem::path& t
     }
     if (!result.ok()) {
         out << "export failed: " << result.error().message << "\n";
-        return kUsage;
+        return kPartial;
     }
     out << "exported " << d.entry.name << " to " << to.string() << " (" << format << ")\n";
     return kOk;

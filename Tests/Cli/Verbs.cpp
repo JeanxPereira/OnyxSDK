@@ -163,6 +163,21 @@ TEST_CASE("Cli.ExtractWritesPayloadBytesAndSkipsFailedEntries") {
     CHECK_FALSE(std::filesystem::exists(dir.path / "bad"));
 }
 
+TEST_CASE("Cli.ExtractReportsDuplicateLeafNames") {
+    StubOptions options;
+    options.script = {Entry("dup", "text", 0, 5), Entry("dup", "text", 5, 4), Entry("other", "text", 0, 5)};
+    Harness h;
+    h.ws.AddModule(std::make_unique<StubModule>(options));
+    TempFile file("extract_dup.bin");
+    TempPath dir("extract_dup_out");
+
+    const auto r = h.Invoke({"extract", file.path.string(), dir.path.string()});
+    CHECK(r.rc == Cli::kPartial);
+    CHECK(Contains(r.out, "skipped 'dup': duplicate name"));
+    CHECK(ReadFile(dir.path / "dup") == "hello");
+    CHECK(ReadFile(dir.path / "other") == "hello");
+}
+
 TEST_CASE("Cli.ExtractSkipsUnsafeNamesAndWritesNothingOutsideTheDir") {
     StubOptions options;
     for (const char* name : {"../evil.txt", "a/b.txt", "NUL", "con.txt", "good.txt"}) {
@@ -384,6 +399,22 @@ TEST_CASE("Cli.DecodeToExportsTheSceneThroughTheRegisteredExporter") {
     CHECK(h.Invoke({"decode", file.path.string(), "txt", "--to", "gltf", "--out", outPath.path.string()}).rc ==
           Cli::kUsage);
     CHECK(h.Invoke({"decode", file.path.string(), "mesh", "--to", "gltf"}).rc == Cli::kUsage);
+}
+
+TEST_CASE("Cli.DecodeToExportWriteFailureIsPartial") {
+    StubOptions options;
+    options.script = {Entry("mesh", "scene", 0, 0)};
+    Harness h;
+    h.ws.AddModule(std::make_unique<StubModule>(options));
+    TempFile file("decode_to_fail.bin");
+    TempPath outPath("decode_to_fail.glb");
+    h.table.Exporters().Add("gltf", Domain::MediaKind::Mesh, [](const void*, const std::filesystem::path&) {
+        return Result<void>::Fail({"export.io", "disk full", 0});
+    });
+
+    const auto r = h.Invoke({"decode", file.path.string(), "mesh", "--to", "gltf", "--out", outPath.path.string()});
+    CHECK(r.rc == Cli::kPartial);
+    CHECK(Contains(r.out, "export failed: disk full"));
 }
 
 TEST_CASE("Cli.DecodeToWithNoExporterRegisteredReturnsKUsage") {

@@ -11,6 +11,7 @@
 #include <exception>
 #include <fstream>
 #include <ostream>
+#include <set>
 #include <system_error>
 
 namespace Onyx::Cli::Detail {
@@ -62,10 +63,11 @@ Outcome WriteEntry(const std::shared_ptr<const Vfs::IFile>& file, const Domain::
 }
 
 void ExtractEntries(std::ostream& out, const Modules::Document& doc, const std::vector<Domain::AssetEntry>& entries,
-                    const std::filesystem::path& outDir, size_t& failures) {
+                    const std::filesystem::path& outDir, std::set<std::filesystem::path>& claimed,
+                    size_t& failures) {
     for (const Domain::AssetEntry& e : entries) {
         if (!e.children.empty()) {
-            ExtractEntries(out, doc, e.children, outDir, failures);
+            ExtractEntries(out, doc, e.children, outDir, claimed, failures);
             continue;
         }
         if (IsFailed(e)) continue;
@@ -86,6 +88,11 @@ void ExtractEntries(std::ostream& out, const Modules::Document& doc, const std::
         try {
             const std::filesystem::path targetDir =
                 e.source.fileIndex == 0 ? outDir : outDir / std::to_string(e.source.fileIndex);
+            if (!claimed.insert(targetDir / e.name).second) {
+                out << "skipped '" << e.name << "': duplicate name in " << targetDir.string() << "\n";
+                ++failures;
+                continue;
+            }
             std::error_code ec;
             std::filesystem::create_directories(targetDir, ec);
 
@@ -141,7 +148,8 @@ Verb ExtractVerb() {
             }
 
             size_t failures = 0;
-            ExtractEntries(out, opened.doc(), opened.doc().roots, outDir, failures);
+            std::set<std::filesystem::path> claimed;
+            ExtractEntries(out, opened.doc(), opened.doc().roots, outDir, claimed, failures);
             PrintDiags(opened.doc().diags, out);
             return failures == 0 ? kOk : kPartial;
         }};

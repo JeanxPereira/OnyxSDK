@@ -20,7 +20,6 @@ struct Args {
     std::vector<std::string_view> positional;
     bool json = false;
     bool strict = false;
-    bool first = false;
     std::string_view game;
     std::string_view to;
     std::string_view out;

@@ -17,8 +17,6 @@ bool ParseArgs(std::span<const std::string_view> args, Args& parsed) {
             parsed.json = true;
         } else if (a == "--strict") {
             parsed.strict = true;
-        } else if (a == "--first") {
-            parsed.first = true;
         } else if (a == "--game") {
             if (!value(parsed.game)) return false;
         } else if (a == "--to") {
