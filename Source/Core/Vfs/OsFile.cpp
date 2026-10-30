@@ -1,6 +1,7 @@
 #include <Onyx/Core/Vfs/OsFile.h>
 
 #include <algorithm>
+#include <string>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -19,6 +20,15 @@
 
 namespace Onyx::Vfs {
 
+namespace {
+
+std::string Utf8(const std::filesystem::path& path) {
+    const auto s = path.u8string();
+    return std::string(s.begin(), s.end());
+}
+
+}
+
 #ifdef _WIN32
 
 Result<std::shared_ptr<OsFile>> OsFile::Open(const std::filesystem::path& path) {
@@ -27,14 +37,14 @@ Result<std::shared_ptr<OsFile>> OsFile::Open(const std::filesystem::path& path) 
                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE) {
         return Result<std::shared_ptr<OsFile>>::Fail(
-            {"vfs.open", "cannot open " + path.string(), static_cast<int32_t>(GetLastError())});
+            {"vfs.open", "cannot open " + Utf8(path), static_cast<int32_t>(GetLastError())});
     }
     LARGE_INTEGER size{};
     if (!GetFileSizeEx(h, &size)) {
         const auto err = static_cast<int32_t>(GetLastError());
         CloseHandle(h);
         return Result<std::shared_ptr<OsFile>>::Fail(
-            {"vfs.open", "cannot stat " + path.string(), err});
+            {"vfs.open", "cannot stat " + Utf8(path), err});
     }
     std::shared_ptr<OsFile> file(new OsFile());
     file->m_handle = reinterpret_cast<intptr_t>(h);
@@ -72,14 +82,14 @@ Result<std::shared_ptr<OsFile>> OsFile::Open(const std::filesystem::path& path) 
     const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
     if (fd < 0) {
         return Result<std::shared_ptr<OsFile>>::Fail(
-            {"vfs.open", "cannot open " + path.string(), errno});
+            {"vfs.open", "cannot open " + Utf8(path), errno});
     }
     struct stat st{};
     if (::fstat(fd, &st) != 0) {
         const int err = errno;
         ::close(fd);
         return Result<std::shared_ptr<OsFile>>::Fail(
-            {"vfs.open", "cannot stat " + path.string(), err});
+            {"vfs.open", "cannot stat " + Utf8(path), err});
     }
     std::shared_ptr<OsFile> file(new OsFile());
     file->m_handle = fd;

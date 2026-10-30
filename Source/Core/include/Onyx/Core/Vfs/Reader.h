@@ -33,7 +33,8 @@ public:
 
     template <class T>
     std::optional<T> Read() {
-        static_assert(std::is_trivially_copyable_v<T>);
+        static_assert(std::is_arithmetic_v<T> || std::is_enum_v<T>,
+                      "Reader::Read<T> supports arithmetic and enum types only");
         std::array<std::byte, sizeof(T)> raw;
         const uint64_t start = m_pos;
         if (Read(std::span<std::byte>(raw)) != raw.size()) {

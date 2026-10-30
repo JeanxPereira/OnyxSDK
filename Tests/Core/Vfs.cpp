@@ -76,36 +76,71 @@ TEST_CASE("Vfs.SliceFileClampsToParent") {
     CHECK(slice.ReadAt(2, buf) == 0);
 }
 
-TEST_CASE("Vfs.TwoReadersOverOneFileFromTwoThreads") {
-    constexpr uint32_t kCount = 10000;
+namespace {
+
+constexpr uint32_t kCount = 10000;
+
+bool ReadInterleaved(std::shared_ptr<const IFile> file, uint32_t parity) {
+    Reader reader(std::move(file));
+    for (uint32_t i = parity; i < kCount; i += 2) {
+        reader.Seek(uint64_t(i) * sizeof(uint32_t));
+        auto v = reader.Read<uint32_t>();
+        if (!v || *v != i) return false;
+    }
+    return true;
+}
+
+std::vector<std::byte> Sequence() {
     std::vector<std::byte> data(kCount * sizeof(uint32_t));
     for (uint32_t i = 0; i < kCount; ++i) {
         std::memcpy(data.data() + i * sizeof(uint32_t), &i, sizeof(i));
     }
-    std::shared_ptr<const IFile> file = std::make_shared<MemoryFile>(std::move(data));
-    constexpr uint64_t half = (kCount / 2) * sizeof(uint32_t);
+    return data;
+}
 
-    bool okA = true;
-    bool okB = true;
-    auto run = [&](uint64_t base, uint32_t first, bool& ok) {
-        Reader reader(file, base, half);
-        for (uint32_t i = 0; i < kCount / 2; ++i) {
-            auto v = reader.Read<uint32_t>();
-            if (!v || *v != first + i) ok = false;
-        }
-    };
-    std::thread a(run, 0, 0u, std::ref(okA));
-    std::thread b(run, half, kCount / 2, std::ref(okB));
+}
+
+TEST_CASE("Vfs.TwoReadersOverOneFileFromTwoThreads") {
+    std::shared_ptr<const IFile> file = std::make_shared<MemoryFile>(Sequence());
+    bool okA = false;
+    bool okB = false;
+    std::thread a([&] { okA = ReadInterleaved(file, 0); });
+    std::thread b([&] { okB = ReadInterleaved(file, 1); });
     a.join();
     b.join();
     CHECK(okA);
     CHECK(okB);
 }
 
+TEST_CASE("Vfs.TwoReadersOverOneOsFileFromTwoThreads") {
+    std::filesystem::path path = std::filesystem::temp_directory_path() / "onyx_two_readers.bin";
+    {
+        const auto data = Sequence();
+        std::ofstream out(path, std::ios::binary);
+        REQUIRE(out);
+        out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+    }
+    {
+        auto result = OsFile::Open(path);
+        REQUIRE(result.ok());
+        std::shared_ptr<const IFile> file = result.value();
+        bool okA = false;
+        bool okB = false;
+        std::thread a([&] { okA = ReadInterleaved(file, 0); });
+        std::thread b([&] { okB = ReadInterleaved(file, 1); });
+        a.join();
+        b.join();
+        CHECK(okA);
+        CHECK(okB);
+    }
+    std::filesystem::remove(path);
+}
+
 TEST_CASE("Vfs.OsFileOpensNonAsciiPath") {
     std::filesystem::path path = std::filesystem::temp_directory_path() / L"açãoランス.bin";
     {
         std::ofstream out(path, std::ios::binary);
+        REQUIRE(out);
         out << "hello";
     }
     {
