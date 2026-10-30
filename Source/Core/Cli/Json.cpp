@@ -26,12 +26,17 @@ std::string JsonEscape(std::string_view text) {
     return out;
 }
 
+const char* SeverityLabel(Services::Severity severity) {
+    switch (severity) {
+        case Services::Severity::Error: return "Error";
+        case Services::Severity::Warning: return "Warning";
+        default: return "Info";
+    }
+}
+
 void PrintDiags(const Services::DiagSink& diags, std::ostream& out) {
     for (const Services::Diag& d : diags.Snapshot()) {
-        const char* label = d.severity == Services::Severity::Error     ? "Error"
-                            : d.severity == Services::Severity::Warning ? "Warning"
-                                                                        : "Info";
-        out << '[' << label << "] " << d.code << ": " << d.message << '\n';
+        out << '[' << SeverityLabel(d.severity) << "] " << d.code << ": " << d.message << '\n';
     }
 }
 
