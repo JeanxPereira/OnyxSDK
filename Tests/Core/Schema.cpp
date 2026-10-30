@@ -120,7 +120,7 @@ TEST_CASE("Schema.U64KeepsFullPrecision") {
     CHECK(json.find('e') == std::string::npos);
 }
 
-TEST_CASE("Schema.ShortFileReturnsErrorWithPartialTree") {
+TEST_CASE("Schema.ShortFileReturnsErrorNamingTheField") {
     Schema s("Short");
     s.Field("first", FieldType::U32).Field("second", FieldType::U32);
     Vfs::Reader r = ReaderOf({1, 0, 0, 0, 2, 0});
@@ -148,4 +148,14 @@ TEST_CASE("Schema.NestedStructRangeCoversChildren") {
     }
     const std::string json = ToJson(res.value());
     CHECK(json.find("\"raw\":\"abcd\"") != std::string::npos);
+}
+
+TEST_CASE("Schema.ZeroSizeElementArrayIsRejected") {
+    auto empty = std::make_shared<Schema>("Empty");
+    Schema s("Outer");
+    s.Array("items", empty, Count::Of(1000));
+    Vfs::Reader r(std::make_shared<Vfs::MemoryFile>(std::vector<std::byte>(2000)));
+    auto res = ReadSchema(s, r, 0);
+    REQUIRE_FALSE(res.ok());
+    CHECK(res.error().message.find("items") != std::string::npos);
 }

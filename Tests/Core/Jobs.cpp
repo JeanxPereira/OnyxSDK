@@ -9,6 +9,20 @@
 
 #include <Onyx/Core/Services/Jobs.h>
 
+namespace {
+
+template <class Pred>
+bool SpinUntil(Pred done) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!done()) {
+        if (std::chrono::steady_clock::now() >= deadline) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return true;
+}
+
+}
+
 TEST_CASE("Jobs.JobQueue serializes jobs within a lane") {
     Onyx::Services::JobQueue q(4);
     std::vector<int> order;
@@ -21,7 +35,7 @@ TEST_CASE("Jobs.JobQueue serializes jobs within a lane") {
             --pending;
         });
     }
-    while (pending > 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    REQUIRE(SpinUntil([&] { return pending <= 0; }));
     CHECK(order == std::vector<int>{0, 1, 2});   // same lane => FIFO
 }
 
@@ -29,13 +43,12 @@ TEST_CASE("Jobs.Cancellation is cooperative and Done callbacks only fire in Pump
     Onyx::Services::JobQueue q(1);
     std::atomic<bool> sawCancel{false}, doneRan{false};
     auto h = q.Submit(1, [&](Onyx::Services::Progress& p) {
-        while (!p.CancelRequested())
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        SpinUntil([&] { return p.CancelRequested(); });
         sawCancel = true;
     }, [&]{ doneRan = true; });
     h.Cancel();
-    while (!sawCancel) std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    while (q.PendingCallbacks() == 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    REQUIRE(SpinUntil([&] { return sawCancel.load(); }));
+    REQUIRE(SpinUntil([&] { return q.PendingCallbacks() != 0; }));
     CHECK_FALSE(doneRan);                 // not yet: no Pump ran
     q.Pump();
     CHECK(doneRan);
@@ -47,9 +60,9 @@ TEST_CASE("Jobs.Progress snapshots are consistent") {
     auto h = q.Submit(2, [&](Onyx::Services::Progress& p) {
         p.Step(0.5f, "halfway");
         go = true;
-        while (!quit) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        SpinUntil([&] { return quit.load(); });
     });
-    while (!go) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    REQUIRE(SpinUntil([&] { return go.load(); }));
     // Peek through the handle's state, which delegates to the job's
     // Progress. Must observe the (fraction, label) pair set together by
     // the one Step() call above -- not a torn mix of an old fraction with
@@ -66,8 +79,8 @@ TEST_CASE("Jobs.A throwing Work neither crashes nor wedges its lane") {
     q.Submit(9, [](Onyx::Services::Progress&) { throw std::runtime_error("boom"); },
              [&]{ doneRan = true; });
     q.Submit(9, [&](Onyx::Services::Progress&) { secondRan = true; });
-    while (!secondRan) std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    while (q.PendingCallbacks() < 1) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    REQUIRE(SpinUntil([&] { return secondRan.load(); }));
+    REQUIRE(SpinUntil([&] { return q.PendingCallbacks() >= 1; }));
     q.Pump();
     CHECK(doneRan);       // failed job still completes through Pump
     CHECK(secondRan);     // lane was released, next job ran
@@ -80,7 +93,7 @@ TEST_CASE("Jobs.JobQueue Pump contains a throwing Done callback so later Done ca
              []{ throw std::runtime_error("boom"); });
     q.Submit(31, [](Onyx::Services::Progress&) {},
              [&]{ secondDoneRan = true; });
-    while (q.PendingCallbacks() < 2) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    REQUIRE(SpinUntil([&] { return q.PendingCallbacks() >= 2; }));
     q.Pump();
     CHECK(secondDoneRan);   // the first Done's throw must not skip the second
 }
@@ -93,12 +106,11 @@ TEST_CASE("Jobs.JobQueue destruction drops queued-but-unstarted jobs on the same
                                         // while job 1 is still mid-flight
         q.Submit(42, [&](Onyx::Services::Progress&) {
             firstRunning = true;
-            while (!releaseFirst)
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            SpinUntil([&] { return releaseFirst.load(); });
         });
         q.Submit(42, [&](Onyx::Services::Progress&) { secondWorkRan = true; },
                      [&]{ secondDoneRan = true; });
-        while (!firstRunning) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        REQUIRE(SpinUntil([&] { return firstRunning.load(); }));
 
         // Destroy the queue while job 1 is mid-flight; job 2 is still
         // sitting unstarted in the pending deque for lane 42.
@@ -119,13 +131,12 @@ TEST_CASE("Jobs.JobQueue destruction releases resources captured by unstarted jo
                                         // even though they sit on other lanes
         q.Submit(1, [&](Onyx::Services::Progress&) {
             aRunning = true;
-            while (!releaseA)
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            SpinUntil([&] { return releaseA.load(); });
         });
         q.Submit(2, [](Onyx::Services::Progress&) {});          // B: never starts
         q.Submit(3, [shared](Onyx::Services::Progress&) {});    // C: captures `shared`
 
-        while (!aRunning) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        REQUIRE(SpinUntil([&] { return aRunning.load(); }));
 
         shared.reset();               // C's Work closure is the only other owner now
         CHECK_FALSE(weak.expired());  // ... so the int is still alive
@@ -145,7 +156,7 @@ TEST_CASE("Jobs.RunsAcrossLanesInArrivalOrder") {
     std::mutex mx;
     std::atomic<bool> release{false};
     q.Submit(1000, [&](Onyx::Services::Progress&) {
-        while (!release) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        SpinUntil([&] { return release.load(); });
     });
     for (int i = 0; i < 64; ++i) {
         q.Submit(static_cast<uint64_t>(i + 1), [&, i](Onyx::Services::Progress&) {
@@ -154,7 +165,7 @@ TEST_CASE("Jobs.RunsAcrossLanesInArrivalOrder") {
         });
     }
     release = true;
-    while (q.PendingCallbacks() < 65) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    REQUIRE(SpinUntil([&] { return q.PendingCallbacks() >= 65; }));
     std::vector<int> expected;
     for (int i = 0; i < 64; ++i) expected.push_back(i);
     CHECK(order == expected);
@@ -170,7 +181,7 @@ TEST_CASE("Jobs.HandleOutlivesQueueWithoutExpiredState") {
             started = true;
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         });
-        while (!started) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        REQUIRE(SpinUntil([&] { return started.load(); }));
     }
     CHECK(handle.Valid());
     CHECK(handle.Done());

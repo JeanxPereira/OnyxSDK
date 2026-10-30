@@ -137,7 +137,8 @@ TEST_CASE("Vfs.TwoReadersOverOneOsFileFromTwoThreads") {
 }
 
 TEST_CASE("Vfs.OsFileOpensNonAsciiPath") {
-    std::filesystem::path path = std::filesystem::temp_directory_path() / L"açãoランス.bin";
+    std::filesystem::path path = std::filesystem::temp_directory_path() /
+        std::filesystem::path(std::u8string(u8"açãoランス.bin"));
     {
         std::ofstream out(path, std::ios::binary);
         REQUIRE(out);

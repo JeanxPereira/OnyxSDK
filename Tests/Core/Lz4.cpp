@@ -62,3 +62,14 @@ TEST_CASE("Lz4.FrameLargeBlocksRoundTrip") {
     REQUIRE(result.ok());
     CHECK(result.value() == original);
 }
+
+TEST_CASE("Lz4.FrameOutputCapIsEnforced") {
+    const auto original = Sample();
+    const auto packed = Onyx::TestKit::Lz4FrameCompress(original);
+    auto capped = Lz4FrameDecompress(packed, original.size() - 1);
+    REQUIRE_FALSE(capped.ok());
+    CHECK(capped.error().code == "lz4.tooLarge");
+    auto exact = Lz4FrameDecompress(packed, original.size());
+    REQUIRE(exact.ok());
+    CHECK(exact.value() == original);
+}

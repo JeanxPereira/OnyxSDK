@@ -134,6 +134,9 @@ Result<SchemaNode> ReadField(const FieldDef& def, Vfs::Reader& r, const std::vec
         for (uint64_t i = 0; i < count; ++i) {
             auto e = ReadStruct(*def.element, r, r.Tell(), std::format("[{}]", i), depth + 1);
             if (!e.ok()) return R::Fail(e.error());
+            if (e.value().size == 0) {
+                return R::Fail(MakeError(std::format("array field '{}' has elements that consume no bytes", def.name)));
+            }
             r.Seek(e.value().offset + e.value().size);
             node.children.push_back(std::move(e.value()));
         }

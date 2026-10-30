@@ -3,6 +3,7 @@
 #include <lz4.h>
 #include <lz4frame.h>
 
+#include <algorithm>
 #include <limits>
 
 namespace Onyx::Vfs {
@@ -22,7 +23,7 @@ Result<size_t> Lz4Decompress(std::span<const std::byte> src, std::span<std::byte
     return Result<size_t>::Ok(static_cast<size_t>(written));
 }
 
-Result<std::vector<std::byte>> Lz4FrameDecompress(std::span<const std::byte> src) {
+Result<std::vector<std::byte>> Lz4FrameDecompress(std::span<const std::byte> src, size_t maxOutput) {
     using Out = Result<std::vector<std::byte>>;
     LZ4F_dctx* ctx = nullptr;
     const size_t created = LZ4F_createDecompressionContext(&ctx, LZ4F_VERSION);
@@ -43,6 +44,10 @@ Result<std::vector<std::byte>> Lz4FrameDecompress(std::span<const std::byte> src
             const int32_t native = static_cast<int32_t>(hint);
             LZ4F_freeDecompressionContext(ctx);
             return Out::Fail({"lz4.frame", "Corrupt LZ4 frame", native});
+        }
+        if (dstSize > maxOutput - std::min(out.size(), maxOutput)) {
+            LZ4F_freeDecompressionContext(ctx);
+            return Out::Fail({"lz4.tooLarge", "LZ4 frame output exceeds the size cap"});
         }
         out.insert(out.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(dstSize));
         in += srcSize;

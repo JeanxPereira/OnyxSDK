@@ -76,7 +76,7 @@ public:
     // Unique per instantiation of E, stable for the program's lifetime.
     template <class E>
     static const void* TypeTag() {
-        static const int tag = 0;
+        static char tag;
         return &tag;
     }
 
