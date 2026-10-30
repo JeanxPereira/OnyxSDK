@@ -45,6 +45,9 @@ def run(args, vcvars):
                 "@echo off\r\n"
                 f'call "{vcvars}" >nul\r\n'
                 "if errorlevel 1 exit /b 1\r\n"
+                # ninja matches the English "Note: including file:" prefix of
+                # /showIncludes; a localized cl.exe silently drops header deps.
+                "set VSLANG=1033\r\n"
                 + subprocess.list2cmdline(args) + "\r\n"
                 "exit /b %errorlevel%\r\n")
             return subprocess.run(["cmd", "/c", str(bat)], cwd=ROOT,
@@ -69,6 +72,7 @@ def main():
 
     ctest = ["ctest", "--preset", p] if p in TESTS_PRESETS else \
         ["ctest", "--test-dir", f"build/{p}", "--output-on-failure"]
+    ctest += ["--no-tests=error"]
     if a.ctest_regex:
         ctest += ["-R", a.ctest_regex]
 
@@ -87,9 +91,6 @@ def main():
             cmd, cwd=ROOT, capture_output=True, text=True, errors="replace")
         out = (r.stdout or "") + (r.stderr or "")
         code = r.returncode
-        # ctest exits non-zero when no tests are registered; that is fine.
-        if name == "ctest" and code != 0 and "No tests were found" in out:
-            code = 0
         dt = time.monotonic() - t0
         if code == 0:
             print(f"ok   {name} ({dt:.1f}s)")

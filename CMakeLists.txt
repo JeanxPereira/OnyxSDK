@@ -43,7 +43,7 @@ if(ONYX_WITH_MEDIA)
 endif()
 
 enable_testing()
-if(ONYX_BUILD_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Tests/CMakeLists.txt")
+if(ONYX_BUILD_TESTS)
     add_subdirectory(Tests)
 endif()
 if(ONYX_BUILD_EXAMPLES AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Examples/CMakeLists.txt")

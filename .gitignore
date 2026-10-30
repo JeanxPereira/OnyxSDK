@@ -8,3 +8,4 @@ build-*/
 *.suo
 cmake-build-*/
 out/
+__pycache__/
