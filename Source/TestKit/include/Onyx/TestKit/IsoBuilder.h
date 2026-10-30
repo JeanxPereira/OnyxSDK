@@ -10,7 +10,7 @@
 namespace Onyx::TestKit {
 
 struct Corruption {
-    enum Kind { RootSizePastEof, RecordLenBelow34, SelfPointingExtent };
+    enum Kind { RootSizePastEof, RecordLenBelow34, SelfPointingExtent, SharedExtentFanOut };
 };
 
 class IsoBuilder {
@@ -34,6 +34,7 @@ private:
     int FindOrAddDirectory(int parent, std::string_view name);
     std::vector<std::byte> Emit(uint32_t* rootOffset, uint32_t* firstSubdirRecordOffset);
 
+    bool m_aliasSharedExtents = false;
     std::vector<Node> m_nodes{Node{"", -1, true, {}, 0, 0}};
 };
 

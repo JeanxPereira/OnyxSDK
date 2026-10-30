@@ -15,9 +15,11 @@ std::vector<std::byte> Lz4Compress(std::span<const std::byte> src) {
     return out;
 }
 
-std::vector<std::byte> Lz4FrameCompress(std::span<const std::byte> src) {
-    std::vector<std::byte> out(LZ4F_compressFrameBound(src.size(), nullptr));
-    const size_t n = LZ4F_compressFrame(out.data(), out.size(), src.data(), src.size(), nullptr);
+std::vector<std::byte> Lz4FrameCompress(std::span<const std::byte> src, bool largeBlocks) {
+    LZ4F_preferences_t prefs{};
+    if (largeBlocks) prefs.frameInfo.blockSizeID = LZ4F_max1MB;
+    std::vector<std::byte> out(LZ4F_compressFrameBound(src.size(), &prefs));
+    const size_t n = LZ4F_compressFrame(out.data(), out.size(), src.data(), src.size(), &prefs);
     out.resize(LZ4F_isError(n) ? 0 : n);
     return out;
 }

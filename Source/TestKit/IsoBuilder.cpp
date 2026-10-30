@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <string>
 
 namespace Onyx::TestKit {
 
@@ -159,7 +160,16 @@ Bytes IsoBuilder::Emit(uint32_t* rootOffset, uint32_t* firstSubdirRecordOffset) 
         append(MakeRecord(extents[parent], 0, true, parentName));
         for (int child : children[dir]) {
             const Node& n = m_nodes[child];
-            const Bytes rec = MakeRecord(extents[child], n.isDirectory ? dirSectors[child] * kSector : n.size, n.isDirectory,
+            uint32_t childExtent = extents[child];
+            if (m_aliasSharedExtents && n.isDirectory && n.name == "S") {
+                for (int other : children[dir]) {
+                    if (m_nodes[other].isDirectory && m_nodes[other].name != "S") {
+                        childExtent = extents[other];
+                        break;
+                    }
+                }
+            }
+            const Bytes rec = MakeRecord(childExtent, n.isDirectory ? dirSectors[child] * kSector : n.size, n.isDirectory,
                                          IsoName(n.name, n.isDirectory));
             if (subdirOffsets && n.isDirectory && subdirOffsets->empty()) {
                 const size_t used = out.size() % kSector;
@@ -259,6 +269,18 @@ Bytes IsoBuilder::Build() {
 }
 
 Bytes IsoBuilder::BuildCorrupt(Corruption::Kind kind) {
+    if (kind == Corruption::SharedExtentFanOut) {
+        m_aliasSharedExtents = true;
+        std::string path;
+        AddDirectory("S");
+        for (int level = 0; level < 15; ++level) {
+            path += "D" + std::to_string(level);
+            AddDirectory(path);
+            if (level < 14) AddDirectory(path + "/S");
+            path += "/";
+        }
+        AddDirectory("D0");
+    }
     if (kind == Corruption::SelfPointingExtent) {
         bool hasSubdir = false;
         for (size_t i = 1; i < m_nodes.size(); ++i) {
@@ -281,6 +303,8 @@ Bytes IsoBuilder::BuildCorrupt(Corruption::Kind kind) {
     }
     case Corruption::RecordLenBelow34:
         Put8(image, rootOffset, 20);
+        break;
+    case Corruption::SharedExtentFanOut:
         break;
     case Corruption::SelfPointingExtent:
         PutBoth32(image, subdirOffset + 2, rootOffset / kSector);

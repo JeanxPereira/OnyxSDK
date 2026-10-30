@@ -84,23 +84,24 @@ Result<void> IsoFileSystem::Load() {
     }
 
     m_children["/"];
-    std::vector<uint32_t> stack;
-    WalkDirectory(*extent, *size, "/", 0, stack);
+    std::unordered_set<uint32_t> walked;
+    WalkDirectory(*extent, *size, "/", 0, walked);
     return Result<void>::Ok();
 }
 
-void IsoFileSystem::Warn(std::string message) {
+void IsoFileSystem::Warn(std::string code, std::string message) {
     ONYX_LOG_WARN("Iso", std::string_view(message));
-    m_warnings.push_back({"iso.warning", std::move(message), 0});
+    m_warnings.push_back({std::move(code), std::move(message), 0});
 }
 
 void IsoFileSystem::WalkDirectory(uint32_t extent, uint32_t size, const std::string& path, int depth,
-                                  std::vector<uint32_t>& stack) {
+                                  std::unordered_set<uint32_t>& walked) {
     if (depth >= kMaxDepth) {
-        Warn("Directory nesting exceeds the depth cap at " + path);
+        Warn("iso.walk.depth", "Directory nesting exceeds the depth cap at " + path);
         return;
     }
-    stack.push_back(extent);
+    walked.insert(extent);
+    ++m_directoriesWalked;
 
     const uint64_t base = static_cast<uint64_t>(extent) * kSector;
     Reader reader(m_image, base, size);
@@ -113,12 +114,12 @@ void IsoFileSystem::WalkDirectory(uint32_t extent, uint32_t size, const std::str
             continue;
         }
         if (*length < kMinRecord) {
-            Warn("Directory record shorter than 34 bytes in " + path);
+            Warn("iso.record.short", "Directory record shorter than 34 bytes in " + path);
             break;
         }
         const uint64_t sectorLeft = kSector - recordStart % kSector;
         if (*length > sectorLeft || recordStart + *length > size) {
-            Warn("Directory record crosses a sector or the directory end in " + path);
+            Warn("iso.record.bounds", "Directory record crosses a sector or the directory end in " + path);
             break;
         }
 
@@ -131,7 +132,7 @@ void IsoFileSystem::WalkDirectory(uint32_t extent, uint32_t size, const std::str
         reader.Seek(recordStart + 32);
         const auto nameLen = reader.Read<uint8_t>();
         if (!recExtent || !recSize || !flags || !nameLen || 33u + *nameLen > *length) {
-            Warn("Malformed directory record in " + path);
+            Warn("iso.record.malformed", "Malformed directory record in " + path);
             break;
         }
         const auto rawName = reader.ReadString(*nameLen);
@@ -145,15 +146,15 @@ void IsoFileSystem::WalkDirectory(uint32_t extent, uint32_t size, const std::str
         const bool directory = (*flags & 2) != 0;
         const uint64_t offset = static_cast<uint64_t>(*recExtent) * kSector;
         if (offset + *recSize > m_image->Size()) {
-            Warn("Entry " + name + " extends past the end of the image");
+            Warn("iso.entry.bounds", "Entry " + name + " extends past the end of the image");
             continue;
         }
 
         const std::string childPath = Join(path, Lower(name));
         if (m_entries.contains(childPath)) continue;
 
-        if (directory && std::find(stack.begin(), stack.end(), *recExtent) != stack.end()) {
-            Warn("Directory " + name + " points back into its own ancestry");
+        if (directory && walked.contains(*recExtent)) {
+            Warn("iso.walk.duplicateExtent", "Directory " + name + " reuses an extent already walked");
             continue;
         }
 
@@ -165,11 +166,10 @@ void IsoFileSystem::WalkDirectory(uint32_t extent, uint32_t size, const std::str
 
         if (directory) {
             m_children[childPath];
-            WalkDirectory(*recExtent, *recSize, childPath, depth + 1, stack);
+            WalkDirectory(*recExtent, *recSize, childPath, depth + 1, walked);
         }
     }
 
-    stack.pop_back();
 }
 
 std::vector<DirEntry> IsoFileSystem::List(std::string_view dir) const {

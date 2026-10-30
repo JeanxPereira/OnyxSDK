@@ -35,7 +35,7 @@ Result<std::vector<std::byte>> Lz4FrameDecompress(std::span<const std::byte> src
     const std::byte* in = src.data();
     size_t remaining = src.size();
     size_t hint = 1;
-    while (remaining > 0) {
+    for (;;) {
         size_t dstSize = chunk.size();
         size_t srcSize = remaining;
         hint = LZ4F_decompress(ctx, chunk.data(), &dstSize, in, &srcSize, nullptr);
