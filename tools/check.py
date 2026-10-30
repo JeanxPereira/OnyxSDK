@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Single build verdict: configure, build, ctest, lint.
 
-Usage: check.py [--preset P] [--no-build] [--no-test] [--lint-only] [--ctest-regex R]
+Usage: check.py [--preset P] [--no-build] [--no-test] [--lint-only] [--ctest-regex R] [--jobs N]
 """
 import argparse
 import os
@@ -35,6 +35,14 @@ def find_vcvars():
     return vcvars
 
 
+def bat_quote(arg):
+    """Quote one argument for a .bat line: cmd splits unquoted text at | & < > ^ ( )."""
+    arg = arg.replace("%", "%%")
+    if arg and not any(c in arg for c in ' \t"|&<>^()'):
+        return arg
+    return subprocess.list2cmdline([arg]) if '"' in arg or not arg else f'"{arg}"'
+
+
 def run(args, vcvars):
     """Run a command line in ROOT, inside the MSVC environment on Windows."""
     if IS_WINDOWS:
@@ -48,7 +56,7 @@ def run(args, vcvars):
                 # ninja matches the English "Note: including file:" prefix of
                 # /showIncludes; a localized cl.exe silently drops header deps.
                 "set VSLANG=1033\r\n"
-                + subprocess.list2cmdline(args) + "\r\n"
+                + " ".join(bat_quote(x) for x in args) + "\r\n"
                 "exit /b %errorlevel%\r\n")
             return subprocess.run(["cmd", "/c", str(bat)], cwd=ROOT,
                                   capture_output=True, text=True, errors="replace")
@@ -65,6 +73,8 @@ def main():
     ap.add_argument("--no-test", action="store_true", help="skip the ctest step")
     ap.add_argument("--lint-only", action="store_true", help="run only the lint step")
     ap.add_argument("--ctest-regex", help="pass -R <regex> to ctest")
+    ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1,
+                    help="parallel build jobs (default: CPU count)")
     a = ap.parse_args()
     p = a.preset
 
@@ -80,7 +90,7 @@ def main():
     if not a.lint_only:
         steps.append(("configure", ["cmake", "--preset", p], True))
         if not a.no_build:
-            steps.append(("build", ["cmake", "--build", "--preset", p], True))
+            steps.append(("build", ["cmake", "--build", "--preset", p, "--parallel", str(a.jobs)], True))
         if not a.no_test:
             steps.append(("ctest", ctest, True))
     steps.append(("lint", [sys.executable, str(ROOT / "tools" / "lint.py")], False))

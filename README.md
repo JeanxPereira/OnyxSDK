@@ -24,7 +24,14 @@ Onyx is nine static libraries, each with its own `Source/<Layer>/` directory and
 
 ## Status
 
-v2 is in progress on branch `v2`. W0 (the skeleton) is done: the nine layer targets, the component options, the presets, `tools/check.py` and `tools/lint.py`, the per-layer test rig and CI. `legacy/` is the v1 tree and is not built. Core's foundation services (Result, Log, Threading, Paths) exist; the VFS, type catalog, domain model and module contract are in progress. The other layers expose only `LayerName()`, and Core also generates `Version.h`. Only `Tests/Core` is wired so far, and CI is defined for both OSes but has not yet run on a hosted runner.
+v2 is in progress on branch `v2`. W0 (the skeleton) and W1 (Core) are done. What works today:
+
+- **Core.** The virtual filesystem (OS, memory and slice files, ISO 9660 mounts, lz4), the type catalog, the game-agnostic domain model, the module contract with capability-aware decoders, the workspace that opens documents synchronously or on the job queue, jobs, events and diagnostics, atomic settings with a declared schema, and the declarative schema reader.
+- **Cli.** The verb table and the stock verbs `probe`, `list`, `extract` and `decode`.
+- **TestKit.** Tree goldens, the decode smoke check and the synthetic ISO builder.
+- **OnyxBox.** A synthetic example module (`Onyx::ExampleBox`) with its container writer, used by the tests and by the consumer gate.
+
+`Onyx::Gpu`, `Onyx::Render`, `Onyx::Ui`, `Onyx::Shell`, `Onyx::Media` and `Onyx::Exchange` still expose only `LayerName()`. W2 (Gpu and Render) is next. `legacy/` is the v1 tree and is not built. CI is defined for both OSes but has not yet run on a hosted runner.
 
 ## Build and run
 
@@ -49,6 +56,19 @@ FetchContent_MakeAvailable(OnyxSDK)
 
 target_link_libraries(my_tool PRIVATE Onyx::Core)
 ```
+
+A Core-only consumer (no GPU, UI or media, and none of their dependencies fetched) sets the options before `FetchContent_MakeAvailable`:
+
+```cmake
+set(ONYX_WITH_GPU OFF)
+set(ONYX_BUILD_TESTS OFF)
+set(ONYX_BUILD_EXAMPLES OFF)
+FetchContent_MakeAvailable(OnyxSDK)
+
+target_link_libraries(my_tool PRIVATE Onyx::Core)
+```
+
+The ctest entry `Consumer.CoreOnly` is the gate for this: it configures `Tests/Consumer/CoreOnly` as a separate top-level project against this checkout with `ONYX_WITH_GPU=OFF`, builds it, runs it, and fails if the consumer's `_deps` holds any volk, Vulkan, VMA, glslang, ImGui, GLFW, ffmpeg or ImPlot directory.
 
 Component options: `ONYX_WITH_GPU` (Gpu and Render), `ONYX_WITH_UI`, `ONYX_WITH_SHELL`, `ONYX_WITH_MEDIA`. Turning a component off turns off those above it. Core, Cli, Exchange and TestKit always build; `-DONYX_WITH_GPU=OFF` drops Gpu, Render, Ui, Shell and Media, leaving only the non-graphical layers (Core, Cli, Exchange, TestKit), and a consumer that links `Onyx::Core` builds and links nothing GPU- or UI-related, and the configure fetches no GPU or UI third-party dependency. `ONYX_BUILD_TESTS`, `ONYX_BUILD_EXAMPLES` and `ONYX_BUILD_TOOLS` default to ON only when Onyx is the top-level project (`ONYX_BUILD_TOOLS` has no consumer yet).
 

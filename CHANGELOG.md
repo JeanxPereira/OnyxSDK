@@ -10,6 +10,22 @@ v2 is a break-and-port: the public surface is redesigned and nothing from 1.x is
 - **Tools.** `tools/check.py` as the build verdict and `tools/lint.py` for layer hygiene.
 - **Tests and CI.** The per-layer doctest rig, the standalone header check, and CI running `check.py` on Windows and Linux.
 
+### W1
+- **Foundation.** Result, Log with sinks and ring, the main-thread marker and Paths.
+- **VFS.** A stateless virtual filesystem with Reader, OsFile, MemoryFile and SliceFile.
+- **lz4 and ISO builder.** lz4 decompression in Core and a synthetic ISO builder in TestKit.
+- **ISO mounts.** ISO 9660 images mounted through the VFS with bounds and cycle guards.
+- **Type identity.** The type catalog as an object with namespaced keys and an icon set.
+- **Domain model.** The game-agnostic data model: asset entries, meshes, materials, textures, scenes, tables and text.
+- **Services and settings.** Jobs, events and diagnostics, and atomic settings with a declared schema.
+- **Schema.** The declarative schema reader with exact integers and field-relative layout.
+- **Module contract.** `IGameModule` and the capability-aware decoder registry.
+- **Workspace.** Module registration, always-on probing, and synchronous and asynchronous document opens.
+- **CLI contract.** The verb table, exporter registry and JSON helpers in Core.
+- **Stock verbs.** `probe`, `list`, `extract` and `decode` in `Onyx::Cli`.
+- **OnyxBox and goldens.** The OnyxBox example module and writer, tree goldens and the decode smoke check.
+- **Consumer gate and tools.** `Consumer.CoreOnly` builds Core from outside the tree and asserts no GPU or UI dependency is fetched; `check.py` gains `--jobs` and quotes its ctest regex on Windows.
+
 ## v1.3.3 — 2026-10-16
 
 ### Fixed
