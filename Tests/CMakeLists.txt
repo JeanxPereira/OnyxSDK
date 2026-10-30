@@ -20,3 +20,4 @@ function(onyx_add_tests layer)
 endfunction()
 
 add_subdirectory(Core)
+add_subdirectory(TestKit)

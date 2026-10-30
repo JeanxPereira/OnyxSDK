@@ -1,1 +1,1 @@
-onyx_add_tests(Core)
+onyx_add_tests(Core LINK Onyx::TestKit)
