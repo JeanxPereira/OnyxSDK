@@ -291,6 +291,7 @@ void Module::RegisterTypes(Types::TypeRegistrar& registrar) {
     m_text = add("text", "Text", Domain::MediaKind::Text, Types::IconId::Text);
     m_mesh = add("mesh", "Mesh", Domain::MediaKind::Mesh, Types::IconId::Mesh);
     m_table = add("table", "Table", Domain::MediaKind::Table, Types::IconId::Table);
+    m_folder = registrar.Find("onyx.folder");
 }
 
 void Module::RegisterDecoders(Modules::DecoderRegistry& decoders) {
@@ -401,7 +402,7 @@ Modules::ParseResult Module::ParseContainer(Modules::ContainerContext& ctx) {
     if (ctx.mounted) {
         const std::vector<Vfs::DirEntry> inner = ctx.mounted->List("");
         if (inner.empty()) {
-            Report(ctx.diags, Services::Severity::Warning, "onyxbox.pak-empty",
+            Report(ctx.diags, Services::Severity::Warning, "obx.pak.empty",
                    "mounted archive lists no inner containers");
         }
 
@@ -409,7 +410,7 @@ Modules::ParseResult Module::ParseContainer(Modules::ContainerContext& ctx) {
         for (const Vfs::DirEntry& item : inner) {
             std::shared_ptr<Vfs::IFile> file = ctx.mounted->Open(item.name);
             if (!file) {
-                Report(ctx.diags, Services::Severity::Warning, "obxpak.entry.open-failed",
+                Report(ctx.diags, Services::Severity::Warning, "obx.pak.openFailed",
                        "could not open inner container: " + item.name);
                 continue;
             }
@@ -419,6 +420,7 @@ Modules::ParseResult Module::ParseContainer(Modules::ContainerContext& ctx) {
 
             Domain::AssetEntry subtree;
             subtree.name = item.name;
+            subtree.type = m_folder;
             subtree.kind = Domain::MediaKind::Container;
             Vfs::Reader reader(file);
             const Walk walk = WalkToc(reader, fileIndex, ctx.diags, subtree.children);

@@ -405,7 +405,7 @@ TEST_CASE("Mounts.AnEmptyMountedPakReportsExactlyOneWarningAndNoRoots") {
     bool sawEmpty = false;
     for (const Services::Diag& d : doc->diags.Snapshot()) {
         if (d.severity == Services::Severity::Warning) ++warnings;
-        if (d.code == "onyxbox.pak-empty") sawEmpty = true;
+        if (d.code == "obx.pak.empty") sawEmpty = true;
     }
     CHECK(warnings == 1);
     CHECK(sawEmpty);

@@ -2,7 +2,7 @@
   "roots": [
     {
       "name": "boxA.obx",
-      "key": "onyx.unknown",
+      "key": "onyx.folder",
       "kind": "Container",
       "size": 0,
       "flags": 0,
@@ -19,7 +19,7 @@
     },
     {
       "name": "boxB.obx",
-      "key": "onyx.unknown",
+      "key": "onyx.folder",
       "kind": "Container",
       "size": 0,
       "flags": 0,

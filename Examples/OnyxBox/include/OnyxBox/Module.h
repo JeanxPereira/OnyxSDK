@@ -34,6 +34,7 @@ private:
     Onyx::Types::TypeId m_text;
     Onyx::Types::TypeId m_mesh;
     Onyx::Types::TypeId m_table;
+    Onyx::Types::TypeId m_folder;
 };
 
 }

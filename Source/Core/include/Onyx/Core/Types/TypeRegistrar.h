@@ -12,6 +12,7 @@ public:
     TypeRegistrar(TypeCatalog& catalog, std::string moduleId);
 
     TypeId Add(const TypeSpec& spec);
+    TypeId Find(std::string_view fullKey) const { return m_catalog.Find(fullKey); }
     std::string_view ModuleId() const { return m_moduleId; }
 
 private:
