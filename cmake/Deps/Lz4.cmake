@@ -1,5 +1,5 @@
 function(onyx_dep_lz4)
-    if(TARGET lz4)
+    if(TARGET Onyx_lz4)
         return()
     endif()
     include(FetchContent)
@@ -10,10 +10,10 @@ function(onyx_dep_lz4)
         GIT_SHALLOW    TRUE)
     FetchContent_MakeAvailable(lz4)
 
-    add_library(lz4 STATIC
+    add_library(Onyx_lz4 STATIC
         "${lz4_SOURCE_DIR}/lib/lz4.c"
         "${lz4_SOURCE_DIR}/lib/lz4frame.c"
         "${lz4_SOURCE_DIR}/lib/lz4hc.c"
         "${lz4_SOURCE_DIR}/lib/xxhash.c")
-    target_include_directories(lz4 PUBLIC "${lz4_SOURCE_DIR}/lib")
+    target_include_directories(Onyx_lz4 PUBLIC "${lz4_SOURCE_DIR}/lib")
 endfunction()

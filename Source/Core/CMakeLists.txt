@@ -7,5 +7,5 @@ onyx_dep_lz4()
 
 onyx_add_layer(Core
     PUBLIC_DEPS glm::glm
-    DEPS tomlplusplus::tomlplusplus lz4)
+    DEPS tomlplusplus::tomlplusplus Onyx_lz4)
 target_include_directories(Onyx_Core PUBLIC "$<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/generated>")
