@@ -52,9 +52,22 @@ std::vector<std::string> SplitLines(std::string_view text) {
     return lines;
 }
 
-void WriteFile(const std::filesystem::path& path, std::string_view text) {
+bool WriteFile(const std::filesystem::path& path, std::string_view text) {
     std::ofstream out(path, std::ios::binary);
     out.write(text.data(), static_cast<std::streamsize>(text.size()));
+    out.flush();
+    return static_cast<bool>(out);
+}
+
+std::string NormalizeLineEndings(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (size_t i = 0; i < text.size(); ++i) {
+        const bool lineEnd = i + 1 == text.size() || text[i + 1] == '\n';
+        if (text[i] == '\r' && lineEnd) continue;
+        out += text[i];
+    }
+    return out;
 }
 
 bool UpdateRequested() {
@@ -96,10 +109,11 @@ bool CompareTreeGolden(std::string_view snapshot, const std::filesystem::path& g
     if (exists) {
         std::ostringstream buffer;
         buffer << in.rdbuf();
-        golden = buffer.str();
+        golden = NormalizeLineEndings(buffer.str());
     }
+    const std::string actual = NormalizeLineEndings(snapshot);
 
-    if (exists && golden == snapshot) {
+    if (exists && golden == actual) {
         diffOut.clear();
         return true;
     }
@@ -108,25 +122,25 @@ bool CompareTreeGolden(std::string_view snapshot, const std::filesystem::path& g
     actualPath += ".actual";
     std::error_code ec;
     std::filesystem::create_directories(actualPath.parent_path(), ec);
-    WriteFile(actualPath, snapshot);
+    const std::string wrote = WriteFile(actualPath, actual) ? "wrote " : "could not write ";
 
     if (!exists) {
-        diffOut = "golden file does not exist: " + goldenFile.string() + " (wrote " + actualPath.string() + ")";
+        diffOut = "golden file does not exist: " + goldenFile.string() + " (" + wrote + actualPath.string() + ")";
         return false;
     }
 
     const std::vector<std::string> goldenLines = SplitLines(golden);
-    const std::vector<std::string> actualLines = SplitLines(snapshot);
+    const std::vector<std::string> actualLines = SplitLines(actual);
     const size_t common = std::min(goldenLines.size(), actualLines.size());
     for (size_t i = 0; i < common; ++i) {
         if (goldenLines[i] != actualLines[i]) {
             diffOut = "line " + std::to_string(i + 1) + " differs:\n  golden: " + goldenLines[i] +
-                      "\n  actual: " + actualLines[i] + "\n(wrote " + actualPath.string() + ")";
+                      "\n  actual: " + actualLines[i] + "\n(" + wrote + actualPath.string() + ")";
             return false;
         }
     }
     diffOut = "line count differs: golden has " + std::to_string(goldenLines.size()) + " lines, actual has " +
-              std::to_string(actualLines.size()) + " (wrote " + actualPath.string() + ")";
+              std::to_string(actualLines.size()) + " (" + wrote + actualPath.string() + ")";
     return false;
 }
 
@@ -134,8 +148,7 @@ bool UpdateGolden(std::string_view snapshot, const std::filesystem::path& golden
     if (!UpdateRequested()) return false;
     std::error_code ec;
     std::filesystem::create_directories(goldenFile.parent_path(), ec);
-    WriteFile(goldenFile, snapshot);
-    return true;
+    return WriteFile(goldenFile, snapshot);
 }
 
 }

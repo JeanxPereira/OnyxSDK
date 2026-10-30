@@ -302,6 +302,37 @@ TEST_CASE("TestKit.CompareTreeGoldenReportsAPreciseDiffAndWritesActualOnMismatch
     std::filesystem::remove(actual, ec);
 }
 
+TEST_CASE("TestKit.CompareTreeGoldenIgnoresLineEndings") {
+    const std::string lf = "{\n  \"roots\": []\n}\n";
+    const std::string crlf = "{\r\n  \"roots\": []\r\n}\r\n";
+    const std::filesystem::path golden = std::filesystem::temp_directory_path() / "onyx_testkit_eol.json";
+    std::filesystem::path actual = golden;
+    actual += ".actual";
+    std::error_code ec;
+
+    const auto writeGolden = [&](const std::string& text) {
+        std::ofstream out(golden, std::ios::binary);
+        out << text;
+    };
+
+    std::string diff;
+    writeGolden(crlf);
+    CHECK(TestKit::CompareTreeGolden(lf, golden, diff));
+    CHECK(diff.empty());
+
+    writeGolden(lf);
+    CHECK(TestKit::CompareTreeGolden(crlf, golden, diff));
+    CHECK(diff.empty());
+
+    writeGolden(crlf);
+    CHECK_FALSE(TestKit::CompareTreeGolden("{\n  \"roots\": [1]\n}\n", golden, diff));
+    CHECK(diff.find("line 2 differs") != std::string::npos);
+    CHECK(diff.find('\r') == std::string::npos);
+
+    std::filesystem::remove(golden, ec);
+    std::filesystem::remove(actual, ec);
+}
+
 TEST_CASE("TestKit.UpdateGoldenWritesOnlyWhenTheEnvironmentAsksForIt") {
     const std::filesystem::path golden =
         std::filesystem::temp_directory_path() / "onyx_testkit_update" / "nested" / "g.golden.json";

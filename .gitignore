@@ -10,3 +10,4 @@ cmake-build-*/
 out/
 __pycache__/
 .claude/worktrees/
+*.golden.json.actual
