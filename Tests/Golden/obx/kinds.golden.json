@@ -1,0 +1,44 @@
+{
+  "roots": [
+    {
+      "name": "blob",
+      "key": "obx.blob",
+      "kind": "Raw",
+      "size": 5,
+      "flags": 0,
+      "children": []
+    },
+    {
+      "name": "img",
+      "key": "obx.image",
+      "kind": "Image",
+      "size": 20,
+      "flags": 0,
+      "children": []
+    },
+    {
+      "name": "txt",
+      "key": "obx.text",
+      "kind": "Text",
+      "size": 15,
+      "flags": 0,
+      "children": []
+    },
+    {
+      "name": "mesh",
+      "key": "obx.mesh",
+      "kind": "Mesh",
+      "size": 48,
+      "flags": 0,
+      "children": []
+    },
+    {
+      "name": "tbl",
+      "key": "obx.table",
+      "kind": "Table",
+      "size": 16,
+      "flags": 0,
+      "children": []
+    }
+  ]
+}

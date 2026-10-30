@@ -1,0 +1,28 @@
+{
+  "roots": [
+    {
+      "name": "img",
+      "key": "obx.image",
+      "kind": "Image",
+      "size": 260,
+      "flags": 0,
+      "children": []
+    },
+    {
+      "name": "txt",
+      "key": "obx.text",
+      "kind": "Text",
+      "size": 9,
+      "flags": 0,
+      "children": []
+    },
+    {
+      "name": "bad",
+      "key": "obx.blob",
+      "kind": "Raw",
+      "size": 4,
+      "flags": 1,
+      "children": []
+    }
+  ]
+}

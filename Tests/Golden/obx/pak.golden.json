@@ -1,0 +1,46 @@
+{
+  "roots": [
+    {
+      "name": "boxA.obx",
+      "key": "onyx.unknown",
+      "kind": "Container",
+      "size": 0,
+      "flags": 0,
+      "children": [
+        {
+          "name": "shared.txt",
+          "key": "obx.text",
+          "kind": "Text",
+          "size": 10,
+          "flags": 0,
+          "children": []
+        }
+      ]
+    },
+    {
+      "name": "boxB.obx",
+      "key": "onyx.unknown",
+      "kind": "Container",
+      "size": 0,
+      "flags": 0,
+      "children": [
+        {
+          "name": "shared.txt",
+          "key": "obx.text",
+          "kind": "Text",
+          "size": 10,
+          "flags": 0,
+          "children": []
+        },
+        {
+          "name": "corrupt.bin",
+          "key": "obx.blob",
+          "kind": "Raw",
+          "size": 4,
+          "flags": 1,
+          "children": []
+        }
+      ]
+    }
+  ]
+}

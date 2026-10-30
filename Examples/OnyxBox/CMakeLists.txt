@@ -1,0 +1,6 @@
+add_library(OnyxBox STATIC Module.cpp Writer.cpp)
+add_library(Onyx::ExampleBox ALIAS OnyxBox)
+target_compile_features(OnyxBox PUBLIC cxx_std_20)
+target_include_directories(OnyxBox PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>")
+target_link_libraries(OnyxBox PUBLIC Onyx::Core)
+onyx_warnings(OnyxBox)
