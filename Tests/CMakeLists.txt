@@ -15,6 +15,7 @@ function(onyx_add_tests layer)
     target_compile_definitions(Onyx${layer}Tests PRIVATE
         ONYX_GOLDEN_DIR="${PROJECT_SOURCE_DIR}/Tests/Golden")
     onyx_warnings(Onyx${layer}Tests)
+    set_target_properties(Onyx${layer}Tests PROPERTIES CXX_SCAN_FOR_MODULES OFF)
     add_test(NAME ${layer}.Unit COMMAND Onyx${layer}Tests)
     onyx_add_standalone_headers(${layer})
 endfunction()

@@ -14,4 +14,5 @@ FetchContent_MakeAvailable(OnyxSDK)
 add_subdirectory("${onyxsdk_SOURCE_DIR}/Examples/OnyxBox" "${CMAKE_BINARY_DIR}/OnyxBox")
 
 add_executable(CoreOnlyConsumer Main.cpp)
+set_target_properties(CoreOnlyConsumer PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 target_link_libraries(CoreOnlyConsumer PRIVATE Onyx::Core Onyx::ExampleBox)

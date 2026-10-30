@@ -65,6 +65,20 @@ def run(args, vcvars):
     return subprocess.run(args, cwd=ROOT, capture_output=True, text=True, errors="replace")
 
 
+def lint_with_selftest():
+    """Run the lint rules, then the lint self-test, which must print 'ok 5'."""
+    lint = subprocess.run([sys.executable, str(ROOT / "tools" / "lint.py")],
+                          cwd=ROOT, capture_output=True, text=True, errors="replace")
+    if lint.returncode != 0:
+        return lint.returncode, (lint.stdout or "") + (lint.stderr or "")
+    selftest = subprocess.run([sys.executable, str(ROOT / "tools" / "lint_test.py")],
+                              cwd=ROOT, capture_output=True, text=True, errors="replace")
+    text = (selftest.stdout or "") + (selftest.stderr or "")
+    if selftest.returncode != 0 or "ok 5" not in text:
+        return selftest.returncode or 1, "lint_test.py did not print 'ok 5':\n" + text
+    return 0, ""
+
+
 def main():
     default = "windows-debug" if IS_WINDOWS else "linux-debug"
     ap = argparse.ArgumentParser(description=__doc__)
@@ -97,10 +111,13 @@ def main():
 
     for name, cmd, in_env in steps:
         t0 = time.monotonic()
-        r = run(cmd, vcvars) if in_env else subprocess.run(
-            cmd, cwd=ROOT, capture_output=True, text=True, errors="replace")
-        out = (r.stdout or "") + (r.stderr or "")
-        code = r.returncode
+        if name == "lint":
+            code, out = lint_with_selftest()
+        else:
+            r = run(cmd, vcvars) if in_env else subprocess.run(
+                cmd, cwd=ROOT, capture_output=True, text=True, errors="replace")
+            out = (r.stdout or "") + (r.stderr or "")
+            code = r.returncode
         dt = time.monotonic() - t0
         if code == 0:
             print(f"ok   {name} ({dt:.1f}s)")

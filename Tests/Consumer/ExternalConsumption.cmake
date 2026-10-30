@@ -15,6 +15,7 @@ set(configure_args
     -B "${WORK}"
     -G "${GENERATOR}"
     "-DCMAKE_BUILD_TYPE=${BUILD_TYPE}"
+    "-DCMAKE_CXX_SCAN_FOR_MODULES=OFF"
     "-DFETCHCONTENT_SOURCE_DIR_ONYXSDK=${ONYX_ROOT}")
 if(C_COMPILER)
     list(APPEND configure_args "-DCMAKE_C_COMPILER=${C_COMPILER}")
@@ -50,6 +51,18 @@ endif()
 
 set(forbidden volk vulkan vma glslang imgui glfw ffmpeg implot)
 file(GLOB deps LIST_DIRECTORIES true RELATIVE "${WORK}/_deps" "${WORK}/_deps/*")
+set(has_glm FALSE)
+foreach(dep IN LISTS deps)
+    if(dep MATCHES "^glm")
+        set(has_glm TRUE)
+    endif()
+endforeach()
+if(NOT has_glm)
+    message(FATAL_ERROR
+        "Consumer.CoreOnly: no glm directory under ${WORK}/_deps (${deps}); "
+        "the dependency check below would pass vacuously")
+endif()
+
 set(found "")
 foreach(dep IN LISTS deps)
     foreach(prefix IN LISTS forbidden)
