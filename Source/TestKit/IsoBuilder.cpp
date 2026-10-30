@@ -142,6 +142,7 @@ Bytes IsoBuilder::Emit(uint32_t* rootOffset, uint32_t* firstSubdirRecordOffset) 
         }
     }
 
+    std::vector<uint32_t> dirSectors(count, 0);
     const std::string selfName(1, '\0');
     const std::string parentName(1, '\1');
 
@@ -158,7 +159,7 @@ Bytes IsoBuilder::Emit(uint32_t* rootOffset, uint32_t* firstSubdirRecordOffset) 
         append(MakeRecord(extents[parent], 0, true, parentName));
         for (int child : children[dir]) {
             const Node& n = m_nodes[child];
-            const Bytes rec = MakeRecord(extents[child], n.size, n.isDirectory,
+            const Bytes rec = MakeRecord(extents[child], n.isDirectory ? dirSectors[child] * kSector : n.size, n.isDirectory,
                                          IsoName(n.name, n.isDirectory));
             if (subdirOffsets && n.isDirectory && subdirOffsets->empty()) {
                 const size_t used = out.size() % kSector;
@@ -172,7 +173,6 @@ Bytes IsoBuilder::Emit(uint32_t* rootOffset, uint32_t* firstSubdirRecordOffset) 
     };
 
     std::vector<uint32_t> extents(count, 0);
-    std::vector<uint32_t> dirSectors(count, 0);
     uint32_t next = kFirstDirSector;
     for (int dir : order) {
         extents[dir] = next;
