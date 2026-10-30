@@ -507,3 +507,107 @@ TEST_CASE("Workspace.AddModuleAfterOpenIsRefused") {
     CHECK(late.error().code == "workspace.locked");
     CHECK(ws.Modules().size() == 1);
 }
+
+namespace {
+
+struct SettingsReaderModule : IGameModule {
+    std::atomic<bool>* started = nullptr;
+    std::atomic<bool>* release = nullptr;
+    std::atomic<int64_t>* seen = nullptr;
+
+    ModuleInfo Info() const override { return {"reader", "Reader", {}, {}}; }
+    ProbeResult Probe(const ProbeInput&) const override { return {90, "reader"}; }
+    void RegisterTypes(Types::TypeRegistrar&) override {}
+    void RegisterDecoders(DecoderRegistry&) override {}
+    void RegisterSettings(Services::SettingsSchema& schema) override { schema.Int("reader.value", 1, 0, 1000); }
+    ParseResult ParseContainer(ContainerContext& ctx) override {
+        started->store(true);
+        while (!release->load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        seen->store(ctx.settings.GetInt("reader.value").value_or(-1));
+        return {true};
+    }
+};
+
+struct ThrowingDecoderModule : IGameModule {
+    Types::TypeId type;
+
+    ModuleInfo Info() const override { return {"thrower", "Thrower", {}, {}}; }
+    ProbeResult Probe(const ProbeInput&) const override { return {90, "thrower"}; }
+    void RegisterTypes(Types::TypeRegistrar& registrar) override {
+        Types::TypeSpec spec;
+        spec.key = "blob";
+        spec.label = "Blob";
+        spec.media = Domain::MediaKind::Raw;
+        type = registrar.Add(spec);
+    }
+    void RegisterDecoders(DecoderRegistry& decoders) override {
+        decoders.Scene(type, [](DecodeContext&) -> std::unique_ptr<Domain::Scene> {
+            throw std::runtime_error("decoder boom");
+        });
+    }
+    ParseResult ParseContainer(ContainerContext&) override { return {true}; }
+};
+
+}
+
+TEST_CASE("Workspace.HostMayMutateSettingsDuringAsyncParse") {
+    TempFile file("onyx-ws-settings-race.bin", "abcd");
+    Workspace ws;
+    std::atomic<bool> started{false}, release{false};
+    std::atomic<int64_t> seen{0};
+    auto module = std::make_unique<SettingsReaderModule>();
+    module->started = &started;
+    module->release = &release;
+    module->seen = &seen;
+    REQUIRE(ws.AddModule(std::move(module)));
+    ws.Settings().Set("reader.value", int64_t(5));
+
+    const DocumentId id = ws.OpenAsync(file.path, "reader");
+    REQUIRE(id != 0);
+    REQUIRE(PumpUntil(ws, [&] { return started.load(); }));
+
+    for (int i = 0; i < 200; ++i) ws.Settings().Set("reader.value", int64_t(100 + i));
+    release = true;
+
+    bool ready = false;
+    auto sub = ws.Events().On<TreeReady>([&](const TreeReady&) { ready = true; });
+    REQUIRE(PumpUntil(ws, [&] { return ready; }));
+    CHECK(seen.load() == 5);
+    CHECK(ws.Settings().GetInt("reader.value") == 299);
+}
+
+TEST_CASE("Workspace.ThrowingDecoderLeavesCapabilitiesIntact") {
+    TempFile file("onyx-ws-throwing-decoder.bin", "abcd");
+    Workspace ws;
+    auto module = std::make_unique<ThrowingDecoderModule>();
+    ThrowingDecoderModule* raw = module.get();
+    REQUIRE(ws.AddModule(std::move(module)));
+    const DocumentId id = ws.Open(file.path, "thrower");
+    Document* doc = ws.Get(id);
+    REQUIRE(doc != nullptr);
+
+    Domain::AssetEntry entry;
+    entry.type = raw->type;
+    Services::Progress progress;
+    DecodeContext ctx{doc, entry, Vfs::Reader(doc->files.front()), doc->diags, progress, ws.Settings(),
+                      doc->moduleState};
+    CHECK(ws.Decoders().DecodeScene(ctx) == nullptr);
+    CHECK(ws.Decoders().Of(raw->type).scene);
+    CHECK(ws.Decoders().DecodeScene(ctx) == nullptr);
+}
+
+TEST_CASE("Workspace.AddModuleRejectsDottedOrEmptyId") {
+    Workspace ws;
+    StubOptions dotted;
+    dotted.id = "a.b";
+    auto r1 = ws.AddModule(std::make_unique<StubModule>(dotted));
+    REQUIRE_FALSE(r1.ok());
+    CHECK(r1.error().code == "workspace.invalidModuleId");
+
+    StubOptions empty;
+    empty.id = "";
+    auto r2 = ws.AddModule(std::make_unique<StubModule>(empty));
+    REQUIRE_FALSE(r2.ok());
+    CHECK(r2.error().code == "workspace.invalidModuleId");
+    CHECK(ws.Modules().empty());
+}

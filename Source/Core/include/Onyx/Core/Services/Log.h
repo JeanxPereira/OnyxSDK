@@ -8,11 +8,14 @@
 #include <filesystem>
 #include <format>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
+
+#include <Onyx/Core/Result.h>
 
 namespace Onyx::Services {
 
@@ -37,6 +40,12 @@ public:
     LogLevel MinLevel() const;
 
     uint64_t AddSink(Sink sink, LogLevel min = LogLevel::Trace);
+
+    // Returns only after every invocation of that sink already in flight has
+    // completed, so the sink may safely capture state that dies right after.
+    // Sinks are invoked without the registry lock held, so a sink may itself
+    // write to the log. A sink must never call RemoveSink on its own id: it
+    // would wait for itself.
     void RemoveSink(uint64_t id);
 
     void SetRingCapacity(size_t capacity);
@@ -52,23 +61,19 @@ public:
     }
 
 private:
-    struct SinkSlot {
-        uint64_t id;
-        LogLevel min;
-        Sink fn;
-    };
+    struct SinkEntry;
 
     mutable std::mutex m_mutex;
     std::atomic<LogLevel> m_minLevel{LogLevel::Info};
-    std::vector<SinkSlot> m_sinks;
+    std::vector<std::shared_ptr<SinkEntry>> m_sinks;
     uint64_t m_nextId = 1;
     std::deque<LogEntry> m_ring;
     size_t m_ringCapacity = 4096;
 };
 
 uint64_t InstallStderrSink(Log& log);
-uint64_t InstallFileSink(Log& log, const std::filesystem::path& path,
-                         size_t maxBytes = 5u << 20, int rotations = 3);
+Result<uint64_t> InstallFileSink(Log& log, const std::filesystem::path& path,
+                                size_t maxBytes = 5u << 20, int rotations = 3);
 
 }
 

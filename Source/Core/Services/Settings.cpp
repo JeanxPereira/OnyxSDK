@@ -219,6 +219,20 @@ void Settings::Set(std::string_view key, std::string v) {
     SetValue(impl_->tbl, key, std::move(v));
 }
 
+void Settings::Set(std::string_view key, std::string_view v) {
+    Set(key, std::string(v));
+}
+
+void Settings::Set(std::string_view key, const char* v) {
+    Set(key, std::string(v));
+}
+
+Settings Settings::Clone() const {
+    Settings copy;
+    *copy.impl_ = *impl_;
+    return copy;
+}
+
 bool Settings::Dirty() const { return impl_->dirty; }
 
 const std::filesystem::path& Settings::Path() const { return impl_->path; }

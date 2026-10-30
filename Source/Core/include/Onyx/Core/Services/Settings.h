@@ -46,11 +46,16 @@ public:
     void Set(std::string_view key, int64_t v);
     void Set(std::string_view key, double v);
     void Set(std::string_view key, std::string v);
+    void Set(std::string_view key, std::string_view v);
+    void Set(std::string_view key, const char* v);
 
     bool Dirty() const;
     const std::filesystem::path& Path() const;
     std::optional<std::string> LoadError() const;
     void ClearLoadError();
+
+    // Independent deep copy: values, path, dirty flag and load error.
+    Settings Clone() const;
 
     ~Settings();
     Settings(Settings&&) noexcept;

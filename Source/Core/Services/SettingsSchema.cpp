@@ -16,8 +16,8 @@ SettingsSchema& SettingsSchema::Int(std::string key, int64_t def, int64_t min, i
     return *this;
 }
 
-SettingsSchema& SettingsSchema::Double(std::string key, double def, int64_t min, int64_t max, std::string label) {
-    m_entries.push_back({std::move(key), std::move(label), Kind::Double, def, min, max, {}});
+SettingsSchema& SettingsSchema::Double(std::string key, double def, double min, double max, std::string label) {
+    m_entries.push_back({std::move(key), std::move(label), Kind::Double, def, 0, 0, {}, min, max});
     return *this;
 }
 

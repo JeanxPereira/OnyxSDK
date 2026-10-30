@@ -32,8 +32,9 @@ struct WorkspaceOptions {
 };
 
 // Owns the type catalog, decoder registry, settings, event bus, job queue, modules and documents.
-// Everything except the job workers is confined to the owner thread; workers touch only the
-// document they parse.
+// Everything except the job workers is confined to the owner thread. A worker touches only the
+// document it parses and a private snapshot of Settings() taken when OpenAsync was called, so the
+// host may keep changing Settings() while a parse runs; such changes reach only later opens.
 class Workspace {
 public:
     explicit Workspace(WorkspaceOptions options = {});
@@ -78,9 +79,8 @@ public:
     DecoderRegistry& Decoders() { return m_decoders; }
     Services::SettingsSchema& ModuleSettings(std::string_view moduleId);
 
-    // Contract: call before the first Open or OpenAsync, because parses read Settings() through a
-    // reference. Fails with "workspace.settingsLocked" once any open has been issued, leaving the
-    // current settings untouched.
+    // Contract: call before the first Open or OpenAsync. Fails with "workspace.settingsLocked" once
+    // any open has been issued, leaving the current settings untouched.
     Result<void> SetWorkspaceSettingsPath(const std::filesystem::path& path);
 
     void Pump();
@@ -93,7 +93,7 @@ private:
 
     std::shared_ptr<Document> Prepare(const std::filesystem::path& path, std::string_view moduleHint,
                                       std::shared_ptr<IGameModule>& outModule);
-    bool Parse(Document& doc, IGameModule& module, Services::Progress& progress);
+    bool Parse(Document& doc, IGameModule& module, Services::Settings& settings, Services::Progress& progress);
     std::shared_ptr<IGameModule> Owner(const IGameModule* module) const;
     void RebuildView();
 

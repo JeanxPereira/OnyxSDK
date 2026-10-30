@@ -140,6 +140,7 @@ TEST_CASE("Decoders.ThrowingDecoderReturnsNullWithOneErrorDiag") {
     CHECK(diags[0].severity == Services::Severity::Error);
     CHECK(diags[0].code == "onyx.decode.threw");
     CHECK(diags[0].message == "decoder boom");
+    CHECK(reg.Of(type).scene);
 }
 
 TEST_CASE("Decoders.NonStandardThrowReportsUnknownException") {
@@ -222,6 +223,7 @@ TEST_CASE("Decoders.ThrowingAnyDecoderReturnsNullWithOneErrorDiag") {
     CHECK(diags[0].severity == Services::Severity::Error);
     CHECK(diags[0].code == "onyx.decode.threw");
     CHECK(diags[0].message == "any boom");
+    CHECK(reg.Of(type).any == std::vector<std::string>{"palette"});
 }
 
 TEST_CASE("Decoders.CapabilitiesListsEverySlot") {

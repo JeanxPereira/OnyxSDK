@@ -25,11 +25,13 @@ public:
         int64_t min = 0;
         int64_t max = 0;
         std::vector<std::string> options;
+        double realMin = 0;
+        double realMax = 0;
     };
 
     SettingsSchema& Bool(std::string key, bool def, std::string label = {});
     SettingsSchema& Int(std::string key, int64_t def, int64_t min, int64_t max, std::string label = {});
-    SettingsSchema& Double(std::string key, double def, int64_t min, int64_t max, std::string label = {});
+    SettingsSchema& Double(std::string key, double def, double min, double max, std::string label = {});
     SettingsSchema& String(std::string key, std::string def, std::string label = {});
     SettingsSchema& Enum(std::string key, std::vector<std::string> options, size_t def, std::string label = {});
     SettingsSchema& Path(std::string key, std::string def, std::string label = {});

@@ -1,6 +1,7 @@
 #include <Onyx/Core/Services/Log.h>
 
 #include <algorithm>
+#include <condition_variable>
 #include <cstdio>
 #include <fstream>
 #include <memory>
@@ -34,16 +35,37 @@ LogLevel Log::MinLevel() const {
     return m_minLevel.load(std::memory_order_relaxed);
 }
 
+struct Log::SinkEntry {
+    uint64_t id;
+    LogLevel min;
+    Sink fn;
+    std::mutex mutex;
+    std::condition_variable idle;
+    int inFlight = 0;
+};
+
 uint64_t Log::AddSink(Sink sink, LogLevel min) {
+    auto entry = std::make_shared<SinkEntry>();
+    entry->min = min;
+    entry->fn = std::move(sink);
     std::lock_guard lock(m_mutex);
-    uint64_t id = m_nextId++;
-    m_sinks.push_back({id, min, std::move(sink)});
-    return id;
+    entry->id = m_nextId++;
+    m_sinks.push_back(entry);
+    return entry->id;
 }
 
 void Log::RemoveSink(uint64_t id) {
-    std::lock_guard lock(m_mutex);
-    std::erase_if(m_sinks, [id](const SinkSlot& s) { return s.id == id; });
+    std::shared_ptr<SinkEntry> removed;
+    {
+        std::lock_guard lock(m_mutex);
+        auto it = std::find_if(m_sinks.begin(), m_sinks.end(),
+                               [id](const std::shared_ptr<SinkEntry>& s) { return s->id == id; });
+        if (it == m_sinks.end()) return;
+        removed = std::move(*it);
+        m_sinks.erase(it);
+    }
+    std::unique_lock lock(removed->mutex);
+    removed->idle.wait(lock, [&] { return removed->inFlight == 0; });
 }
 
 void Log::SetRingCapacity(size_t capacity) {
@@ -66,15 +88,26 @@ void Log::Write(LogLevel level, std::string_view category, std::string_view mess
     if (level < MinLevel()) return;
 
     LogEntry entry{level, std::chrono::system_clock::now(), std::string(category), std::string(message)};
-    std::vector<SinkSlot> targets;
+    std::vector<std::shared_ptr<SinkEntry>> targets;
     {
         std::lock_guard lock(m_mutex);
         m_ring.push_back(entry);
         while (m_ring.size() > m_ringCapacity) m_ring.pop_front();
-        for (const SinkSlot& s : m_sinks)
-            if (level >= s.min) targets.push_back(s);
+        for (const auto& s : m_sinks) {
+            if (level < s->min) continue;
+            std::lock_guard sinkLock(s->mutex);
+            ++s->inFlight;
+            targets.push_back(s);
+        }
     }
-    for (const SinkSlot& s : targets) s.fn(entry);
+    for (const auto& s : targets) {
+        try {
+            s->fn(entry);
+        } catch (...) {
+        }
+        std::lock_guard lock(s->mutex);
+        if (--s->inFlight == 0) s->idle.notify_all();
+    }
 }
 
 namespace {
@@ -97,6 +130,8 @@ public:
         if (m_path.has_parent_path()) fs::create_directories(m_path.parent_path(), ec);
         Open();
     }
+
+    bool IsOpen() const { return m_out.is_open(); }
 
     void operator()(const LogEntry& e) {
         std::string line = FormatLine(e);
@@ -156,9 +191,12 @@ uint64_t InstallStderrSink(Log& log) {
     });
 }
 
-uint64_t InstallFileSink(Log& log, const fs::path& path, size_t maxBytes, int rotations) {
+Result<uint64_t> InstallFileSink(Log& log, const fs::path& path, size_t maxBytes, int rotations) {
     auto sink = std::make_shared<FileSink>(path, maxBytes, rotations);
-    return log.AddSink([sink](const LogEntry& e) { (*sink)(e); });
+    if (!sink->IsOpen())
+        return Result<uint64_t>::Fail({"log.fileOpenFailed",
+                                       "cannot open log file " + path.string(), 0});
+    return Result<uint64_t>::Ok(log.AddSink([sink](const LogEntry& e) { (*sink)(e); }));
 }
 
 }

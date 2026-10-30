@@ -318,3 +318,29 @@ TEST_CASE("Settings.SchemaApplyDefaultsFillsMissingOnly") {
     CHECK(s.GetString("paths.cache") == "cache");
     std::filesystem::remove_all(dir);
 }
+
+TEST_CASE("Settings.SetWithStringLiteralStoresAString") {
+    auto s = Settings::Empty();
+    s.Set("a.name", "onyx");
+    CHECK(s.GetString("a.name") == "onyx");
+    CHECK_FALSE(s.GetBool("a.name").has_value());
+    s.Set("a.view", std::string_view("view"));
+    CHECK(s.GetString("a.view") == "view");
+}
+
+TEST_CASE("Settings.SchemaDoubleRangeIsFractional") {
+    SettingsSchema schema;
+    schema.Double("ui.opacity", 0.5, 0.0, 1.0);
+    REQUIRE(schema.Entries().size() == 1);
+    CHECK(schema.Entries()[0].realMin == doctest::Approx(0.0));
+    CHECK(schema.Entries()[0].realMax == doctest::Approx(1.0));
+}
+
+TEST_CASE("Settings.CloneIsIndependent") {
+    auto s = Settings::Empty();
+    s.Set("a.n", int64_t(1));
+    auto c = s.Clone();
+    s.Set("a.n", int64_t(2));
+    CHECK(c.GetInt("a.n") == 1);
+    CHECK(c.Dirty());
+}

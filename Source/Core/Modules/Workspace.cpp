@@ -44,6 +44,10 @@ Workspace::~Workspace() = default;
 Result<void> Workspace::AddModule(std::unique_ptr<IGameModule> module) {
     if (!module) return Result<void>::Fail({"workspace.nullModule", "module is null", 0});
     const std::string id = module->Info().id;
+    if (id.empty() || id.find('.') != std::string::npos) {
+        return Result<void>::Fail({"workspace.invalidModuleId",
+                                   "module id '" + id + "' must be non-empty and contain no '.'", 0});
+    }
     {
         std::lock_guard lock(m_settingsMutex);
         if (m_opened) {
@@ -178,7 +182,8 @@ std::shared_ptr<Document> Workspace::Prepare(const std::filesystem::path& path, 
     return doc;
 }
 
-bool Workspace::Parse(Document& doc, IGameModule& module, Services::Progress& progress) {
+bool Workspace::Parse(Document& doc, IGameModule& module, Services::Settings& settings,
+                      Services::Progress& progress) {
     if (doc.files.empty()) {
         Report(doc.diags, Services::Severity::Error, "workspace.open.failed", "failed to open file: " + Utf8(doc.path));
         doc.ready = true;
@@ -208,11 +213,15 @@ bool Workspace::Parse(Document& doc, IGameModule& module, Services::Progress& pr
         Report(doc.diags, Services::Severity::Error, module.Info().id + ".mount-threw", "Mounts()/mount threw");
     }
 
-    ContainerContext ctx{Vfs::Reader(doc.files.front()), doc.path, m_settings, doc.diags, progress,
+    ContainerContext ctx{Vfs::Reader(doc.files.front()), doc.path, settings, doc.diags, progress,
                          doc.moduleState,                doc.roots, doc.mounted.get(), doc.files};
     ParseResult result;
     try {
         result = module.ParseContainer(ctx);
+    } catch (const std::exception& e) {
+        Report(doc.diags, Services::Severity::Error, module.Info().id + ".parse-threw",
+               std::string("ParseContainer threw: ") + e.what());
+        result = ParseResult{false};
     } catch (...) {
         Report(doc.diags, Services::Severity::Error, module.Info().id + ".parse-threw", "ParseContainer threw");
         result = ParseResult{false};
@@ -227,7 +236,7 @@ DocumentId Workspace::Open(const std::filesystem::path& path, std::string_view m
     if (!doc) return 0;
 
     Services::Progress progress;
-    const bool ok = Parse(*doc, *module, progress);
+    const bool ok = Parse(*doc, *module, m_settings, progress);
     m_events.Post(TreeReady{doc->id, ok});
     return doc->id;
 }
@@ -239,9 +248,12 @@ DocumentId Workspace::OpenAsync(const std::filesystem::path& path, std::string_v
 
     const DocumentId id = doc->id;
     auto ok = std::make_shared<std::atomic<bool>>(false);
+    auto settings = std::make_shared<Services::Settings>(m_settings.Clone());
     doc->parseJob = m_jobs.Submit(
         id,
-        [this, doc, module, ok](Services::Progress& progress) { ok->store(Parse(*doc, *module, progress)); },
+        [this, doc, module, settings, ok](Services::Progress& progress) {
+            ok->store(Parse(*doc, *module, *settings, progress));
+        },
         [this, id, ok]() {
             if (Get(id)) m_events.Post(TreeReady{id, ok->load()});
         });
