@@ -93,3 +93,46 @@ TEST_CASE("TexturePool Register wraps an external view without owning it") {
     CHECK(fx->textures->Count() == 0);
     CHECK(fx->device->ValidationMessageCount() == 0);
 }
+
+TEST_CASE("TexturePool reports an unsupported format") {
+    auto fx = MakeUiGpuFixture();
+    Domain::Texture texture;
+    texture.name = "odd";
+    texture.width = 4;
+    texture.height = 4;
+    texture.format = static_cast<Domain::PixelFormat>(200);
+    auto id = fx->textures->Create(texture);
+    REQUIRE_FALSE(id.ok());
+    CHECK(id.error().code == "ui.texture.format");
+    CHECK(fx->textures->Count() == 0);
+    CHECK(fx->device->ValidationMessageCount() == 0);
+}
+
+TEST_CASE("TexturePool Remove of an unknown id is a no-op") {
+    auto fx = MakeUiGpuFixture();
+    auto id = fx->textures->Create(Solid(4, 4, std::byte{255}, std::byte{0}, std::byte{0}));
+    REQUIRE(id.ok());
+    const size_t pending = fx->device->Retire().Pending();
+    fx->textures->Remove(ImTextureID{12345});
+    CHECK(fx->textures->Count() == 1);
+    CHECK(fx->device->Retire().Pending() == pending);
+    CHECK(fx->device->ValidationMessageCount() == 0);
+}
+
+TEST_CASE("TexturePool Update of an external id fails with ui.texture.size") {
+    auto fx = MakeUiGpuFixture();
+    Gpu::RenderTargetDesc desc;
+    desc.extent = {16, 16};
+    desc.colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+    desc.depthFormat = VK_FORMAT_UNDEFINED;
+    desc.samples = VK_SAMPLE_COUNT_1_BIT;
+    auto target = Gpu::RenderTarget::Create(*fx->device, desc);
+    REQUIRE(target.ok());
+    auto id = fx->textures->Register(target.value()->ResolveView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    REQUIRE(id.ok());
+    auto updated = fx->textures->Update(id.value(), Solid(16, 16, std::byte{0}, std::byte{0}, std::byte{0}));
+    REQUIRE_FALSE(updated.ok());
+    CHECK(updated.error().code == "ui.texture.size");
+    fx->textures->Remove(id.value());
+    CHECK(fx->device->ValidationMessageCount() == 0);
+}

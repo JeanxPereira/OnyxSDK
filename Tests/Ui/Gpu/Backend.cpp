@@ -156,8 +156,3 @@ TEST_CASE("Backend draws text and survives RebuildFonts") {
     CHECK(before.value().rgba == after.value().rgba);
     CHECK(fx->device->ValidationMessageCount() == 0);
 }
-
-TEST_CASE("Backend DefaultSampler is a live sampler") {
-    auto fx = MakeUiGpuFixture();
-    CHECK(fx->backend->DefaultSampler() != VK_NULL_HANDLE);
-}

@@ -9,7 +9,8 @@
 namespace Onyx::Ui {
 
 // Turns an image view into an id that ImGui draw commands can name, and releases that id again.
-// The sampler argument is a hint: a backend that owns its samplers may ignore it.
+// The sampler argument is a hint that a binder may honour; a backend that owns its samplers (such as
+// ImGuiVulkanBackend) ignores it and callers may pass VK_NULL_HANDLE.
 class ITextureBinder {
 public:
     virtual ~ITextureBinder() = default;

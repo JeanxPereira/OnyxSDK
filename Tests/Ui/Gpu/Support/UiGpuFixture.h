@@ -121,6 +121,10 @@ inline Result<TestKit::Image8> RenderImGuiFrame(UiGpuFixture& fx, Gpu::RenderTar
     target.Begin(frame.value()->Cmd(), clear);
     fx.backend->Record(frame.value()->Cmd(), ImGui::GetDrawData());
     target.End(frame.value()->Cmd());
+    auto fault = fx.backend->Fault();
+    if (!fault.ok()) {
+        return Out::Fail(fault.error());
+    }
     auto ended = fx.frames->End(*frame.value());
     if (!ended.ok()) {
         return Out::Fail(ended.error());

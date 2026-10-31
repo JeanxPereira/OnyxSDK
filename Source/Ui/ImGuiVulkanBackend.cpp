@@ -7,8 +7,6 @@
 
 #include "imgui_impl_vulkan.h"
 
-#include "Onyx/Gpu/Descriptors.h"
-
 namespace Onyx::Ui {
 
 namespace {
@@ -19,8 +17,9 @@ constexpr uint32_t kDescriptorPoolSize = 1024;
 // in progress is parked here for the caller to read straight after.
 thread_local VkResult t_lastResult = VK_SUCCESS;
 
+// Keeps the first failure until it is read.
 void RecordResult(VkResult result) {
-    if (result != VK_SUCCESS) {
+    if (result != VK_SUCCESS && t_lastResult == VK_SUCCESS) {
         t_lastResult = result;
     }
 }
@@ -29,6 +28,25 @@ VkResult TakeResult() {
     VkResult result = t_lastResult;
     t_lastResult = VK_SUCCESS;
     return result;
+}
+
+std::string ResultName(VkResult result) {
+    switch (result) {
+    case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
+    case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
+    case VK_ERROR_INITIALIZATION_FAILED: return "VK_ERROR_INITIALIZATION_FAILED";
+    case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
+    case VK_ERROR_MEMORY_MAP_FAILED: return "VK_ERROR_MEMORY_MAP_FAILED";
+    case VK_ERROR_FRAGMENTED_POOL: return "VK_ERROR_FRAGMENTED_POOL";
+    case VK_ERROR_OUT_OF_POOL_MEMORY: return "VK_ERROR_OUT_OF_POOL_MEMORY";
+    case VK_ERROR_UNKNOWN: return "VK_ERROR_UNKNOWN";
+    case VK_TIMEOUT: return "VK_TIMEOUT";
+    case VK_NOT_READY: return "VK_NOT_READY";
+    case VK_INCOMPLETE: return "VK_INCOMPLETE";
+    case VK_SUBOPTIMAL_KHR: return "VK_SUBOPTIMAL_KHR";
+    case VK_ERROR_OUT_OF_DATE_KHR: return "VK_ERROR_OUT_OF_DATE_KHR";
+    default: return std::format("VkResult {}", static_cast<int>(result));
+    }
 }
 
 PFN_vkVoidFunction LoadByName(const char* name, void* user) {
@@ -47,15 +65,6 @@ Result<std::unique_ptr<ImGuiVulkanBackend>> ImGuiVulkanBackend::Create(Gpu::Devi
     }
     if (ImGui::GetIO().BackendRendererUserData != nullptr) {
         return Out::Fail({"ui.backend.init", "the current ImGui context already has a renderer backend", 0});
-    }
-
-    Gpu::SamplerDesc samplerDesc;
-    samplerDesc.filter = VK_FILTER_LINEAR;
-    samplerDesc.address = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    samplerDesc.mipmaps = false;
-    auto sampler = Gpu::CreateSampler(device, samplerDesc);
-    if (!sampler.ok()) {
-        return Out::Fail({"ui.backend.init", sampler.error().message, sampler.error().native});
     }
 
     if (!ImGui_ImplVulkan_LoadFunctions(VK_API_VERSION_1_3, &LoadByName, &device)) {
@@ -91,11 +100,11 @@ Result<std::unique_ptr<ImGuiVulkanBackend>> ImGuiVulkanBackend::Create(Gpu::Devi
     if (initResult != VK_SUCCESS) {
         ImGui_ImplVulkan_Shutdown();
         return Out::Fail({"ui.backend.init",
-                          std::format("ImGui_ImplVulkan_Init reported VkResult {}", static_cast<int>(initResult)),
+                          "ImGui_ImplVulkan_Init reported " + ResultName(initResult),
                           static_cast<int32_t>(initResult)});
     }
 
-    return Out::Ok(std::unique_ptr<ImGuiVulkanBackend>(new ImGuiVulkanBackend(device, std::move(sampler.value()))));
+    return Out::Ok(std::unique_ptr<ImGuiVulkanBackend>(new ImGuiVulkanBackend(device)));
 }
 
 ImGuiVulkanBackend::~ImGuiVulkanBackend() {
@@ -106,6 +115,16 @@ ImGuiVulkanBackend::~ImGuiVulkanBackend() {
     // Descriptor sets queued by Unbind are freed through ImGui, which is about to go away.
     m_device.Retire().Collect(queue.Completed());
     ImGui_ImplVulkan_Shutdown();
+}
+
+Result<void> ImGuiVulkanBackend::Fault() const {
+    const VkResult result = TakeResult();
+    if (result == VK_SUCCESS) {
+        return Result<void>::Ok();
+    }
+    return Result<void>::Fail({"ui.backend.init",
+                               "imgui reported " + ResultName(result),
+                               static_cast<int32_t>(result)});
 }
 
 void ImGuiVulkanBackend::NewFrame() {
@@ -136,12 +155,13 @@ void ImGuiVulkanBackend::RebuildFonts() {
 }
 
 Result<ImTextureID> ImGuiVulkanBackend::Bind(VkImageView view, VkImageLayout layout, VkSampler) {
-    TakeResult();
+    const VkResult parked = TakeResult();
     VkDescriptorSet set = ImGui_ImplVulkan_AddTexture(view, layout);
     const VkResult result = TakeResult();
+    t_lastResult = parked;
     if (result != VK_SUCCESS || set == VK_NULL_HANDLE) {
         return Result<ImTextureID>::Fail(
-            {"ui.backend.bind", std::format("ImGui_ImplVulkan_AddTexture failed with VkResult {}", static_cast<int>(result)),
+            {"ui.backend.init", "ImGui_ImplVulkan_AddTexture failed with " + ResultName(result),
              static_cast<int32_t>(result)});
     }
     return Result<ImTextureID>::Ok(static_cast<ImTextureID>(reinterpret_cast<uintptr_t>(set)));
