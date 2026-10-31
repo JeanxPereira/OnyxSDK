@@ -96,8 +96,8 @@ Onyx 2.0.0 is a break-and-port of the 1.x library. The public surface is redesig
 
 - **The 1.x public surface.** No 1.x header, namespace or target is kept.
 - **`legacy/`.** The in-tree copy of the 1.x sources; use the tag `v1.3.3`.
-- **The old logo and brand files.**
-- **The 1.x design notes.**
+- **The old logo and brand files.** `dist/Logo.svg`, `dist/Glyph.svg`, `dist/Logo.afdesign` and `.github/Logo.png` are gone; `dist/Logo-1024.png` and the generated figures under `docs/assets/` replace them.
+- **The 1.x design notes.** `docs/design/2026-08-18-onyx-v1-architecture.md`, `docs/design/2026-08-19-public-surface-audit.md`, `docs/design/2026-10-16-generic-normal-map-encoding.md`, `docs/design/appearance-system.md` and `docs/gltf-validation.md` described code that no longer exists and remain readable at the tag `v1.3.3`.
 
 ### Known gaps
 
