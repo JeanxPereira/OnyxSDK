@@ -88,6 +88,13 @@ Result<FontSet> BuildThemeFonts(const Theme& theme, ImFontAtlas& atlas) {
         fonts = Result<FontSet>::Fail(Missing(missing, "bundled font"));
     } else if (applied.atlasRefPx > 0.0f) {
         fonts = BuildFonts(atlas, text, applied.atlasRefPx, icons);
+        const std::filesystem::path bundled = FindAsset(kTextAsset);
+        if (!fonts.ok() && !bundled.empty() && text != bundled) {
+            Services::Log::Default().Write(Services::LogLevel::Warn, "ui.fonts",
+                                           "font unreadable, using the bundled one: {}",
+                                           applied.atlasFontPath);
+            fonts = BuildFonts(atlas, bundled, applied.atlasRefPx, icons);
+        }
     }
     if (!fonts.ok()) {
         atlas.Clear();
