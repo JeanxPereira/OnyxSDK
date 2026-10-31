@@ -3,6 +3,7 @@
 #include <Onyx/Core/Cli/Exporters.h>
 #include <Onyx/Core/Cli/Resolve.h>
 #include <Onyx/Core/Cli/Run.h>
+#include <Onyx/Core/Cli/Json.h>
 #include <Onyx/Core/Modules/EntryAccess.h>
 #include <Onyx/Core/Services/Paths.h>
 #include <Onyx/Gpu/Device.h>
@@ -10,6 +11,7 @@
 #include <Onyx/Render/RenderToImage.h>
 
 #include <charconv>
+#include <cmath>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -27,6 +29,7 @@ constexpr std::string_view kUsageText =
     "<file> <entry|@path> --out <png> [--width N] [--height N] [--clip N --time S] [--grid] [--first] "
     "[--game <hint>]";
 constexpr uint32_t kDefaultSize = 512;
+constexpr uint32_t kMaxSize = 16384;
 
 struct RenderArgs {
     std::vector<std::string_view> positional;
@@ -77,7 +80,7 @@ bool ParseRenderArgs(std::span<const std::string_view> args, RenderArgs& parsed)
                 parsed.clip = clip;
             } else {
                 float time = 0.0f;
-                if (!ParseNumber(value, time)) return false;
+                if (!ParseNumber(value, time) || !std::isfinite(time)) return false;
                 parsed.time = time;
             }
         } else if (a.starts_with("--")) {
@@ -107,7 +110,7 @@ int RunRender(Modules::Workspace& ws, const Cli::VerbTable& table, std::span<con
               std::ostream& out, std::ostream& err) {
     RenderArgs args;
     if (!ParseRenderArgs(argv, args) || args.positional.size() != 2 || args.out.empty() || args.width == 0 ||
-        args.height == 0) {
+        args.height == 0 || args.width > kMaxSize || args.height > kMaxSize) {
         err << "usage: render " << kUsageText << '\n';
         return Cli::kUsage;
     }
@@ -128,6 +131,7 @@ int RunRender(Modules::Workspace& ws, const Cli::VerbTable& table, std::span<con
 
     const Cli::Resolution resolved = Cli::ResolveEntry(doc, args.positional[1], args.first);
     if (!Cli::ReportResolution(resolved, args.positional[1], out, err)) {
+        Cli::PrintDiags(doc.diags, out);
         return Cli::kUsage;
     }
     const Domain::AssetEntry* entry = resolved.entry;
