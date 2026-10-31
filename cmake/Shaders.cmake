@@ -33,7 +33,7 @@ function(onyx_add_spirv target)
         endif()
         add_custom_command(
             OUTPUT "${header}"
-            COMMAND "${ONYX_GLSLANG}" --target-env vulkan1.3 -o "${spv}" "${source}"
+            COMMAND "${ONYX_GLSLANG}" --target-env vulkan1.3 --target-env spirv1.5 -o "${spv}" "${source}"
             COMMAND "${CMAKE_COMMAND}"
                     "-DINPUT_SPV=${spv}"
                     "-DOUTPUT_HEADER=${header}"
