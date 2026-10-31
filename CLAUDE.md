@@ -1,6 +1,6 @@
 # Onyx
 
-Onyx is a C++20 SDK for game-asset tools, rebuilt as v2 in nine layered static libraries (`Onyx::Core/Gpu/Render/Ui/Shell/Media/Cli/Exchange/TestKit`). Layers compose; a module writes format knowledge; nothing names a game.
+Onyx is a C++20 SDK for game-asset tools in nine layered static libraries (`Onyx::Core/Gpu/Render/Ui/Shell/Media/Cli/Exchange/TestKit`). Layers compose; a module writes format knowledge; nothing names a game.
 
 ## Rules
 
@@ -15,7 +15,7 @@ Onyx is a C++20 SDK for game-asset tools, rebuilt as v2 in nine layered static l
 6. English only. PascalCase files and types. No comment narrates a task, milestone, review or previous version.
 7. `tools/check.py` is the verdict: configure, build, ctest, lint, exit code.
 8. Commits: Conventional Commits, imperative Sentence-case subject of at most 72 chars, explicit paths, no attribution to AI anywhere. Commit and push only when Jean asks.
-9. `legacy/` is reference only: never included, never built, deleted in W5.
+9. `docs/architecture.md`, `docs/consuming.md` and `docs/modules.md` describe the shipped code; a change to a public contract updates the one that documents it.
 10. One worktree per active front. Subagents never touch the same CMake file (sources are globbed).
 
 ## Tools
@@ -36,4 +36,6 @@ Onyx is a C++20 SDK for game-asset tools, rebuilt as v2 in nine layered static l
 | Design spec | `docs/superpowers/specs/2026-10-30-onyx-v2-design.md` |
 | Survey of v1 | `docs/design/2026-10-30-refactor-survey.md` |
 | Tools | `tools/README.md` |
-| v1 reference | `legacy/README.md` |
+| Architecture | `docs/architecture.md` |
+| Consuming the SDK | `docs/consuming.md` |
+| Module catalog | `docs/modules.md` |

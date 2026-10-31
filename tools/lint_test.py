@@ -36,7 +36,7 @@ def main():
         write(root, "Source/Shell/Bar.cpp", "void I() { ImGui::GetStyle().Colors[2] = {}; }\n")
         write(root, "Source/Ui/Theme.cpp", "void G() { ImGui::GetStyle().Colors[0] = {}; }\n")
         # skipped trees and non-violations
-        write(root, "legacy/Old.cpp", "#include <imgui.h>\n// wad Task 1\n")
+        write(root, "third_party/Old.cpp", "#include <imgui.h>\n// wad Task 1\n")
         write(root, "Tests/Golden/data.txt", "wad\n")
         write(root, "Source/Core/Fine.cpp", "#include <windows.h_not>\nint Swadd = 0; // wadding\n")
         found = lint.lint(root)

@@ -9,7 +9,7 @@ import re
 import sys
 from pathlib import Path
 
-SKIP_DIRS = {"legacy", "third_party", "build", ".superpowers", ".git"}
+SKIP_DIRS = {"third_party", "build", ".superpowers", ".git"}
 
 _CORE = ["imgui", "volk", "vk_mem_alloc", "vulkan/", "GLFW/", "windows.h", "libav", "miniaudio"]
 FORBIDDEN_INCLUDES = {
