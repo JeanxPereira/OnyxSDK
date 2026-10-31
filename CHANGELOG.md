@@ -33,7 +33,7 @@ v2 is a break-and-port: the public surface is redesigned and nothing from 1.x is
 - **Pipelines and targets.** `PipelineBuilder` over the pipeline cache, `DescriptorPool`, the MSAA `RenderTarget` and `Swapchain`.
 - **Projection and camera.** `Projection` with the Vulkan flip baked in, and `Camera`.
 - **Animation.** `AnimationPlayer` over `Domain::AnimClip`.
-- **SceneRenderer.** One upload flush per `Load`, deduplicated materials, skinning validation, and grid and skeleton overlays. `Overlays::gizmo` is deferred to W3 (Ui).
+- **SceneRenderer.** One upload flush per `Load`, deduplicated materials, skinning validation, and grid and skeleton overlays. The gizmo overlay is drawn by the Ui layer's Viewport.
 - **RenderToImage.** Headless render of a scene into a `Domain::Texture`, either on its own objects or on a renderer, upload context and ring the caller owns.
 - **TestKit.** PNG read and write, image comparison, tolerance profiles and the corpus scene fixtures.
 - **Oracle and parity gate.** The oracle tool in `Tests/Oracle` (not `Tools/`, since `Tools/` and `tools/` cannot coexist on a case-insensitive filesystem), the `Render.Parity` gate against the frozen goldens and `Render.Reproducible`. Parity passed on an AMD Radeon RX 6750 XT within the v1 `[hardware]` tolerances with no tolerance change.
@@ -49,8 +49,8 @@ v2 is a break-and-port: the public surface is redesigned and nothing from 1.x is
 - **Viewers.** `onyx.image`, `text`, `hex`, `table` and `audio` through `RegisterStockViewers`, and `onyx.scene` through `RegisterSceneViewer`; opening decodes on job lane 0 and places the view in `Pump()`.
 - **Rulings.** The Gallery panel and the Media-backed `IAudioOutput` are deferred to W4; ImPlot and ImGuiColorTextEdit are not dependencies.
 - **Shell.** `NativeWindow` (GLFW 3.4, Win32 borderless), `Presenter`, `GlfwPlatform`, `ShellFrame::Step` pacing, `Shell` with `Run`, `Open`, `Step()` and `hiddenWindow`, extensions, lifecycle, injectable dialogs, `Dock`, menu bar, `Recents`, stock commands and the CLI path over `Cli::StockVerbs()`.
-- **Examples.** `MinimalViewer` and `Embedded` (own GLFW, ImGui and Vulkan device adopted into Onyx).
-- **Tools.** Suites `Ui.Unit`, `Ui.Gpu`, `Shell.Unit`, `Shell.Window` and `Examples.Build`; a lint rule restricting writes to `ImGuiStyle` colours to `Source/Ui/Theme.cpp`; Linux CI installs the X11 and Wayland development packages.
+- **Examples.** `MinimalViewer` and `Embedded` (own GLFW, ImGui and Vulkan device adopted into Onyx), checked by `Examples.Build` (`MinimalViewer --help`) and `Examples.Embedded` (`Embedded --frames 3`, 77 without a device).
+- **Tools.** Suites `Ui.Unit`, `Ui.Gpu`, `Shell.Unit`, `Shell.Window`, `Examples.Build` and `Examples.Embedded`; a lint rule restricting writes to `ImGuiStyle` colours to `Source/Ui/Theme.cpp`; Linux CI installs the X11 and Wayland development packages.
 
 ## v1.3.3 — 2026-10-16
 

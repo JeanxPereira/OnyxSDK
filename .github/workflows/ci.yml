@@ -26,7 +26,8 @@ jobs:
 
       # Hosted Windows runners have no Vulkan device: Gpu.Device, Render.Gpu,
       # Render.Parity, Render.Reproducible, Ui.Gpu, Shell.Window and
-      # Examples.Build exit 77 and report SKIP here.
+      # Examples.Embedded exit 77 and report SKIP here. Examples.Build needs
+      # no device and runs.
       - name: Check
         run: py -3 tools/check.py --preset windows-debug
 
@@ -39,7 +40,7 @@ jobs:
       # device suites run here (Ui.Gpu included). Render.Parity reads the
       # software profile. GLFW builds from source and needs the X11 and
       # Wayland development packages. The runner has no display, so
-      # Shell.Window and Examples.Build exit 77 and report SKIP.
+      # Shell.Window and Examples.Embedded exit 77 and report SKIP.
       - name: Install toolchain
         run: |
           sudo apt-get update

@@ -31,7 +31,8 @@ using AnyDecoder = std::function<std::shared_ptr<void>(DecodeContext&)>;
 
 // Registration and decoding may run on different threads. A decoder that throws is reported as one
 // Error diagnostic "onyx.decode.threw" and the decode yields null/nullopt. Registering the same
-// slot for the same type again replaces the previous decoder.
+// slot for the same type again replaces the previous decoder. A decoder that runs off the calling
+// thread must not capture a raw module pointer: the module can unload while the decode is in flight.
 class DecoderRegistry {
 public:
     void Scene(Types::TypeId, SceneDecoder);
