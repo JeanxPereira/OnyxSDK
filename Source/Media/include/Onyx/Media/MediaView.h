@@ -21,11 +21,11 @@ namespace Onyx::Media {
 
 // A video clip with a transport bar: play/pause, stop, a seek slider, volume, and the codecs and
 // frame rate. The first draw submits the source's Open to the workspace's decode lane and returns;
-// until the result is in, Draw shows "Opening..." and asks the frame clock for another frame. A range
-// of size zero fails with media.open and opens nothing. Each new frame is uploaded through the
-// context's texture pool (created once, updated afterwards); without a pool the view draws its status
-// text alone. The destructor releases the source, which stops and joins its decode thread unless the
-// open job still holds it, then removes the texture, so the pool must outlive the view.
+// until the result is in, Draw shows "Opening..." and asks the frame clock for another frame. A
+// range of size zero fails with media.open and opens nothing. Each new frame is uploaded through
+// the context's texture pool (created once, updated afterwards); without a pool the view draws its
+// status text alone. The destructor releases the source, which stops and joins its decode thread
+// unless the open job still holds it, then removes the texture, so the pool must outlive the view.
 class MediaView final : public Ui::IDocumentView {
 public:
     MediaView(Modules::DocumentId doc, Modules::NodePath node, std::string name,

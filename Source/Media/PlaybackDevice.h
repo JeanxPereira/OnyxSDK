@@ -24,8 +24,8 @@ public:
     Result<void> Open(uint32_t rate, uint32_t channels, Fill fill);
     // Returns once the callback can no longer run.
     void Close();
-    // Stop returns once the callback can no longer run; Start resumes it. Both are no-ops without an
-    // open device.
+    // Stop returns once the callback can no longer run; Start resumes it. Both are no-ops without
+    // an open device.
     Result<void> Start();
     void Stop();
 

@@ -118,7 +118,8 @@ double Decoder::Seconds(int64_t ts, AVRational base) const {
 bool Decoder::Feed(const VideoSink& video, const AudioSink& audio, bool holdVideo) {
     if (m_readEnded) return false;
     int r = av_read_frame(m_input.get(), m_packet.get());
-    // Some demuxers report a failed read as the end of the container; the IO context keeps the cause.
+    // Some demuxers report a failed read as the end of the container; the IO context keeps the
+    // cause.
     if (r == AVERROR_EOF && m_input->pb && m_input->pb->error < 0) r = m_input->pb->error;
     if (r < 0) {
         if (r != AVERROR_EOF) ONYX_LOG_WARN("media", "media.read: reading the container failed: {}", AvErrorText(r));

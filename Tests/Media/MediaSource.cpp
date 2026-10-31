@@ -343,8 +343,8 @@ size_t LogLines(std::string_view code) {
     }));
 }
 
-// Another file's bytes, cut short: Size() still reports the whole file, but nothing at or past `cut`
-// can be read, and once `failing` is set nothing can be read at all.
+// Another file's bytes, cut short: Size() still reports the whole file, but nothing at or past
+// `cut` can be read, and once `failing` is set nothing can be read at all.
 class CutFile final : public Vfs::IFile {
 public:
     CutFile(std::shared_ptr<const Vfs::IFile> inner, uint64_t cut) : m_inner(std::move(inner)), m_cut(cut) {}
@@ -421,7 +421,7 @@ TEST_CASE("a seek queued at the end of the clip is applied before End") {
     }
 }
 
-TEST_CASE("the steady clock takes over 250 ms after the audio starves") {
+TEST_CASE("the steady clock takes over when a short audio track ends") {
     const ClipFixture clip = WriteClip("starve", true, 13, 0.1);
     Media::MediaSource source;
     OpenClip(source, clip);
@@ -440,6 +440,32 @@ TEST_CASE("the steady clock takes over 250 ms after the audio starves") {
     REQUIRE(PlayUntil(source, 3000ms, [&] { return source.Position() >= duration - 0.05; }));
     REQUIRE(PlayUntil(source, 3000ms, [&] { return source.State() == Media::PlayState::Ended; }));
     CHECK(source.Position() == doctest::Approx(duration));
+}
+
+TEST_CASE("the steady clock takes over 250 ms after the audio starves") {
+    // Matroska is read in file order, and the first audio packet is stored 290 video frames into
+    // the file. Reading ahead to it stops at the cap of 256 held video packets, so the audio
+    // starves with the read far from its end and only the starvation window can hand the clock
+    // over.
+    const ClipFixture clip = WriteClip("starve-window", true, 300, 0, 290, "matroska");
+    Media::MediaSource source;
+    OpenClip(source, clip);
+    REQUIRE(source.Info().hasAudio);
+    if (!source.UsesAudioClock()) {
+        MESSAGE("media.audio: no playback device, the clip runs on the steady clock; skipping");
+        return;
+    }
+
+    source.Play();
+    const auto start = Clock::now();
+    const bool handedOver = PlayUntil(source, 2000ms, [&] { return !source.UsesAudioClock(); });
+    const double seconds = std::chrono::duration<double>(Clock::now() - start).count();
+    MESSAGE("the steady clock took over after " << seconds << " s at " << source.Position());
+    REQUIRE(handedOver);
+    CHECK(seconds >= 0.24);
+    CHECK(seconds <= 1.0);
+    CHECK(source.State() == Media::PlayState::Playing);
+    CHECK(source.Position() < 1.0);
 }
 
 TEST_CASE("a read error is logged as media.read and ends the stream") {

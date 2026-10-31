@@ -17,10 +17,10 @@ class AudioRing;
 // Play state and clock shared by the calling thread, the decode thread and the audio callback.
 // Commands change the state at once; a seek is only requested here (a serial and a target) and the
 // decode thread reports it applied once the decoders, the mailbox and the ring were flushed. Until
-// then Position() reports the target. The audio clock counts the frames the device consumed less the
-// device's latency (never below the position the clock started from), so it follows what is heard.
-// It yields to the steady clock when the decode thread finds the audio exhausted while playing.
-// Thread-safe.
+// then Position() reports the target. The audio clock counts the frames the device consumed less
+// the device's latency (never below the position the clock started from), so it follows what is
+// heard. It yields to the steady clock when the decode thread finds the audio exhausted while
+// playing. Thread-safe.
 class Transport {
 public:
     struct SeekRequest {
@@ -49,8 +49,8 @@ public:
 
     std::optional<SeekRequest> Pending() const;
     void Applied(uint64_t serial);
-    // Playing becomes Ended unless a seek is pending, which the decode thread applies first; any other
-    // state is kept.
+    // Playing becomes Ended unless a seek is pending, which the decode thread applies first; any
+    // other state is kept.
     void End();
 
 private:
