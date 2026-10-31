@@ -1,5 +1,6 @@
 #include <Onyx/Core/Services/Paths.h>
 
+#include <cstdint>
 #include <cstdlib>
 #include <cwctype>
 #include <string>
@@ -92,7 +93,46 @@ bool IsInside(const fs::path& base, const fs::path& p) {
     return *rel.begin() != "..";
 }
 
+namespace {
+
+bool IsValidUtf8(std::string_view text) {
+    size_t i = 0;
+    while (i < text.size()) {
+        const unsigned char lead = static_cast<unsigned char>(text[i]);
+        size_t extra = 0;
+        uint32_t code = 0;
+        if (lead < 0x80) {
+            ++i;
+            continue;
+        } else if (lead >= 0xC2 && lead <= 0xDF) {
+            extra = 1;
+            code = lead & 0x1Fu;
+        } else if (lead >= 0xE0 && lead <= 0xEF) {
+            extra = 2;
+            code = lead & 0x0Fu;
+        } else if (lead >= 0xF0 && lead <= 0xF4) {
+            extra = 3;
+            code = lead & 0x07u;
+        } else {
+            return false;
+        }
+        if (i + extra >= text.size()) return false;
+        for (size_t k = 1; k <= extra; ++k) {
+            const unsigned char next = static_cast<unsigned char>(text[i + k]);
+            if ((next & 0xC0u) != 0x80u) return false;
+            code = (code << 6) | (next & 0x3Fu);
+        }
+        const uint32_t minimum = extra == 1 ? 0x80u : extra == 2 ? 0x800u : 0x10000u;
+        if (code < minimum || code > 0x10FFFFu || (code >= 0xD800u && code <= 0xDFFFu)) return false;
+        i += extra + 1;
+    }
+    return true;
+}
+
+}
+
 fs::path FromUtf8(std::string_view text) {
+    if (!IsValidUtf8(text)) return fs::path(std::string(text));
     return fs::path(std::u8string(reinterpret_cast<const char8_t*>(text.data()), text.size()));
 }
 

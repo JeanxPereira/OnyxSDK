@@ -1,5 +1,7 @@
 #include "Common.h"
 
+#include <Onyx/Core/Services/Paths.h>
+
 #include <ostream>
 
 namespace Onyx::Cli::Detail {
@@ -36,7 +38,7 @@ bool ParseArgs(std::span<const std::string_view> args, Args& parsed) {
 
 bool OpenOrReport(const Modules::ScopedDocument& opened, const std::filesystem::path& path, std::ostream& out) {
     if (opened.ok()) return true;
-    out << "no module accepts " << path.string() << "\n";
+    out << "no module accepts " << Services::Paths::ToUtf8(path) << "\n";
     return false;
 }
 

@@ -89,7 +89,7 @@ void ExtractEntries(std::ostream& out, const Modules::Document& doc, const std::
             const std::filesystem::path targetDir =
                 e.source.fileIndex == 0 ? outDir : outDir / std::to_string(e.source.fileIndex);
             if (!claimed.insert(targetDir / e.name).second) {
-                out << "skipped '" << e.name << "': duplicate name in " << targetDir.string() << "\n";
+                out << "skipped '" << e.name << "': duplicate name in " << Services::Paths::ToUtf8(targetDir) << "\n";
                 ++failures;
                 continue;
             }
@@ -143,7 +143,7 @@ Verb ExtractVerb() {
             std::error_code ec;
             std::filesystem::create_directories(outDir, ec);
             if (ec) {
-                out << "cannot create " << outDir.string() << ": " << ec.message() << "\n";
+                out << "cannot create " << Services::Paths::ToUtf8(outDir) << ": " << ec.message() << "\n";
                 return kPartial;
             }
 

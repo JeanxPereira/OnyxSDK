@@ -124,7 +124,7 @@ int RunRender(Modules::Workspace& ws, const Cli::VerbTable& table, std::span<con
     const std::filesystem::path path = Services::Paths::FromUtf8(args.positional[0]);
     Modules::ScopedDocument opened(ws, path, args.game);
     if (!opened.ok()) {
-        out << "no module accepts " << path.string() << "\n";
+        out << "no module accepts " << Services::Paths::ToUtf8(path) << "\n";
         return Cli::kNoModule;
     }
     Modules::Document& doc = opened.doc();
@@ -170,7 +170,7 @@ int RunRender(Modules::Workspace& ws, const Cli::VerbTable& table, std::span<con
         out << "render failed: " << written.error().message << "\n";
         return Cli::kPartial;
     }
-    out << "rendered " << entry->name << " to " << to.string() << " (" << args.width << "x" << args.height << ")\n";
+    out << "rendered " << entry->name << " to " << Services::Paths::ToUtf8(to) << " (" << args.width << "x" << args.height << ")\n";
     return Cli::kOk;
 }
 
