@@ -24,6 +24,8 @@ jobs:
           path: build/windows-debug/_deps
           key: deps-windows-debug-${{ hashFiles('cmake/Deps/*.cmake') }}
 
+      # Hosted Windows runners have no Vulkan device: Gpu.Device, Render.Gpu,
+      # Render.Parity and Render.Reproducible exit 77 and report SKIP here.
       - name: Check
         run: py -3 tools/check.py --preset windows-debug
 
@@ -32,10 +34,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # mesa-vulkan-drivers provides lavapipe, a CPU Vulkan device, so the
+      # device suites run here. Render.Parity reads the software profile.
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang ninja-build
+          sudo apt-get install -y clang ninja-build glslang-tools libvulkan-dev mesa-vulkan-drivers vulkan-validationlayers
 
       - uses: actions/cache@v4
         with:
