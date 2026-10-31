@@ -112,3 +112,42 @@ TEST_CASE("The default type id routes to a Raw viewer") {
     REQUIRE(routed != nullptr);
     CHECK(routed->id == "hex");
 }
+
+TEST_CASE("a TypeKey spec with anyCapability routes only when the type reports it") {
+    Types::TypeCatalog catalog;
+    Modules::DecoderRegistry decoders;
+    const auto clip = AddType(catalog, "clip", MediaKind::Raw);
+    const auto other = AddType(catalog, "other", MediaKind::Raw);
+    decoders.Any(clip, "stream", [](Modules::DecodeContext&) { return std::shared_ptr<void>(); });
+
+    ViewerSpec streaming = Spec("streaming", Types::TypeKey{"test.clip"}, 5);
+    streaming.anyCapability = "stream";
+    ViewerSpec streamingOther = Spec("streamingOther", Types::TypeKey{"test.other"}, 5);
+    streamingOther.anyCapability = "stream";
+
+    ViewerRegistry reg;
+    reg.Register(Spec("hex", MediaKind::Raw, -10));
+    reg.Register(std::move(streaming));
+    reg.Register(std::move(streamingOther));
+
+    CHECK(reg.Route(catalog, decoders, clip)->id == "streaming");
+    CHECK(reg.Route(catalog, decoders, other)->id == "hex");
+}
+
+TEST_CASE("a MediaKind spec with anyCapability does not apply to a type lacking it") {
+    Types::TypeCatalog catalog;
+    Modules::DecoderRegistry decoders;
+    const auto clip = AddType(catalog, "clip", MediaKind::Raw);
+    const auto other = AddType(catalog, "other", MediaKind::Raw);
+    decoders.Any(clip, "stream", [](Modules::DecodeContext&) { return std::shared_ptr<void>(); });
+
+    ViewerSpec streaming = Spec("streaming", MediaKind::Raw, 100);
+    streaming.anyCapability = "stream";
+
+    ViewerRegistry reg;
+    reg.Register(Spec("hex", MediaKind::Raw, -10));
+    reg.Register(std::move(streaming));
+
+    CHECK(reg.Route(catalog, decoders, clip)->id == "streaming");
+    CHECK(reg.Route(catalog, decoders, other)->id == "hex");
+}

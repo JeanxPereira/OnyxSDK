@@ -53,7 +53,19 @@ void AudioView::Draw(UiContext& ui) {
                 m_playError = started.error().code + ": " + started.error().message;
             } else {
                 m_playError.reset();
+                m_position = 0.0;
             }
+        }
+        if (ui.audio->Playing()) {
+            ImGui::SameLine();
+            if (Widgets::ToolbarButton(ui.audio->Paused() ? "Resume" : "Pause")) {
+                if (ui.audio->Paused()) {
+                    ui.audio->Resume();
+                } else {
+                    ui.audio->Pause();
+                }
+            }
+            m_position = ui.audio->Position();
         }
     } else {
         Widgets::Hint("No audio output is available");
@@ -66,6 +78,11 @@ void AudioView::Draw(UiContext& ui) {
     if (size.x < 2.0f) return;
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     ImGui::InvisibleButton("##wave", size);
+    if (ui.audio && ui.audio->Playing() && duration > 0.0 && ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+        const float fraction = std::clamp((ImGui::GetIO().MousePos.x - origin.x) / size.x, 0.0f, 1.0f);
+        m_position = static_cast<double>(fraction) * duration;
+        ui.audio->Seek(m_position);
+    }
 
     ImDrawList* list = ImGui::GetWindowDrawList();
     const ImVec2 end(origin.x + size.x, origin.y + size.y);

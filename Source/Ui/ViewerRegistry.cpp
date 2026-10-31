@@ -1,5 +1,7 @@
 #include "Onyx/Ui/ViewerRegistry.h"
 
+#include <algorithm>
+
 namespace Onyx::Ui {
 
 namespace {
@@ -53,11 +55,13 @@ const ViewerSpec* ViewerRegistry::Route(const Types::TypeCatalog& catalog, const
     const ViewerSpec* byKey = nullptr;
     const ViewerSpec* byKind = nullptr;
     for (const ViewerSpec& spec : m_specs) {
+        const bool named = !spec.anyCapability.empty();
+        if (named && std::ranges::find(caps.any, spec.anyCapability) == caps.any.end()) continue;
         if (const auto* target = std::get_if<Types::TypeKey>(&spec.target)) {
             if (target->value == key && (!byKey || spec.priority > byKey->priority)) byKey = &spec;
         } else {
             const Domain::MediaKind kind = std::get<Domain::MediaKind>(spec.target);
-            if (KindMatches(kind, media) && HasSlot(kind, caps) && (!byKind || spec.priority > byKind->priority))
+            if (KindMatches(kind, media) && (named || HasSlot(kind, caps)) && (!byKind || spec.priority > byKind->priority))
                 byKind = &spec;
         }
     }

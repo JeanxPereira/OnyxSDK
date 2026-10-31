@@ -19,6 +19,7 @@
 #include "Onyx/Shell/Dock.h"
 #include "Onyx/Shell/Lifecycle.h"
 #include "Onyx/Shell/Recents.h"
+#include "Onyx/Ui/AudioOutput.h"
 #include "Onyx/Ui/Command.h"
 #include "Onyx/Ui/FrameClock.h"
 #include "Onyx/Ui/PanelHost.h"
@@ -94,6 +95,9 @@ public:
     void AddExtension(std::unique_ptr<IShellExtension> extension);
     void SetLifecycle(std::unique_ptr<LifecycleDelegate> delegate);
     void SetDialogs(std::unique_ptr<IDialogs> dialogs);
+    // The output Context() hands to every audio view. The Shell owns it, stops it when the window
+    // stack goes down, and stops the one it replaces. Null removes the output.
+    void SetAudioOutput(std::unique_ptr<Ui::IAudioOutput> output);
     // Applies on the next layout reset and, when the config directory holds no imgui.ini, at start.
     void SetDockLayout(DockLayout layout) { m_layout = std::move(layout); }
 
@@ -143,6 +147,7 @@ private:
     Recents m_recents;
     std::unique_ptr<IDialogs> m_dialogs;
     std::unique_ptr<LifecycleDelegate> m_lifecycle;
+    std::unique_ptr<Ui::IAudioOutput> m_audio;
     std::vector<std::unique_ptr<IShellExtension>> m_extensions;
     DockLayout m_layout;
     std::string m_title;
