@@ -27,6 +27,8 @@ public:
     // A section declaring an absolute range and storing no payload, to build out-of-bounds sections.
     Writer& AddRange(std::string name, Kind kind, uint32_t offset, uint32_t size);
 
+    // Returns the container bytes, or an empty vector when the header, a section or the file would
+    // exceed UINT32_MAX bytes, because every offset and size in the format is 32 bits.
     std::vector<std::byte> Build() const;
 
 private:
@@ -44,6 +46,7 @@ private:
     std::vector<glm::u8vec4> m_palette;
     bool m_hasPalette = false;
     std::vector<Item> m_items;
+    bool m_overflow = false;
 };
 
 }

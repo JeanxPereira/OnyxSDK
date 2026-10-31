@@ -315,10 +315,9 @@ Modules::ParseResult Module::ParseContainer(Modules::ContainerContext& ctx) {
     for (const SectionHeader& s : sections) {
         if (static_cast<Kind>(s.kind) != Kind::Palette || palette || !inFile(s)) continue;
         if (s.size != uint64_t(*paletteCount) * 4) continue;
-        Vfs::Reader slice(reader);
-        slice.Seek(s.offset);
+        reader.Seek(s.offset);
         std::vector<std::byte> bytes(s.size);
-        if (slice.Read(bytes) != bytes.size()) continue;
+        if (reader.Read(bytes) != bytes.size()) continue;
         palette = std::make_shared<Palette>();
         for (size_t i = 0; i < bytes.size(); i += 4) {
             palette->colors.emplace_back(static_cast<uint8_t>(bytes[i]), static_cast<uint8_t>(bytes[i + 1]),

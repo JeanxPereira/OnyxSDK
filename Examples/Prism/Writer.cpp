@@ -1,5 +1,6 @@
 #include <Prism/Writer.h>
 
+#include <cstdint>
 #include <cstring>
 
 namespace Prism {
@@ -43,6 +44,7 @@ Writer& Writer::Add(std::string name, Kind kind, std::vector<std::byte> payload)
     Item item;
     item.name = std::move(name);
     item.kind = kind;
+    if (payload.size() > UINT32_MAX) m_overflow = true;
     item.size = static_cast<uint32_t>(payload.size());
     item.payload = std::move(payload);
     m_items.push_back(std::move(item));
@@ -103,6 +105,7 @@ Writer& Writer::AddRange(std::string name, Kind kind, uint32_t offset, uint32_t 
     item.name = std::move(name);
     item.kind = kind;
     item.declared = true;
+    if (uint64_t(offset) + size > UINT32_MAX) m_overflow = true;
     item.offset = offset;
     item.size = size;
     m_items.push_back(std::move(item));
@@ -110,6 +113,7 @@ Writer& Writer::AddRange(std::string name, Kind kind, uint32_t offset, uint32_t 
 }
 
 std::vector<std::byte> Writer::Build() const {
+    if (m_overflow) return {};
     std::vector<Item> items;
     if (m_hasPalette) {
         Item palette;
@@ -126,8 +130,17 @@ std::vector<std::byte> Writer::Build() const {
     }
     items.insert(items.end(), m_items.begin(), m_items.end());
 
-    size_t headerSize = kFileHeaderSize;
-    for (const Item& item : items) headerSize += kMinSectionHeader + item.name.size();
+    uint64_t headerSize = kFileHeaderSize;
+    uint64_t end = 0;
+    for (const Item& item : items) {
+        headerSize += kMinSectionHeader + item.name.size();
+        if (item.name.size() > UINT16_MAX) return {};
+    }
+    end = headerSize;
+    for (const Item& item : items) {
+        if (!item.declared) end += item.size;
+    }
+    if (end > UINT32_MAX || items.size() > UINT32_MAX) return {};
 
     std::vector<std::byte> out;
     PutText(out, kMagic);

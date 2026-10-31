@@ -29,7 +29,7 @@ void PaletteView::Draw(Onyx::Ui::UiContext& ui) {
 
     const float swatch = Onyx::Ui::Widgets::MetricsFor(ui.theme).rowHeight * 2.0f;
     const float spacing = ImGui::GetStyle().ItemSpacing.x;
-    const float cell = std::max(swatch, ImGui::CalcTextSize("#00000000").x);
+    const float cell = std::max(swatch, ImGui::CalcTextSize("#FFFFFFFF").x);
     const int perRow = std::max(1, static_cast<int>((ImGui::GetContentRegionAvail().x + spacing) / (cell + spacing)));
 
     for (size_t i = 0; i < m_palette->colors.size(); ++i) {
