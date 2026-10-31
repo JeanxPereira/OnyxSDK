@@ -151,3 +151,26 @@ TEST_CASE("a MediaKind spec with anyCapability does not apply to a type lacking 
     CHECK(reg.Route(catalog, decoders, clip)->id == "streaming");
     CHECK(reg.Route(catalog, decoders, other)->id == "hex");
 }
+
+TEST_CASE("A Video spec routes a Video type that registers no decoders") {
+    Types::TypeCatalog catalog;
+    Modules::DecoderRegistry decoders;
+    const auto clip = AddType(catalog, "clip", MediaKind::Video);
+
+    ViewerRegistry reg;
+    reg.Register(Spec("hex", MediaKind::Raw, -10));
+    reg.Register(Spec("video", MediaKind::Video));
+    const ViewerSpec* routed = reg.Route(catalog, decoders, clip);
+    REQUIRE(routed != nullptr);
+    CHECK(routed->id == "video");
+}
+
+TEST_CASE("A ViewerSpec takes id, target, priority and create positionally") {
+    std::function<std::unique_ptr<IDocumentView>(OpenRequest&)> create = [](OpenRequest&) {
+        return std::unique_ptr<IDocumentView>();
+    };
+    ViewerSpec spec{"x", Domain::MediaKind::Raw, 0, create};
+    CHECK(spec.id == "x");
+    CHECK(static_cast<bool>(spec.create));
+    CHECK(spec.anyCapability.empty());
+}

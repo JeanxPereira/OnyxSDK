@@ -54,9 +54,9 @@ struct ViewerSpec {
     std::string id;
     std::variant<Domain::MediaKind, Types::TypeKey> target;
     int priority = 0;
+    std::function<std::unique_ptr<IDocumentView>(OpenRequest&)> create;
     // Names an Any decoder capability the open runs on the job lane; empty when the viewer needs none.
     std::string anyCapability;
-    std::function<std::unique_ptr<IDocumentView>(OpenRequest&)> create;
 };
 
 class ViewerRegistry {
@@ -67,8 +67,9 @@ public:
 
     // A TypeKey target equal to the type's key beats any MediaKind target; ties go to the higher
     // priority, then the earlier registration. A MediaKind target applies when the type's media
-    // matches and its decoder slot exists (Raw and Unknown need no decoder). A spec naming an
-    // anyCapability (of either target kind) applies only when the type's decoders list that capability. Null when none applies.
+    // matches and its decoder slot exists (Raw, Unknown and Video need no decoder: a Video viewer
+    // streams the entry's byte range). A spec naming an anyCapability (of either target kind)
+    // applies only when the type's decoders list that capability. Null when none applies.
     const ViewerSpec* Route(const Types::TypeCatalog& catalog, const Modules::DecoderRegistry& decoders,
                             Types::TypeId type) const;
 

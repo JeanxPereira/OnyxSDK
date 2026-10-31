@@ -24,7 +24,8 @@ bool HasSlot(Domain::MediaKind kind, const Modules::Capabilities& caps) {
     case MediaKind::Audio: return caps.audio;
     case MediaKind::Table: return caps.table;
     case MediaKind::Raw:
-    case MediaKind::Unknown: return true;
+    case MediaKind::Unknown:
+    case MediaKind::Video: return true;
     default: return false;
     }
 }

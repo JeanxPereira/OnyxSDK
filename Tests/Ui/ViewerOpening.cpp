@@ -297,3 +297,36 @@ TEST_CASE("OpenEntry on a bare entry naming a missing file fails with ui.open.ra
     CHECK_FALSE(created);
     CHECK(placed.calls == 0);
 }
+
+TEST_CASE("OpenEntry routes a Video entry with no decoders to a Video spec with its file and range") {
+    ObxUi fx;
+    UiContext ui = fx.Make();
+    Modules::Document* document = fx.workspace.Get(fx.doc);
+    Types::TypeSpec clip;
+    clip.key = "clip";
+    clip.label = "clip";
+    clip.media = Domain::MediaKind::Video;
+    document->roots[ObxWorkspace::kBlob].type = fx.workspace.Catalog().Register("test", clip);
+    const Domain::ByteRange expected = document->roots[ObxWorkspace::kBlob].source;
+    REQUIRE(expected.offset != 0);
+
+    bool seen = false;
+    ViewerSpec probe;
+    probe.id = "video";
+    probe.target = Domain::MediaKind::Video;
+    probe.create = [&](OpenRequest& request) {
+        seen = true;
+        CHECK(request.kind == Domain::MediaKind::Video);
+        CHECK(request.file != nullptr);
+        CHECK(request.range.fileIndex == expected.fileIndex);
+        CHECK(request.range.offset == expected.offset);
+        CHECK(request.range.size == expected.size);
+        return std::unique_ptr<IDocumentView>();
+    };
+    ui.viewers.Register(std::move(probe));
+
+    Placed placed;
+    const auto opened = OpenEntry(ui, fx.Pick(ObxWorkspace::kBlob), placed.Callback());
+    REQUIRE_MESSAGE(opened.ok(), opened.error().code << ": " << opened.error().message);
+    CHECK(seen);
+}
