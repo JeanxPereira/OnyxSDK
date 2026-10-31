@@ -48,7 +48,8 @@ public:
     // The open or upload failure, if any.
     const std::optional<Error>& Fault() const { return m_fault; }
     ImTextureID Texture() const { return m_texture; }
-    // How many decoded frames have reached the pool, the first through Create and the rest through Update.
+    // How many decoded frames have reached the pool, the first through Create and the rest streamed through
+    // the pool's image ring. Texture() changes to the ring image holding the newest frame after each stream.
     uint64_t Uploads() const { return m_uploads; }
 
 private:

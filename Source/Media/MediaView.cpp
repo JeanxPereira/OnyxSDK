@@ -88,9 +88,10 @@ void MediaView::Upload(Ui::TexturePool& pool, VideoFrame frame) {
     texture.format = Domain::PixelFormat::Rgba8;
     texture.pixels = std::move(frame.rgba);
     if (m_texture != ImTextureID_Invalid && frame.width == m_width && frame.height == m_height) {
-        if (auto updated = pool.Update(m_texture, texture); !updated.ok()) {
-            m_fault = updated.error();
+        if (auto streamed = pool.Stream(m_texture, texture); !streamed.ok()) {
+            m_fault = streamed.error();
         } else {
+            m_texture = streamed.value();
             ++m_uploads;
         }
         return;

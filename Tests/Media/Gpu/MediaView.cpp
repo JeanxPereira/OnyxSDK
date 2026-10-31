@@ -15,6 +15,7 @@
 
 #include <chrono>
 #include <memory>
+#include <set>
 #include <thread>
 
 using namespace Onyx;
@@ -63,7 +64,6 @@ TEST_CASE("MediaView uploads the first frame into the pool") {
         CHECK(fx->textures->Size(view.Texture()) == glm::uvec2(64, 48));
         CHECK(view.Uploads() == 1);
 
-        const ImTextureID first = view.Texture();
         view.Source().SetVolume(0.0f);
         view.Source().Play();
         const auto playing = std::chrono::steady_clock::now() + 20s;
@@ -80,8 +80,7 @@ TEST_CASE("MediaView uploads the first frame into the pool") {
         }
         REQUIRE_FALSE(view.Fault().has_value());
         CHECK(view.Uploads() >= 2);
-        CHECK(view.Texture() == first);
-        CHECK(fx->textures->Count() == 1);
+        CHECK(fx->textures->Count() <= 3);
         fx->device->GraphicsQueue().WaitIdle();
         CHECK(fx->device->ValidationMessageCount() == 0);
 
@@ -93,6 +92,74 @@ TEST_CASE("MediaView uploads the first frame into the pool") {
             ImGui::End();
         });
         REQUIRE(drawn.ok());
+    }
+    CHECK(fx->textures->Count() == 0);
+    fx->device->GraphicsQueue().WaitIdle();
+    CHECK(fx->device->ValidationMessageCount() == 0);
+}
+
+TEST_CASE("played frames stream without a queue wait") {
+    const ClipFixture clip = WriteClip("gpu-stream", false);
+    auto opened = Vfs::OsFile::Open(clip.path);
+    REQUIRE(opened.ok());
+
+    auto fx = MakeUiGpuFixture();
+    Gpu::RenderTargetDesc desc;
+    desc.extent = {256, 256};
+    desc.colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+    desc.depthFormat = VK_FORMAT_UNDEFINED;
+    desc.samples = VK_SAMPLE_COUNT_1_BIT;
+    auto target = Gpu::RenderTarget::Create(*fx->device, desc);
+    REQUIRE_MESSAGE(target.ok(), target.error().code << ": " << target.error().message);
+
+    Modules::Workspace workspace;
+    Services::Settings settings = Services::Settings::Empty();
+    Ui::Theme theme{settings};
+    Ui::CommandRegistry commands;
+    Ui::ViewerRegistry viewers;
+    Ui::PanelHost panels;
+    Ui::FrameClock clock;
+    Ui::UiContext ui{workspace, fx->device.get(), nullptr, fx->textures.get(), theme, commands, viewers, panels, clock,
+                     1.0f / 60};
+    {
+        Media::MediaView view(1, {}, "clip", opened.value(), Domain::ByteRange{0, clip.offset, clip.size});
+        auto drawFrame = [&] {
+            auto frame = RenderImGuiFrame(*fx, *target.value(), [&] {
+                ImGui::SetNextWindowPos(ImVec2(0, 0));
+                ImGui::SetNextWindowSize(ImVec2(256, 256));
+                ImGui::Begin("media", nullptr, ImGuiWindowFlags_NoSavedSettings);
+                view.Draw(ui);
+                ImGui::End();
+            });
+            REQUIRE_MESSAGE(frame.ok(), frame.error().code << ": " << frame.error().message);
+            std::this_thread::sleep_for(5ms);
+        };
+        const auto deadline = std::chrono::steady_clock::now() + 20s;
+        while (view.Texture() == ImTextureID_Invalid && !view.Fault() && std::chrono::steady_clock::now() < deadline) {
+            drawFrame();
+        }
+        REQUIRE_FALSE(view.Fault().has_value());
+        REQUIRE(view.Texture() != ImTextureID_Invalid);
+
+        view.Source().SetVolume(0.0f);
+        view.Source().Play();
+        std::set<ImTextureID> seen{view.Texture()};
+        int played = 0;
+        const auto playing = std::chrono::steady_clock::now() + 20s;
+        while (played < 20 && !view.Fault() && std::chrono::steady_clock::now() < playing) {
+            const uint64_t before = view.Uploads();
+            const ImTextureID previous = view.Texture();
+            drawFrame();
+            if (view.Uploads() == before) continue;
+            ++played;
+            CHECK(view.Texture() != previous);
+            seen.insert(view.Texture());
+        }
+        REQUIRE_FALSE(view.Fault().has_value());
+        CHECK(played == 20);
+        CHECK(seen.size() == 3);
+        fx->device->GraphicsQueue().WaitIdle();
+        CHECK(fx->device->ValidationMessageCount() == 0);
     }
     CHECK(fx->textures->Count() == 0);
     fx->device->GraphicsQueue().WaitIdle();
