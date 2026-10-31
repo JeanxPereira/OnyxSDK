@@ -90,7 +90,7 @@ A panel implements `Ui::IPanel` (an id, a title and `Draw`); `Ui::PanelHost` dra
 
 ### Media: MediaSource
 
-`Media::MediaSource` decodes one clip read from a byte range of an `IFile`, never from a path, so a video stored inside an archive plays without being extracted. `Media::AudioOutput` implements `Ui::IAudioOutput` over miniaudio. `Media::MediaView` is the video viewer and `Media::RegisterMediaViewer` registers it for `MediaKind::Video`. No public Media header includes an FFmpeg or miniaudio header.
+`Media::MediaSource` decodes one clip read from a byte range of an `IFile`, never from a path, so a video stored inside an archive plays without being extracted. `Media::AudioOutput` implements `Ui::IAudioOutput` over miniaudio. `Media::MediaView` is the video viewer and `Media::RegisterMediaViewer` registers it for `MediaKind::Video`. The view uploads its first frame with `TexturePool::Create` and streams every later frame of the same size through `TexturePool::Stream`, so playback never waits for the queue to go idle; the host waits only when all three images of the ring are still in flight or the upload staging ring needs bytes back. A frame of another size removes the texture and creates a new one. No public Media header includes an FFmpeg or miniaudio header.
 
 ## Threading
 
