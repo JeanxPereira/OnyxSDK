@@ -1,8 +1,8 @@
 #pragma once
 
-// Prism is a synthetic indexed-colour container that exercises the module contracts a second time:
-// a palette shared through the document, a schema entry, a table that is also an any-capability
-// payload, and settings that change how entries decode. All integers and floats are little-endian.
+// Prism is a synthetic indexed-colour container holding a palette shared through the document, a
+// schema entry, a table that is also an any-capability payload, and settings that change how
+// entries decode. All integers and floats are little-endian.
 //
 // PRM1 container
 //   "PRM1" | u16 paletteCount | u32 sectionCount | sectionCount x section header

@@ -13,8 +13,12 @@
 
 int main(int argc, char** argv) {
     Onyx::Modules::Workspace ws;
-    ws.AddModule(std::make_unique<OnyxBox::Module>());
-    ws.AddModule(std::make_unique<Prism::Module>());
+    auto added = ws.AddModule(std::make_unique<OnyxBox::Module>());
+    if (added.ok()) added = ws.AddModule(std::make_unique<Prism::Module>());
+    if (!added.ok()) {
+        std::cerr << added.error().code << ": " << added.error().message << '\n';
+        return 1;
+    }
 
     Onyx::Cli::VerbTable table;
     table.Add(Onyx::Cli::StockVerbs());
