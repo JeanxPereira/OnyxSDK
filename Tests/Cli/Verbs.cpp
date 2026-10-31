@@ -556,3 +556,34 @@ TEST_CASE("Cli.ValueFlagWithoutValueReturnsKUsage") {
     CHECK(Contains(r.err, "usage: decode"));
     CHECK(h.Invoke({"probe", "x", "--game"}).rc == Cli::kUsage);
 }
+
+TEST_CASE("decode @x prints only the invalid node path line") {
+    StubOptions options;
+    options.script = {Entry("txt", "text", 0, 9)};
+    Harness h;
+    h.ws.AddModule(std::make_unique<StubModule>(options));
+    TempFile file("decode_badpath.bin");
+
+    const auto r = h.Invoke({"decode", file.path.string(), "@x"});
+    CHECK(r.rc == Cli::kUsage);
+    CHECK(r.err == "invalid node path: @x\n");
+    CHECK(r.out.empty());
+}
+
+TEST_CASE("extract accepts --first and ignores it") {
+    StubOptions options;
+    options.script = {Entry("a", "text", 0, 5), Entry("b", "text", 5, 4)};
+    Harness h;
+    h.ws.AddModule(std::make_unique<StubModule>(options));
+    TempFile file("extract_first_ignored.bin");
+    TempPath without("extract_first_without");
+    TempPath with("extract_first_with");
+
+    const auto plain = h.Invoke({"extract", file.path.string(), without.path.string()});
+    const auto first = h.Invoke({"extract", file.path.string(), with.path.string(), "--first"});
+    CHECK(plain.rc == Cli::kOk);
+    CHECK(first.rc == plain.rc);
+    CHECK(ReadFile(with.path / "a") == ReadFile(without.path / "a"));
+    CHECK(ReadFile(with.path / "b") == ReadFile(without.path / "b"));
+    CHECK(first.err == plain.err);
+}

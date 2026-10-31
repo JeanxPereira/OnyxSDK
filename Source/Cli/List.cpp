@@ -2,6 +2,7 @@
 
 #include <Onyx/Core/Cli/Json.h>
 #include <Onyx/Core/Cli/Run.h>
+#include <Onyx/Core/Services/Paths.h>
 
 #include <ostream>
 
@@ -61,8 +62,8 @@ Verb ListVerb() {
                 return kUsage;
             }
 
-            const std::filesystem::path path(args.positional[0]);
-            OpenDocument opened(ws, path, args.game);
+            const std::filesystem::path path = Services::Paths::FromUtf8(args.positional[0]);
+            Modules::ScopedDocument opened(ws, path, args.game);
             if (!OpenOrReport(opened, path, out)) return kNoModule;
 
             if (args.json) {

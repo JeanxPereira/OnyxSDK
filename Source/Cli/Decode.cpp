@@ -6,12 +6,13 @@
 #include <Onyx/Core/Modules/DecoderRegistry.h>
 #include <Onyx/Core/Schema/SchemaJson.h>
 #include <Onyx/Core/Schema/SchemaNode.h>
+#include <Onyx/Core/Services/Paths.h>
 
 #include <Onyx/Core/Cli/Exporters.h>
 
 #include <format>
+#include <optional>
 #include <ostream>
-#include <sstream>
 
 namespace Onyx::Cli::Detail {
 
@@ -39,7 +40,8 @@ struct Decoding {
     Services::Progress progress;
 
     Vfs::Reader Reader() const {
-        return Vfs::Reader(FileOf(doc, entry), entry.source.offset, entry.source.size);
+        std::optional<Vfs::Reader> reader = Modules::ReaderOf(doc, entry);
+        return reader ? std::move(*reader) : Vfs::Reader(nullptr, 0, 0);
     }
 
     template <class Fn>
@@ -171,21 +173,18 @@ Verb DecodeVerb() {
                 return kUsage;
             }
 
-            const std::filesystem::path path(args.positional[0]);
+            const std::filesystem::path path = Services::Paths::FromUtf8(args.positional[0]);
             const std::string_view target = args.positional[1];
-            OpenDocument opened(ws, path, args.game);
+            Modules::ScopedDocument opened(ws, path, args.game);
             if (!OpenOrReport(opened, path, out)) return kNoModule;
             Modules::Document& doc = opened.doc();
 
-            std::ostringstream why;
-            const Domain::AssetEntry* entry = ResolveEntry(doc, target, args.first, why);
-            if (!entry) {
-                const std::string reason = why.str();
-                err << reason;
-                if (!reason.starts_with("cli.ambiguous")) out << "unknown entry: " << target << "\n";
+            const Resolution resolved = ResolveEntry(doc, target, args.first);
+            if (!ReportResolution(resolved, target, out, err)) {
                 PrintDiags(doc.diags, out);
                 return kUsage;
             }
+            const Domain::AssetEntry* entry = resolved.entry;
 
             const Modules::Capabilities caps = ws.Decoders().Of(entry->type);
             if (caps.Empty()) {
@@ -215,7 +214,7 @@ Verb DecodeVerb() {
             Decoding decoding{ws, doc, *entry, {}};
             int rc = kOk;
             if (exporter) {
-                rc = Export(decoding, *exporter, std::filesystem::path(args.out), args.to, out);
+                rc = Export(decoding, *exporter, Services::Paths::FromUtf8(args.out), args.to, out);
             } else {
                 Summarise(decoding, caps, out);
             }

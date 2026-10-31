@@ -56,3 +56,10 @@ TEST_CASE("Paths.UserConfigNeverRelative") {
     setenv(name, saved.c_str(), 1);
 #endif
 }
+
+TEST_CASE("Paths::FromUtf8 round-trips a non-ASCII name") {
+    const std::string name = reinterpret_cast<const char*>(u8"caf\u00e9-\u00fc");
+    const fs::path path = Paths::FromUtf8(name);
+    CHECK(Paths::ToUtf8(path) == name);
+    CHECK(path.u8string() == std::u8string(u8"caf\u00e9-\u00fc"));
+}

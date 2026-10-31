@@ -3,8 +3,8 @@
 #include <Onyx/Core/Cli/Exporters.h>
 #include <Onyx/Core/Cli/Resolve.h>
 #include <Onyx/Core/Cli/Run.h>
-#include <Onyx/Core/Modules/DecodeContext.h>
-#include <Onyx/Core/Modules/DecoderRegistry.h>
+#include <Onyx/Core/Modules/EntryAccess.h>
+#include <Onyx/Core/Services/Paths.h>
 #include <Onyx/Gpu/Device.h>
 #include <Onyx/Render/Camera.h>
 #include <Onyx/Render/RenderToImage.h>
@@ -15,7 +15,6 @@
 #include <optional>
 #include <ostream>
 #include <span>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -90,42 +89,6 @@ bool ParseRenderArgs(std::span<const std::string_view> args, RenderArgs& parsed)
     return true;
 }
 
-class OpenedDocument {
-public:
-    OpenedDocument(Modules::Workspace& ws, const std::filesystem::path& path, std::string_view hint) : m_ws(ws) {
-        m_id = ws.Open(path, hint);
-        if (m_id != 0) m_doc = ws.Get(m_id);
-    }
-    ~OpenedDocument() {
-        if (m_id != 0) m_ws.Close(m_id);
-    }
-    OpenedDocument(const OpenedDocument&) = delete;
-    OpenedDocument& operator=(const OpenedDocument&) = delete;
-
-    Modules::Document* get() const { return m_doc; }
-
-private:
-    Modules::Workspace& m_ws;
-    Modules::DocumentId m_id = 0;
-    Modules::Document* m_doc = nullptr;
-};
-
-std::unique_ptr<Domain::Scene> DecodeScene(Modules::Workspace& ws, Modules::Document& doc,
-                                           const Domain::AssetEntry& entry) {
-    std::shared_ptr<const Vfs::IFile> file;
-    if (entry.source.fileIndex < doc.files.size()) file = doc.files[entry.source.fileIndex];
-    if (!file) return nullptr;
-    Services::Progress progress;
-    Modules::DecodeContext ctx{&doc,
-                               entry,
-                               Vfs::Reader(file, entry.source.offset, entry.source.size),
-                               doc.diags,
-                               progress,
-                               ws.Settings(),
-                               doc.moduleState};
-    return ws.Decoders().DecodeScene(ctx);
-}
-
 // Frames the scene bounds from the +Z side.
 View FrameFromFront(const Domain::Scene& scene, float aspect) {
     Domain::BoundingBox bounds = scene.bounds;
@@ -155,32 +118,24 @@ int RunRender(Modules::Workspace& ws, const Cli::VerbTable& table, std::span<con
         return Cli::kUsage;
     }
 
-    const std::filesystem::path path(args.positional[0]);
-    OpenedDocument opened(ws, path, args.game);
-    if (!opened.get()) {
+    const std::filesystem::path path = Services::Paths::FromUtf8(args.positional[0]);
+    Modules::ScopedDocument opened(ws, path, args.game);
+    if (!opened.ok()) {
         out << "no module accepts " << path.string() << "\n";
         return Cli::kNoModule;
     }
-    Modules::Document& doc = *opened.get();
+    Modules::Document& doc = opened.doc();
 
-    std::ostringstream why;
-    const Domain::AssetEntry* entry = Cli::ResolveEntry(doc, args.positional[1], args.first, why);
-    if (!entry) {
-        const std::string reason = why.str();
-        err << reason;
-        if (!reason.starts_with("cli.ambiguous")) out << "unknown entry: " << args.positional[1] << "\n";
+    const Cli::Resolution resolved = Cli::ResolveEntry(doc, args.positional[1], args.first);
+    if (!Cli::ReportResolution(resolved, args.positional[1], out, err)) {
         return Cli::kUsage;
     }
+    const Domain::AssetEntry* entry = resolved.entry;
 
-    const std::unique_ptr<Domain::Scene> scene = DecodeScene(ws, doc, *entry);
+    Services::Progress progress;
+    const std::unique_ptr<Domain::Scene> scene = Modules::DecodeSceneOf(ws, doc, *entry, progress);
     if (!scene) {
         out << "render.noScene: '" << entry->name << "' did not decode to a scene\n";
-        return Cli::kPartial;
-    }
-
-    auto device = Gpu::Device::Create(Gpu::DeviceOptions{});
-    if (!device.ok()) {
-        out << device.error().code << ": " << device.error().message << "\n";
         return Cli::kPartial;
     }
 
@@ -189,14 +144,24 @@ int RunRender(Modules::Workspace& ws, const Cli::VerbTable& table, std::span<con
     Overlays overlays;
     overlays.grid = args.grid;
 
-    auto image = RenderToImage(*device.value(), *scene, view, overlays, {args.width, args.height});
-    if (!image.ok()) {
-        out << image.error().code << ": " << image.error().message << "\n";
-        return Cli::kPartial;
+    // The device goes away before the file is written; only the image outlives it.
+    std::optional<Domain::Texture> image;
+    {
+        auto device = Gpu::Device::Create(Gpu::DeviceOptions{});
+        if (!device.ok()) {
+            out << device.error().code << ": " << device.error().message << "\n";
+            return Cli::kPartial;
+        }
+        auto rendered = RenderToImage(*device.value(), *scene, view, overlays, {args.width, args.height});
+        if (!rendered.ok()) {
+            out << rendered.error().code << ": " << rendered.error().message << "\n";
+            return Cli::kPartial;
+        }
+        image = std::move(rendered.value());
     }
 
-    const std::filesystem::path to(args.out);
-    auto written = png->write(&image.value(), to);
+    const std::filesystem::path to = Services::Paths::FromUtf8(args.out);
+    auto written = png->write(&*image, to);
     if (!written.ok()) {
         out << "render failed: " << written.error().message << "\n";
         return Cli::kPartial;

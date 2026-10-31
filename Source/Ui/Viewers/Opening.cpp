@@ -1,6 +1,7 @@
 #include "Onyx/Ui/Viewers/Opening.h"
 
 #include <Onyx/Core/Modules/DecodeContext.h>
+#include <Onyx/Core/Modules/EntryAccess.h>
 #include <Onyx/Core/Modules/Selection.h>
 #include <Onyx/Core/Services/Diagnostics.h>
 #include <Onyx/Core/Services/Jobs.h>
@@ -19,10 +20,6 @@ using Domain::MediaKind;
 
 Result<void> Fail(std::string code, std::string message) {
     return Result<void>::Fail(Error{std::move(code), std::move(message), 0});
-}
-
-std::shared_ptr<const Vfs::IFile> FileOf(const Modules::Document& doc, const Domain::ByteRange& range) {
-    return range.fileIndex < doc.files.size() ? doc.files[range.fileIndex] : nullptr;
 }
 
 bool NeedsDecode(MediaKind kind) {

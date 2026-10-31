@@ -78,7 +78,7 @@ void ExtractEntries(std::ostream& out, const Modules::Document& doc, const std::
             continue;
         }
 
-        const std::shared_ptr<const Vfs::IFile> file = FileOf(doc, e);
+        const std::shared_ptr<const Vfs::IFile> file = Modules::FileOf(doc, e.source);
         if (!file) {
             out << "error '" << e.name << "': file index " << e.source.fileIndex << " out of range\n";
             ++failures;
@@ -135,9 +135,9 @@ Verb ExtractVerb() {
                 return kUsage;
             }
 
-            const std::filesystem::path path(args.positional[0]);
-            const std::filesystem::path outDir(args.positional[1]);
-            OpenDocument opened(ws, path, args.game);
+            const std::filesystem::path path = Services::Paths::FromUtf8(args.positional[0]);
+            const std::filesystem::path outDir = Services::Paths::FromUtf8(args.positional[1]);
+            Modules::ScopedDocument opened(ws, path, args.game);
             if (!OpenOrReport(opened, path, out)) return kNoModule;
 
             std::error_code ec;

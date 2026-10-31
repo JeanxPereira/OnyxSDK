@@ -6,6 +6,7 @@
 #include <optional>
 #include <ostream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Onyx::Cli {
@@ -37,26 +38,45 @@ std::string FormatNodePath(const Modules::NodePath& path) {
 
 }
 
-const Domain::AssetEntry* ResolveEntry(const Modules::Document& doc, std::string_view target, bool first,
-                                       std::ostream& err) {
+Resolution ResolveEntry(const Modules::Document& doc, std::string_view target, bool first) {
+    Resolution result;
     if (target.starts_with('@')) {
         const auto path = ParseNodePath(target.substr(1));
         if (!path) {
-            err << "invalid node path: " << target << "\n";
-            return nullptr;
+            result.status = ResolveStatus::BadPath;
+            return result;
         }
-        return Modules::Resolve(doc, *path);
+        result.entry = Modules::Resolve(doc, *path);
+        result.status = result.entry ? ResolveStatus::Found : ResolveStatus::NotFound;
+        return result;
     }
 
-    const std::vector<Modules::NodePath> matches = Modules::FindAllByName(doc, target);
-    if (matches.empty()) return nullptr;
+    std::vector<Modules::NodePath> matches = Modules::FindAllByName(doc, target);
+    if (matches.empty()) return result;
     if (matches.size() > 1 && !first) {
-        err << "cli.ambiguous: " << matches.size() << " entries are named '" << target << "':";
-        for (size_t i = 0; i < matches.size(); ++i) err << (i ? ", " : " ") << FormatNodePath(matches[i]);
-        err << "\n";
-        return nullptr;
+        result.status = ResolveStatus::Ambiguous;
+        result.matches = std::move(matches);
+        return result;
     }
-    return Modules::Resolve(doc, matches.front());
+    result.entry = Modules::Resolve(doc, matches.front());
+    result.status = result.entry ? ResolveStatus::Found : ResolveStatus::NotFound;
+    return result;
+}
+
+bool ReportResolution(const Resolution& resolution, std::string_view target, std::ostream& out, std::ostream& err) {
+    switch (resolution.status) {
+        case ResolveStatus::Found: return true;
+        case ResolveStatus::BadPath: err << "invalid node path: " << target << "\n"; return false;
+        case ResolveStatus::NotFound: out << "unknown entry: " << target << "\n"; return false;
+        case ResolveStatus::Ambiguous:
+            err << "cli.ambiguous: " << resolution.matches.size() << " entries are named '" << target << "':";
+            for (size_t i = 0; i < resolution.matches.size(); ++i) {
+                err << (i ? ", " : " ") << FormatNodePath(resolution.matches[i]);
+            }
+            err << "\n";
+            return false;
+    }
+    return false;
 }
 
 }
