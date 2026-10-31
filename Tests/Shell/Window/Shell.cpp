@@ -1,23 +1,32 @@
 #include <doctest/doctest.h>
 
 #include <OnyxBox/Module.h>
+#include <Prism/Module.h>
+#include <PrismUi/Extension.h>
 
 #include <imgui.h>
 
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string>
+#include <vector>
 
+#include "../../Prism/Support/PrismFixture.h"
 #include "../Support/ShellSupport.h"
 #include "Onyx/Shell/Shell.h"
+#if ONYX_WITH_MEDIA
+#include "Onyx/Media/AudioOutput.h"
+#endif
 #include "Onyx/Ui/AudioOutput.h"
 #include "Onyx/Ui/Panels/DocumentBrowser.h"
 #include "Onyx/Ui/Fonts.h"
 #include "Onyx/Ui/Theme.h"
 #include "Onyx/Ui/Viewers/DocumentTabs.h"
+#include "Onyx/Ui/Viewers/Opening.h"
 #include "Support/WindowFixture.h"
 
 using namespace Onyx;
@@ -291,3 +300,75 @@ TEST_CASE("SetAudioOutput reaches the context") {
     CHECK(shell.Run(1, argv) == 0);
     CHECK(stops == 1);
 }
+
+namespace {
+
+std::filesystem::path WriteSamplePrism(const std::filesystem::path& path) {
+    const std::vector<std::byte> bytes = Tests::SamplePrism();
+    std::ofstream f(path, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    return path;
+}
+
+// Opens the sample's palette entry through the documents panel and returns the active tab's id.
+std::string OpenPaletteAndReadActiveId(Shell::Shell& shell, const std::filesystem::path& file) {
+    REQUIRE(shell.Open(file).ok());
+    REQUIRE(StepUntil(shell, [&] {
+        return !shell.Workspace().Documents().empty() && shell.Workspace().Documents()[0]->ready.load();
+    }));
+    auto* tabs = static_cast<Ui::DocumentTabs*>(shell.Panels().Find("onyx.documents"));
+    REQUIRE(tabs != nullptr);
+
+    Ui::UiContext ui = shell.Context();
+    const Ui::Selection palette{shell.Workspace().Documents()[0]->id, Modules::NodePath{{0}}};
+    auto opened = Ui::OpenEntry(ui, palette, [&](std::unique_ptr<Ui::IDocumentView> view) { tabs->Add(std::move(view)); });
+    REQUIRE_MESSAGE(opened.ok(), opened.error().code << ": " << opened.error().message);
+    REQUIRE(StepUntil(shell, [&] { return tabs->Count() == 1; }));
+    for (int i = 0; i < 5; ++i) {
+        REQUIRE(shell.Step().ok());
+    }
+    REQUIRE(tabs->Active() != nullptr);
+    const std::string id(tabs->Active()->Id());
+    RequireValidationLayer(*shell.GpuDevice());
+    shell.GpuDevice()->GraphicsQueue().WaitIdle();
+    CHECK_MESSAGE(shell.GpuDevice()->ValidationMessageCount() == 0, shell.GpuDevice()->LastValidationMessage());
+    return id;
+}
+
+}
+
+TEST_CASE("A Prism file opens its palette in the palette viewer when the extension is installed") {
+    TempDir dir("shell_prism_ext");
+    const auto file = WriteSamplePrism(dir.path / "sample.prm");
+    Shell::Shell shell(TestOptions(dir.path));
+    REQUIRE(shell.Workspace().AddModule(std::make_unique<Prism::Module>()).ok());
+    shell.AddExtension(std::make_unique<Prism::Ui::Extension>());
+    CHECK(OpenPaletteAndReadActiveId(shell, file).starts_with("prism.palette."));
+}
+
+TEST_CASE("Without the extension the palette opens in the stock table viewer") {
+    TempDir dir("shell_prism_stock");
+    const auto file = WriteSamplePrism(dir.path / "sample.prm");
+    Shell::Shell shell(TestOptions(dir.path));
+    REQUIRE(shell.Workspace().AddModule(std::make_unique<Prism::Module>()).ok());
+    CHECK(OpenPaletteAndReadActiveId(shell, file).starts_with("onyx.table."));
+}
+
+#if ONYX_WITH_MEDIA
+TEST_CASE("SetAudioOutput with Media's AudioOutput survives a Run teardown") {
+    TempDir dir("shell_media_audio");
+    Shell::Shell shell(TestOptions(dir.path));
+    shell.SetAudioOutput(std::make_unique<Media::AudioOutput>());
+    CHECK(shell.Context().audio != nullptr);
+    for (int i = 0; i < 3; ++i) {
+        REQUIRE(shell.Step().ok());
+    }
+    RequireValidationLayer(*shell.GpuDevice());
+    shell.RequestClose();
+    auto stepped = shell.Step();
+    REQUIRE(stepped.ok());
+    CHECK_FALSE(stepped.value());
+    shell.GpuDevice()->GraphicsQueue().WaitIdle();
+    CHECK_MESSAGE(shell.GpuDevice()->ValidationMessageCount() == 0, shell.GpuDevice()->LastValidationMessage());
+}
+#endif

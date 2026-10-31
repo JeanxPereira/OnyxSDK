@@ -1,0 +1,7 @@
+add_library(PrismUi STATIC PaletteView.cpp Extension.cpp)
+add_library(Onyx::ExamplePrismUi ALIAS PrismUi)
+target_compile_features(PrismUi PUBLIC cxx_std_20)
+target_include_directories(PrismUi PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>")
+target_link_libraries(PrismUi PUBLIC Onyx::Shell Onyx::ExamplePrism)
+onyx_warnings(PrismUi)
+set_target_properties(PrismUi PROPERTIES CXX_SCAN_FOR_MODULES OFF)

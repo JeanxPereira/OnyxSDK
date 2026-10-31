@@ -5,3 +5,6 @@ target_include_directories(Prism PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURC
 target_link_libraries(Prism PUBLIC Onyx::Core)
 onyx_warnings(Prism)
 set_target_properties(Prism PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+if(ONYX_WITH_SHELL)
+    add_subdirectory(Ui)
+endif()

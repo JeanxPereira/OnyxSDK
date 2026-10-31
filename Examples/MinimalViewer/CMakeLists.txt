@@ -1,7 +1,12 @@
 include(${PROJECT_SOURCE_DIR}/cmake/Assets.cmake)
 
 add_executable(MinimalViewer Main.cpp)
-target_link_libraries(MinimalViewer PRIVATE Onyx::Shell Onyx::ExampleBox)
+target_link_libraries(MinimalViewer PRIVATE Onyx::Shell Onyx::ExampleBox Onyx::ExamplePrism Onyx::ExamplePrismUi)
+if(ONYX_WITH_MEDIA)
+    target_link_libraries(MinimalViewer PRIVATE Onyx::Media)
+    target_compile_definitions(MinimalViewer PRIVATE ONYX_WITH_MEDIA=1)
+    onyx_install_media_runtime(MinimalViewer)
+endif()
 onyx_warnings(MinimalViewer)
 set_target_properties(MinimalViewer PROPERTIES CXX_SCAN_FOR_MODULES OFF)
 onyx_install_assets(MinimalViewer)

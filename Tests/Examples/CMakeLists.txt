@@ -11,3 +11,10 @@ if(ONYX_WITH_UI)
     add_test(NAME Examples.Embedded COMMAND Embedded --frames 3)
     set_tests_properties(Examples.Embedded PROPERTIES SKIP_RETURN_CODE 77)
 endif()
+
+# Examples.Cli: OnyxCli with no arguments exits 1 and prints a usage naming its verbs.
+if(ONYX_WITH_GPU)
+    add_test(NAME Examples.Cli
+        COMMAND ${CMAKE_COMMAND} -DEXE=$<TARGET_FILE:OnyxCli>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/CheckUsage.cmake)
+endif()
