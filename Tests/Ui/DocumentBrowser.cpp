@@ -7,9 +7,12 @@
 #include <Onyx/Ui/Panels/Problems.h>
 #include <Onyx/Ui/Panels/SettingsPanel.h>
 
+#include <imgui_internal.h>
+
 #include <chrono>
 #include <memory>
 #include <optional>
+#include <string>
 
 #include "Support/HeadlessImGui.h"
 #include "Support/ObxWorkspace.h"
@@ -140,5 +143,46 @@ TEST_CASE("The workspace panels draw together without asserts") {
         IPanel* panel = fx.panels.Find(id);
         REQUIRE(panel);
         CHECK(panel->visible);
+        const std::string name = std::string(panel->Title()) + "##" + id;
+        const ImGuiWindow* window = ImGui::FindWindowByName(name.c_str());
+        REQUIRE(window);
+        CHECK(window->DrawList->CmdBuffer.Size > 0);
+        CHECK(window->DrawList->IdxBuffer.Size > 0);
     }
+}
+
+TEST_CASE("DocumentBrowser badge follows diagnostics reported after the tree is ready") {
+    ObxUi fx("browser_badge");
+    UiContext ui = fx.Make();
+    DocumentBrowser browser;
+    browser.Refresh(ui);
+    CHECK(browser.BadgeOf(0).empty());
+
+    fx.obx.workspace.Get(fx.obx.doc)->diags.Report({Services::Severity::Error, "t.late", "late", std::nullopt});
+    HeadlessImGui rig;
+    DrawFrames(rig, 1, [&] { browser.Draw(ui); });
+    CHECK(browser.BadgeOf(0) == "1");
+}
+
+TEST_CASE("DocumentBrowser drops the selection of a document closed elsewhere") {
+    ObxUi fx("browser_external_close");
+    UiContext ui = fx.Make();
+    DocumentBrowser browser;
+    browser.Refresh(ui);
+    browser.SelectRow(ui, 2);
+    fx.obx.workspace.Pump();
+
+    std::optional<Modules::SelectionChanged> seen;
+    const auto sub = fx.obx.workspace.Events().On<Modules::SelectionChanged>(
+        [&](const Modules::SelectionChanged& e) { seen = e; });
+
+    fx.obx.workspace.Close(fx.obx.doc);
+    browser.Refresh(ui);
+    fx.obx.workspace.Pump();
+
+    CHECK(browser.VisibleRows() == 0);
+    CHECK(browser.Selection().Current().Empty());
+    REQUIRE(seen.has_value());
+    CHECK(seen->doc == 0);
+    CHECK(seen->path.indices.empty());
 }

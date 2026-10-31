@@ -37,7 +37,9 @@ public:
     // The rows only change when a document's diagnostic count or a filter changes.
     const ProblemsModel& Model(UiContext& ui);
 
-    // The deepest entry of the document whose source range contains the byte reference.
+    // The deepest entry whose source range contains the byte reference. An empty file matches any
+    // file of the document; a named file must be the document path (full or file name) and only
+    // matches entries of the root container.
     static std::optional<Modules::NodePath> FindEntry(const Modules::Document& doc,
                                                       const Services::ByteRef& at);
 

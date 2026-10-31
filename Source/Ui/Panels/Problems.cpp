@@ -27,12 +27,13 @@ bool Contains(const Domain::ByteRange& range, uint64_t offset) {
     return range.size > 0 && offset >= range.offset && offset - range.offset < range.size;
 }
 
-bool Descend(const std::vector<Domain::AssetEntry>& level, uint64_t offset, std::vector<uint32_t>& path) {
+bool Descend(const std::vector<Domain::AssetEntry>& level, uint64_t offset, bool anyFile,
+             std::vector<uint32_t>& path) {
     for (uint32_t i = 0; i < level.size(); ++i) {
         const Domain::AssetEntry& entry = level[i];
         path.push_back(i);
-        if (Descend(entry.children, offset, path)) return true;
-        if (Contains(entry.source, offset)) return true;
+        if (Descend(entry.children, offset, anyFile, path)) return true;
+        if ((anyFile || entry.source.fileIndex == 0) && Contains(entry.source, offset)) return true;
         path.pop_back();
     }
     return false;
@@ -43,7 +44,9 @@ bool Descend(const std::vector<Domain::AssetEntry>& level, uint64_t offset, std:
 std::optional<Modules::NodePath> Problems::FindEntry(const Modules::Document& doc, const Services::ByteRef& at) {
     if (!doc.ready.load()) return std::nullopt;
     Modules::NodePath path;
-    if (!Descend(doc.roots, at.offset, path.indices)) return std::nullopt;
+    const bool anyFile = at.file.empty();
+    if (!anyFile && at.file != doc.path.string() && at.file != doc.path.filename().string()) return std::nullopt;
+    if (!Descend(doc.roots, at.offset, anyFile, path.indices)) return std::nullopt;
     return path;
 }
 

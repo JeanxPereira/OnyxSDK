@@ -32,7 +32,8 @@ struct ContainerContext {
 };
 
 // A worker thread owns roots, files, mounted, diags and moduleState from the open call until the
-// document's TreeReady event is pumped; only `ready` may be read before that. files[0] is always
+// document's TreeReady event is pumped; only `ready` may be read before that, while `id`, `path`
+// and `module` are fixed by Open and may be read at any time. files[0] is always
 // the root container file, and AssetEntry::source.fileIndex indexes into files.
 struct Document {
     DocumentId id = 0;

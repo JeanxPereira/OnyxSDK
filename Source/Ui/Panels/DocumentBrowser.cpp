@@ -40,11 +40,33 @@ void DocumentBrowser::Refresh(UiContext& ui) {
         m_dirty = true;
     }
 
-    std::vector<std::pair<Modules::DocumentId, bool>> signature;
+    std::vector<Signature> signature;
+    std::set<Modules::DocumentId> present;
     for (const auto& doc : ui.workspace.Documents()) {
-        signature.emplace_back(doc->id, doc->ready.load());
+        const bool ready = doc->ready.load();
+        signature.push_back({doc->id, ready, ready ? doc->diags.Count() : 0});
+        present.insert(doc->id);
     }
-    if (!m_dirty && signature == m_signature) return;
+
+    bool dropped = false;
+    for (auto it = m_known.begin(); it != m_known.end();) {
+        if (present.contains(*it)) {
+            ++it;
+            continue;
+        }
+        const Modules::DocumentId gone = *it;
+        std::erase_if(m_expanded, [gone](const Key& key) { return key.first == gone; });
+        it = m_known.erase(it);
+        dropped = true;
+    }
+    const Modules::DocumentId selected = m_selection.Current().doc;
+    if (selected != 0 && !present.contains(selected)) {
+        m_selection.Set({}, ui.workspace.Events());
+        m_selectedEntry = nullptr;
+        dropped = true;
+    }
+
+    if (!m_dirty && !dropped && signature == m_signature) return;
     m_signature = std::move(signature);
     m_dirty = false;
     Rebuild(ui);
@@ -162,6 +184,10 @@ void DocumentBrowser::SelectRow(UiContext& ui, size_t row) {
     m_selectedEntry = m_rows[row].entry;
 }
 
+std::string_view DocumentBrowser::BadgeOf(size_t row) const {
+    return row < m_rows.size() ? std::string_view(m_rows[row].badge) : std::string_view();
+}
+
 void DocumentBrowser::Activate(UiContext& ui, size_t row) {
     if (row >= m_rows.size()) return;
     SelectRow(ui, row);
@@ -197,8 +223,9 @@ void DocumentBrowser::DrawRow(UiContext& ui, size_t index) {
     } else if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
         SelectRow(ui, index);
     }
-    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && onOpen) {
-        onOpen(ui, m_selection.Current());
+    if (!ImGui::IsItemToggledOpen() && ImGui::IsItemHovered() &&
+        ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        Activate(ui, index);
     }
 
     if (!row.entry && ImGui::BeginPopupContextItem("ctx")) {
@@ -226,9 +253,13 @@ void DocumentBrowser::Draw(UiContext& ui) {
     const float rowHeight = ImGui::GetFontSize() + pad * 2.0f + ImGui::GetStyle().ItemSpacing.y;
     Widgets::ForEachVisible(m_rows.size(), rowHeight, [&](size_t i) { DrawRow(ui, i); });
 
-    const Onyx::Ui::Selection& current = m_selection.Current();
-    if (onOpen && !current.Empty() && ImGui::IsWindowFocused() && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
-        onOpen(ui, current);
+    if (ImGui::IsWindowFocused() && ImGui::IsKeyPressed(ImGuiKey_Enter, false)) {
+        for (size_t i = 0; i < m_rows.size(); ++i) {
+            if (m_rows[i].doc == m_selection.Current().doc && m_rows[i].entry == m_selectedEntry) {
+                Activate(ui, i);
+                break;
+            }
+        }
     }
 }
 

@@ -10,6 +10,7 @@
 #include <functional>
 #include <set>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -38,6 +39,8 @@ public:
 
     size_t VisibleRows() const { return m_rows.size(); }
     size_t RowsDrawn() const { return m_rowsDrawn; }
+    // The problem count shown next to a document row; empty when the document has none.
+    std::string_view BadgeOf(size_t row) const;
 
     // An empty path addresses the document row itself.
     void SetExpanded(UiContext& ui, Modules::DocumentId doc, const Modules::NodePath& path, bool expanded);
@@ -74,7 +77,14 @@ private:
     void DrawRow(UiContext& ui, size_t index);
 
     std::vector<Row> m_rows;
-    std::vector<std::pair<Modules::DocumentId, bool>> m_signature;
+    struct Signature {
+        Modules::DocumentId id = 0;
+        bool ready = false;
+        size_t diags = 0;
+        bool operator==(const Signature&) const = default;
+    };
+
+    std::vector<Signature> m_signature;
     std::set<Key> m_expanded;
     std::set<Modules::DocumentId> m_known;
     std::vector<Modules::DocumentId> m_closeQueue;

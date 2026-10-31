@@ -4,6 +4,8 @@
 
 #include <algorithm>
 
+#include "Support/HeadlessImGui.h"
+
 #include "Support/ObxWorkspace.h"
 
 using namespace Onyx;
@@ -48,4 +50,33 @@ TEST_CASE("SettingsPanel resets a module tab to its defaults and the theme to it
     SettingsPanel::Reset(ui, model, 0);
     CHECK(fx.theme.State().userScale == doctest::Approx(1.0f));
     SettingsPanel::Reset(ui, model, 99);
+}
+
+TEST_CASE("SettingsPanel renders every Appearance entry DescribeSettings declares") {
+    ObxUi fx("settings_appearance");
+    UiContext ui = fx.Make();
+
+    Services::SettingsSchema declared;
+    Theme::DescribeSettings(declared);
+    const SettingsModel model = SettingsPanel::Model(ui);
+    REQUIRE(model.tabs[0].entries.size() == declared.Entries().size());
+    for (size_t i = 0; i < declared.Entries().size(); ++i) {
+        CHECK(model.tabs[0].entries[i].key == declared.Entries()[i].key);
+    }
+
+    SettingsPanel panel;
+    HeadlessImGui rig;
+    DrawFrames(rig, 3, [&] { panel.Draw(ui); });
+    for (const auto& entry : declared.Entries()) {
+        CHECK_MESSAGE(panel.AppearanceValues().Has(entry.key), entry.key);
+    }
+}
+
+TEST_CASE("SettingsPanel tab labels stay unique when display names collide") {
+    ObxUi fx("settings_labels");
+    UiContext ui = fx.Make();
+    const SettingsModel model = SettingsPanel::Model(ui);
+    for (const SettingsTab& tab : model.tabs) {
+        CHECK(tab.label == tab.title + "###" + tab.id);
+    }
 }

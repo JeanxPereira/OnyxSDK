@@ -55,6 +55,8 @@ TEST_CASE("Problems resolves a byte reference to its entry and navigates the bro
     REQUIRE(path.has_value());
     CHECK(path->indices == std::vector<uint32_t>{1});
     CHECK_FALSE(Problems::FindEntry(*doc, Services::ByteRef{"fixture.obx", 0}).has_value());
+    CHECK(Problems::FindEntry(*doc, Services::ByteRef{"", text.offset + 2}).has_value());
+    CHECK_FALSE(Problems::FindEntry(*doc, Services::ByteRef{"other.bin", text.offset + 2}).has_value());
 
     fx.panels.Add(std::make_unique<DocumentBrowser>());
     auto* browser = dynamic_cast<DocumentBrowser*>(fx.panels.Find("onyx.browser"));
