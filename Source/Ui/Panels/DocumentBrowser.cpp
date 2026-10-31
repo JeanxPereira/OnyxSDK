@@ -31,12 +31,7 @@ void DocumentBrowser::Refresh(UiContext& ui) {
         queue.swap(m_closeQueue);
         for (const Modules::DocumentId id : queue) {
             ui.workspace.Close(id);
-            std::erase_if(m_expanded, [id](const Key& key) { return key.first == id; });
-            m_known.erase(id);
-            if (m_selection.Current().doc == id) {
-                m_selection.Set({}, ui.workspace.Events());
-                m_selectedEntry = nullptr;
-            }
+            Forget(ui, id);
         }
         m_dirty = true;
     }
@@ -49,17 +44,12 @@ void DocumentBrowser::Refresh(UiContext& ui) {
         present.insert(doc->id);
     }
 
-    bool dropped = false;
-    for (auto it = m_known.begin(); it != m_known.end();) {
-        if (present.contains(*it)) {
-            ++it;
-            continue;
-        }
-        const Modules::DocumentId gone = *it;
-        std::erase_if(m_expanded, [gone](const Key& key) { return key.first == gone; });
-        it = m_known.erase(it);
-        dropped = true;
+    std::vector<Modules::DocumentId> gone;
+    for (const Modules::DocumentId id : m_known) {
+        if (!present.contains(id)) gone.push_back(id);
     }
+    for (const Modules::DocumentId id : gone) Forget(ui, id);
+    bool dropped = !gone.empty();
     const Modules::DocumentId selected = m_selection.Current().doc;
     if (selected != 0 && !present.contains(selected)) {
         m_selection.Set({}, ui.workspace.Events());
@@ -71,6 +61,15 @@ void DocumentBrowser::Refresh(UiContext& ui) {
     m_signature = std::move(signature);
     m_dirty = false;
     Rebuild(ui);
+}
+
+void DocumentBrowser::Forget(UiContext& ui, Modules::DocumentId id) {
+    std::erase_if(m_expanded, [id](const Key& key) { return key.first == id; });
+    m_known.erase(id);
+    if (m_selection.Current().doc == id) {
+        m_selection.Set({}, ui.workspace.Events());
+        m_selectedEntry = nullptr;
+    }
 }
 
 void DocumentBrowser::Rebuild(UiContext& ui) {

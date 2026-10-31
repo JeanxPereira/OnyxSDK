@@ -15,7 +15,8 @@ namespace Onyx::Ui {
 // closing from inside a view's own Draw is safe, and GPU resources that a panel recorded into the
 // frame of the retirement survive that frame's submit however early in the frame the tab was closed.
 // Tabs of a document close when the workspace pumps DocumentClosed; the workspace must outlive this
-// panel.
+// panel. Retired views are destroyed only by Draw: while the panel is hidden they, and the GPU
+// resources they hold, live until its next Draw or until the panel itself is destroyed.
 class DocumentTabs : public IPanel {
 public:
     explicit DocumentTabs(Modules::Workspace& workspace);

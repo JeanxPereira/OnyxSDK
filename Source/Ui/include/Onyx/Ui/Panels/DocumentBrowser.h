@@ -71,6 +71,8 @@ private:
 
     using Key = std::pair<Modules::DocumentId, const Domain::AssetEntry*>;
 
+    // Drops the expansion state and the selection of a document that closed or vanished.
+    void Forget(UiContext& ui, Modules::DocumentId id);
     void Rebuild(UiContext& ui);
     void Append(UiContext& ui, Modules::DocumentId doc, const std::vector<Domain::AssetEntry>& entries,
                 uint32_t depth, uint32_t parentRow);
