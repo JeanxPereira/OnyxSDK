@@ -120,16 +120,40 @@ std::string BuildReport(std::string_view scene, uint32_t width, uint32_t height,
 }
 
 bool SameDirectory(const std::filesystem::path& a, const std::filesystem::path& b) {
+    return SameDirectory(a, b, [](const std::filesystem::path& path, std::error_code& ec) {
+        return std::filesystem::weakly_canonical(path, ec);
+    });
+}
+
+bool SameDirectory(const std::filesystem::path& a, const std::filesystem::path& b, const PathResolver& resolve) {
     std::error_code ec;
-    const auto left = std::filesystem::weakly_canonical(a, ec);
+    const auto left = resolve(a, ec);
     if (ec) {
-        return false;
+        return true;
     }
-    const auto right = std::filesystem::weakly_canonical(b, ec);
+    const auto right = resolve(b, ec);
     if (ec) {
-        return false;
+        return true;
     }
     return left.lexically_normal() / "" == right.lexically_normal() / "";
+}
+
+bool HoldsForeignPng(const std::filesystem::path& dir, std::span<const std::string> names) {
+    std::error_code ec;
+    const bool marked = std::filesystem::exists(dir / kOutputMarker, ec);
+    if (ec) {
+        return true;
+    }
+    if (marked) {
+        return false;
+    }
+    for (const std::string& name : names) {
+        const bool present = std::filesystem::exists(dir / (name + ".png"), ec);
+        if (ec || present) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool JsonEqualMaskingPixelHash(std::string_view a, std::string_view b) {

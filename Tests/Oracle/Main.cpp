@@ -13,9 +13,9 @@ using namespace Onyx::Oracle;
 
 constexpr const char* kUsage =
     "usage:\n"
-    "  OnyxOracle render --out DIR\n"
+    "  OnyxOracle render --out DIR [--golden DIR]\n"
     "  OnyxOracle parity --golden DIR --out DIR --tolerances FILE [--profile NAME] [--diff]\n"
-    "  OnyxOracle reproducible --out DIR\n"
+    "  OnyxOracle reproducible --out DIR [--golden DIR]\n"
     "  OnyxOracle bless --golden DIR\n"
     "  OnyxOracle --help\n";
 
@@ -25,7 +25,7 @@ constexpr const char* kExitCodes =
     "  1   a scene is outside tolerance, or a render or write failed\n"
     "  2   a golden image or the tolerances file is missing\n"
     "  3   the tolerance profile is missing from the tolerances file\n"
-    "  64  usage error, including --out equal to the golden directory\n"
+    "  64  usage error, including --out equal to the golden directory or holding PNGs the oracle did not write\n"
     "  77  no Vulkan device available\n";
 
 int Usage() {
@@ -47,7 +47,7 @@ int main(int argc, char** argv) {
     }
     std::set<std::string_view> allowed;
     if (command == "render" || command == "reproducible") {
-        allowed = {"out"};
+        allowed = {"out", "golden"};
     } else if (command == "parity") {
         allowed = {"golden", "out", "tolerances", "profile", "diff"};
     } else if (command == "bless") {
@@ -84,7 +84,11 @@ int main(int argc, char** argv) {
     std::filesystem::path out;
     std::filesystem::path tolerances;
     if (command == "render") {
-        return need("out", out) ? RunRender(out) : Usage();
+        if (!need("out", out)) {
+            return Usage();
+        }
+        need("golden", golden);
+        return RunRender(out, golden);
     }
     if (command == "parity") {
         if (!need("golden", golden) || !need("out", out) || !need("tolerances", tolerances)) {
@@ -94,7 +98,11 @@ int main(int argc, char** argv) {
         return RunParity(golden, out, tolerances, profile == options.end() ? std::string() : profile->second, diff);
     }
     if (command == "reproducible") {
-        return need("out", out) ? RunReproducible(out) : Usage();
+        if (!need("out", out)) {
+            return Usage();
+        }
+        need("golden", golden);
+        return RunReproducible(out, golden);
     }
     if (command == "bless") {
         return need("golden", golden) ? RunBless(golden) : Usage();

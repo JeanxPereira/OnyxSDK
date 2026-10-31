@@ -5,6 +5,7 @@
 
 #include <clocale>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -155,5 +156,51 @@ TEST_CASE("SameDirectory resolves spelling differences and missing directories")
     CHECK(SameDirectory(base / "golden", base / "golden" / ""));
     CHECK_FALSE(SameDirectory(base / "golden", base / "out"));
     CHECK_FALSE(SameDirectory(base / "golden", base / "golden" / "a"));
+    fs::remove_all(base);
+}
+
+TEST_CASE("SameDirectory fails closed when a path cannot be resolved") {
+    namespace fs = std::filesystem;
+    const fs::path base = fs::temp_directory_path() / "OnyxOracleSameDirectoryClosed";
+    fs::create_directories(base);
+    const auto failing = [](const fs::path&, std::error_code& ec) {
+        ec = std::make_error_code(std::errc::io_error);
+        return fs::path();
+    };
+    CHECK(SameDirectory(base / "golden", base / "out", failing));
+    const auto failsOnSecond = [](const fs::path& path, std::error_code& ec) {
+        if (path.filename() == "second") {
+            ec = std::make_error_code(std::errc::io_error);
+            return fs::path();
+        }
+        return path;
+    };
+    CHECK(SameDirectory(base / "first", base / "second", failsOnSecond));
+    CHECK_FALSE(SameDirectory(base / "first", base / "other", failsOnSecond));
+    fs::remove_all(base);
+}
+
+TEST_CASE("HoldsForeignPng refuses directories with unmarked corpus PNGs") {
+    namespace fs = std::filesystem;
+    const fs::path base = fs::temp_directory_path() / "OnyxOracleForeignPng";
+    fs::remove_all(base);
+    const std::vector<std::string> names = {"one", "two"};
+    CHECK_FALSE(HoldsForeignPng(base / "missing", names));
+
+    fs::create_directories(base / "empty");
+    CHECK_FALSE(HoldsForeignPng(base / "empty", names));
+
+    fs::create_directories(base / "golden");
+    std::ofstream(base / "golden" / "two.png") << "x";
+    CHECK(HoldsForeignPng(base / "golden", names));
+
+    fs::create_directories(base / "owned");
+    std::ofstream(base / "owned" / "two.png") << "x";
+    std::ofstream(base / "owned" / kOutputMarker) << "x";
+    CHECK_FALSE(HoldsForeignPng(base / "owned", names));
+
+    fs::create_directories(base / "unrelated");
+    std::ofstream(base / "unrelated" / "three.png") << "x";
+    CHECK_FALSE(HoldsForeignPng(base / "unrelated", names));
     fs::remove_all(base);
 }

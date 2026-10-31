@@ -144,9 +144,38 @@ bool MakeDir(const fs::path& dir) {
     return !ec;
 }
 
+std::vector<std::string> CorpusNames() {
+    std::vector<std::string> names;
+    for (const TestKit::SceneFixture& fixture : TestKit::BuildCorpus()) {
+        names.push_back(fixture.name);
+    }
+    return names;
+}
+
+// Refuses an output directory that is the golden one or holds PNGs the oracle did not write.
+bool OutputAllowed(const fs::path& dir, const fs::path& golden) {
+    if (!golden.empty() && SameDirectory(dir, golden)) {
+        std::fputs("--out must not be the golden directory\n", stderr);
+        return false;
+    }
+    const std::vector<std::string> names = CorpusNames();
+    if (HoldsForeignPng(dir, names)) {
+        std::fprintf(stderr,
+                     "refusing to write into %s: it already holds corpus PNGs the oracle did not write "
+                     "(golden images?); choose an empty output directory\n",
+                     dir.string().c_str());
+        return false;
+    }
+    return true;
+}
+
 // Renders the corpus and writes <name>.png and <name>.json into dir.
 bool RenderInto(Session& session, const fs::path& dir, std::vector<RenderedScene>& scenes) {
     if (!MakeDir(dir) || !RenderCorpus(session, scenes)) {
+        return false;
+    }
+    if (!WriteText(dir / kOutputMarker, "written by OnyxOracle\n")) {
+        std::fprintf(stderr, "cannot write the output marker into %s\n", dir.string().c_str());
         return false;
     }
     for (const RenderedScene& scene : scenes) {
@@ -177,7 +206,10 @@ TestKit::Image8 DiffImage(const TestKit::Image8& a, const TestKit::Image8& b) {
 
 }
 
-int RunRender(const fs::path& out) {
+int RunRender(const fs::path& out, const fs::path& golden) {
+    if (!OutputAllowed(out, golden)) {
+        return kExitUsage;
+    }
     int exit = kExitWithin;
     auto session = OpenSession(exit);
     if (!session) {
@@ -189,8 +221,7 @@ int RunRender(const fs::path& out) {
 
 int RunParity(const fs::path& golden, const fs::path& out, const fs::path& tolerances, const std::string& profileName,
               bool writeDiff) {
-    if (SameDirectory(out, golden)) {
-        std::fputs("--out must not be the golden directory\n", stderr);
+    if (!OutputAllowed(out, golden)) {
         return kExitUsage;
     }
 
@@ -233,6 +264,10 @@ int RunParity(const fs::path& golden, const fs::path& out, const fs::path& toler
     if (!RenderInto(*session, out, scenes)) {
         return kExitOutside;
     }
+    if (scenes.empty() || scenes.size() != wanted.size()) {
+        std::fprintf(stderr, "rendered %zu scenes but read %zu golden images\n", scenes.size(), wanted.size());
+        return kExitOutside;
+    }
     std::printf("profile %s on %s\n", profile.c_str(), session->device->Info().deviceName.c_str());
 
     int result = kExitWithin;
@@ -257,7 +292,12 @@ int RunParity(const fs::path& golden, const fs::path& out, const fs::path& toler
     return result;
 }
 
-int RunReproducible(const fs::path& out) {
+int RunReproducible(const fs::path& out, const fs::path& golden) {
+    for (const fs::path& dir : {out, out / "a", out / "b"}) {
+        if (!OutputAllowed(dir, golden)) {
+            return kExitUsage;
+        }
+    }
     int exit = kExitWithin;
     auto session = OpenSession(exit);
     if (!session) {
