@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -64,8 +65,11 @@ public:
 
     void SetDropHandler(std::function<void(std::vector<std::filesystem::path>)> handler);
     void SetResizeHandler(std::function<void(glm::ivec2)> handler);
-    // Invokes the drop handler as the GLFW callback would.
+    // Feeds the paths, as UTF-8, through the same callback GLFW invokes for a drop.
     void SimulateDrop(std::vector<std::filesystem::path> paths);
+
+    // Test hook: reports this size from FramebufferSize instead of the real one; nullopt restores it.
+    void ForceFramebufferSize(std::optional<glm::ivec2> size) { m_forcedSize = size; }
 
     void SetTitleBarRect(const TitleBarRect& rect) { m_titleBar = rect; }
     const TitleBarRect& GetTitleBarRect() const { return m_titleBar; }
@@ -88,6 +92,7 @@ private:
     WindowOptions m_options;
     GLFWwindow* m_window = nullptr;
     TitleBarRect m_titleBar;
+    std::optional<glm::ivec2> m_forcedSize;
     std::function<void(std::vector<std::filesystem::path>)> m_dropHandler;
     std::function<void(glm::ivec2)> m_resizeHandler;
     // Win32 only: the window procedure GLFW installed, restored on destruction.

@@ -33,21 +33,22 @@ LRESULT HitTest(HWND hwnd, LPARAM lParam, const TitleBarRect& caption, GLFWwindo
     if (glfwGetWindowMonitor(window) != nullptr) {
         return HTCLIENT;
     }
-    const POINT cursor{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    const POINT screen{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
     RECT bounds;
     if (!GetWindowRect(hwnd, &bounds)) {
         return HTNOWHERE;
     }
-    const POINT border{GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER),
-                       GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER)};
+    const UINT dpi = GetDpiForWindow(hwnd);
+    const POINT border{GetSystemMetricsForDpi(SM_CXFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi),
+                       GetSystemMetricsForDpi(SM_CYFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi)};
 
     constexpr int kClient = 0;
     constexpr int kLeft = 0b0001;
     constexpr int kRight = 0b0010;
     constexpr int kTop = 0b0100;
     constexpr int kBottom = 0b1000;
-    const int region = kLeft * (cursor.x < bounds.left + border.x) | kRight * (cursor.x >= bounds.right - border.x) |
-                       kTop * (cursor.y < bounds.top + border.y) | kBottom * (cursor.y >= bounds.bottom - border.y);
+    const int region = kLeft * (screen.x < bounds.left + border.x) | kRight * (screen.x >= bounds.right - border.x) |
+                       kTop * (screen.y < bounds.top + border.y) | kBottom * (screen.y >= bounds.bottom - border.y);
 
     if (region != kClient && caption.blocked) {
         return HTCLIENT;
@@ -66,8 +67,11 @@ LRESULT HitTest(HWND hwnd, LPARAM lParam, const TitleBarRect& caption, GLFWwindo
     if (caption.blocked) {
         return HTCLIENT;
     }
-    const float x = static_cast<float>(cursor.x - bounds.left);
-    const float y = static_cast<float>(cursor.y - bounds.top);
+    // The caption rectangle is in client coordinates, which are inset from the window when maximised.
+    POINT client = screen;
+    ScreenToClient(hwnd, &client);
+    const float x = static_cast<float>(client.x);
+    const float y = static_cast<float>(client.y);
     if (x >= caption.x && x < caption.x + caption.width && y >= caption.y && y < caption.y + caption.height) {
         return HTCAPTION;
     }
@@ -103,9 +107,8 @@ LRESULT CALLBACK BorderlessProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM l
         break;
     case WM_ERASEBKGND:
         return 1;
-    case WM_WINDOWPOSCHANGING:
-        reinterpret_cast<LPWINDOWPOS>(lParam)->flags |= SWP_NOCOPYBITS;
-        break;
+    // SWP_NOCOPYBITS is not set on WM_WINDOWPOSCHANGING: it only avoids ghosting when the frame is redrawn
+    // during a move, and the loop does not redraw from the modal move loop.
     case WM_NCHITTEST:
         return HitTest(hwnd, lParam, self->GetTitleBarRect(), self->Handle());
     default:
@@ -123,7 +126,8 @@ void NativeWindow::InstallPlatform() {
     HWND hwnd = glfwGetWin32Window(m_window);
     // GLFW gives an undecorated window WS_POPUP, which has no native resize or snap. WS_OVERLAPPEDWINDOW
     // restores both once the frame is drawn by the WM_NCCALCSIZE handler, and WS_EX_COMPOSITED removes
-    // the flicker while resizing. Both are set here, once.
+    // the flicker while resizing. Both are set here, once. GLFW resets the style to WS_POPUP on
+    // glfwSetWindowMonitor and glfwSetWindowAttrib, so a fullscreen toggle must re-apply these bits.
     LONG style = GetWindowLongW(hwnd, GWL_STYLE);
     style |= WS_OVERLAPPEDWINDOW;
     style &= ~WS_POPUP;

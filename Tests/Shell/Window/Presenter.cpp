@@ -2,6 +2,9 @@
 
 #include <GLFW/glfw3.h>
 
+#include <algorithm>
+#include <chrono>
+
 #include <imgui.h>
 
 #include "Support/WindowFixture.h"
@@ -68,6 +71,8 @@ TEST_CASE("The draw callback runs once per step with an open frame") {
     });
     REQUIRE(stepped.ok());
     CHECK(calls == 1);
+    fx->device->GraphicsQueue().WaitIdle();
+    CHECK(fx->device->ValidationMessageCount() == 0);
 }
 
 TEST_CASE("ShellFrame recreates the swapchain after a resize") {
@@ -101,6 +106,8 @@ TEST_CASE("SetShouldClose makes Step return false") {
     auto stepped = StepRedrawing(*fx);
     REQUIRE(stepped.ok());
     CHECK_FALSE(stepped.value());
+    fx->device->GraphicsQueue().WaitIdle();
+    CHECK(fx->device->ValidationMessageCount() == 0);
 }
 
 TEST_CASE("Step called from the draw callback is refused") {
@@ -113,6 +120,8 @@ TEST_CASE("Step called from the draw callback is refused") {
     REQUIRE(outer.ok());
     REQUIRE_FALSE(inner.ok());
     CHECK(inner.error().code == "shell.frame");
+    fx->device->GraphicsQueue().WaitIdle();
+    CHECK(fx->device->ValidationMessageCount() == 0);
 }
 
 TEST_CASE("An idle clock waits for events up to its remaining animation") {
@@ -123,6 +132,45 @@ TEST_CASE("An idle clock waits for events up to its remaining animation") {
     auto stepped = fx->shell->Step(DrawDemoWindow);
     REQUIRE(stepped.ok());
     CHECK(glfwGetTime() - before < 0.9);
+    fx->device->GraphicsQueue().WaitIdle();
+    CHECK(fx->device->ValidationMessageCount() == 0);
+}
+
+TEST_CASE("An idle step blocks in WaitEvents for the idle cap") {
+    auto fx = MakeWindowFixture();
+    fx->shell->SetIdleWaitCap(0.05);
+    for (int i = 0; i < 3; ++i) {
+        fx->window->PollEvents();
+    }
+    // A stray window message can end a wait early, so the cap must be reached by at least one step.
+    double longest = 0.0;
+    for (int i = 0; i < 5 && longest < 0.04; ++i) {
+        const auto before = std::chrono::steady_clock::now();
+        auto stepped = fx->shell->Step(DrawDemoWindow);
+        const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - before).count();
+        REQUIRE(stepped.ok());
+        longest = (std::max)(longest, elapsed);
+    }
+    CHECK(longest >= 0.04);
+    fx->device->GraphicsQueue().WaitIdle();
+    CHECK(fx->device->ValidationMessageCount() == 0);
+}
+
+TEST_CASE("A zero-sized framebuffer does not spin even with a redraw pending") {
+    auto fx = MakeWindowFixture();
+    REQUIRE(StepRedrawing(*fx).ok());
+    fx->window->ForceFramebufferSize(glm::ivec2(0, 0));
+    for (int i = 0; i < 3; ++i) {
+        const auto before = std::chrono::steady_clock::now();
+        auto stepped = StepRedrawing(*fx);
+        const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - before).count();
+        REQUIRE_MESSAGE(stepped.ok(), stepped.error().code << ": " << stepped.error().message);
+        CHECK(stepped.value());
+        CHECK(elapsed >= 0.03);
+    }
+    fx->window->ForceFramebufferSize(std::nullopt);
+    auto restored = StepRedrawing(*fx);
+    REQUIRE_MESSAGE(restored.ok(), restored.error().code << ": " << restored.error().message);
     fx->device->GraphicsQueue().WaitIdle();
     CHECK(fx->device->ValidationMessageCount() == 0);
 }

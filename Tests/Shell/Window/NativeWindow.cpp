@@ -65,10 +65,15 @@ TEST_CASE("SimulateDrop reaches the registered drop handler") {
 
     std::vector<std::filesystem::path> received;
     window.value()->SetDropHandler([&](std::vector<std::filesystem::path> paths) { received = std::move(paths); });
-    window.value()->SimulateDrop({"a.bin", "dir/b.bin"});
+    const std::filesystem::path accented = std::filesystem::path(u8"dir") / std::filesystem::path(u8"caf\u00e9.bin");
+    window.value()->SimulateDrop({"a.bin", accented});
     REQUIRE(received.size() == 2);
-    CHECK(received[0] == std::filesystem::path("a.bin"));
-    CHECK(received[1] == std::filesystem::path("dir/b.bin"));
+    const bool first = received[0] == std::filesystem::path("a.bin");
+    const bool second = received[1] == accented;
+    const bool leaf = received[1].filename().u8string() == std::u8string(u8"caf\u00e9.bin");
+    CHECK(first);
+    CHECK(second);
+    CHECK(leaf);
 }
 
 TEST_CASE("The resize handler fires when the window is resized") {

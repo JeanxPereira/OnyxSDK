@@ -10,7 +10,7 @@ namespace Onyx::Shell {
 
 namespace {
 
-constexpr double kIdleWaitCapSeconds = 1.0;
+constexpr double kMinimisedWaitSeconds = 0.05;
 constexpr glm::vec4 kClearColor{0.10f, 0.10f, 0.10f, 1.0f};
 
 struct StepGuard {
@@ -23,19 +23,6 @@ struct StepGuard {
 };
 
 }
-
-Result<std::unique_ptr<GlfwPlatform>> GlfwPlatform::Create(NativeWindow& window) {
-    using Out = Result<std::unique_ptr<GlfwPlatform>>;
-    if (ImGui::GetCurrentContext() == nullptr) {
-        return Out::Fail({"shell.window", "there is no current ImGui context", 0});
-    }
-    if (!ImGui_ImplGlfw_InitForVulkan(window.Handle(), true)) {
-        return Out::Fail({"shell.window", "ImGui_ImplGlfw_InitForVulkan failed", 0});
-    }
-    return Out::Ok(std::unique_ptr<GlfwPlatform>(new GlfwPlatform()));
-}
-
-GlfwPlatform::~GlfwPlatform() { ImGui_ImplGlfw_Shutdown(); }
 
 ShellFrame::ShellFrame(NativeWindow& window, Gpu::Device& device, Presenter& presenter, Gpu::FrameRing& frames,
                        Ui::ImGuiVulkanBackend& backend, Ui::Theme& theme, Ui::FrameClock& clock)
@@ -58,20 +45,27 @@ Result<bool> ShellFrame::Step(const std::function<void(Gpu::Frame&)>& drawUi) {
         return Out::Ok(false);
     }
 
-    if (m_clock.WantsContinuous()) {
+    const auto minimised = [this] {
+        const glm::ivec2 size = m_window.FramebufferSize();
+        return size.x <= 0 || size.y <= 0;
+    };
+    if (minimised()) {
+        m_window.WaitEvents(kMinimisedWaitSeconds);
+    } else if (m_clock.WantsContinuous()) {
         m_window.PollEvents();
     } else {
         const double remaining = m_clock.RemainingAnimation();
-        m_window.WaitEvents(remaining > 0.0 ? (std::min)(remaining, kIdleWaitCapSeconds) : kIdleWaitCapSeconds);
+        m_window.WaitEvents(remaining > 0.0 ? (std::min)(remaining, m_idleWaitCap) : m_idleWaitCap);
     }
     if (m_window.ShouldClose()) {
         return Out::Ok(false);
     }
 
-    const glm::ivec2 framebuffer = m_window.FramebufferSize();
-    if (framebuffer.x <= 0 || framebuffer.y <= 0) {
+    if (minimised()) {
+        m_clock.BeginFrame(glfwGetTime());
         return Out::Ok(true);
     }
+    const glm::ivec2 framebuffer = m_window.FramebufferSize();
     const VkExtent2D extent = m_presenter.Extent();
     if (m_presenter.NeedsRecreate() || extent.width != static_cast<uint32_t>(framebuffer.x) ||
         extent.height != static_cast<uint32_t>(framebuffer.y)) {
@@ -104,17 +98,24 @@ Result<bool> ShellFrame::Step(const std::function<void(Gpu::Frame&)>& drawUi) {
 
     auto acquired = m_presenter.Acquire(frame);
     if (!acquired.ok()) {
-        m_frames.End(frame);
-        return Out::Fail(acquired.error());
+        auto ended = m_frames.End(frame);
+        Error error = acquired.error();
+        if (!ended.ok()) {
+            error.message += "; ending the frame also failed: " + ended.error().code + ": " + ended.error().message;
+        }
+        return Out::Fail(std::move(error));
     }
     if (!acquired.value().has_value()) {
         auto ended = m_frames.End(frame);
         if (!ended.ok()) {
             return Out::Fail(ended.error());
         }
-        auto resized = m_presenter.Resize(m_window.FramebufferSize());
-        if (!resized.ok()) {
-            return Out::Fail(resized.error());
+        const glm::ivec2 current = m_window.FramebufferSize();
+        if (current.x > 0 && current.y > 0) {
+            auto resized = m_presenter.Resize(current);
+            if (!resized.ok()) {
+                return Out::Fail(resized.error());
+            }
         }
         return Out::Ok(true);
     }
@@ -142,7 +143,11 @@ Result<bool> ShellFrame::Step(const std::function<void(Gpu::Frame&)>& drawUi) {
     auto presented = m_presenter.Present(ended.value(), image);
     auto fault = m_backend.Fault();
     if (!presented.ok()) {
-        return Out::Fail(presented.error());
+        Error error = presented.error();
+        if (!fault.ok()) {
+            error.message += "; the backend also reported " + fault.error().code + ": " + fault.error().message;
+        }
+        return Out::Fail(std::move(error));
     }
     if (!fault.ok()) {
         return Out::Fail(fault.error());

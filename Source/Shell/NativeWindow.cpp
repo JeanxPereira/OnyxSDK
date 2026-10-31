@@ -98,6 +98,9 @@ NativeWindow::~NativeWindow() {
 }
 
 glm::ivec2 NativeWindow::FramebufferSize() const {
+    if (m_forcedSize) {
+        return *m_forcedSize;
+    }
     int width = 0;
     int height = 0;
     glfwGetFramebufferSize(m_window, &width, &height);
@@ -136,7 +139,20 @@ void NativeWindow::SetDropHandler(std::function<void(std::vector<std::filesystem
 
 void NativeWindow::SetResizeHandler(std::function<void(glm::ivec2)> handler) { m_resizeHandler = std::move(handler); }
 
-void NativeWindow::SimulateDrop(std::vector<std::filesystem::path> paths) { DispatchDrop(std::move(paths)); }
+void NativeWindow::SimulateDrop(std::vector<std::filesystem::path> paths) {
+    std::vector<std::string> utf8;
+    utf8.reserve(paths.size());
+    for (const auto& path : paths) {
+        const std::u8string encoded = path.u8string();
+        utf8.emplace_back(reinterpret_cast<const char*>(encoded.data()), encoded.size());
+    }
+    std::vector<const char*> pointers;
+    pointers.reserve(utf8.size());
+    for (const auto& item : utf8) {
+        pointers.push_back(item.c_str());
+    }
+    NativeWindowAccess::OnDrop(m_window, static_cast<int>(pointers.size()), pointers.data());
+}
 
 void NativeWindow::DispatchDrop(std::vector<std::filesystem::path> paths) {
     if (m_dropHandler) {
