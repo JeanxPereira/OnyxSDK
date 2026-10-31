@@ -124,7 +124,7 @@
 
 - [ ] **Step 8: Verify**: `py -3 tools/check.py --preset windows-debug --ctest-regex "Core|Cli|Render|Shell.Unit|Examples"` exits 0; every file in `Tests/Cli/Goldens` unchanged (`git status --short Tests/Cli/Goldens` empty).
 
-- [ ] **Step 9: Commit** in three: `feat(core): Return a status from ResolveEntry and share entry access`, `fix(render): Harden the render verb's arguments and report its diagnostics`, `fix(cli): Read command-line arguments as UTF-8 on Windows`.
+- [ ] **Step 9: Commit** in three: `feat(core): Return a status from ResolveEntry and share entry access`, `fix(render): Harden the render verb's arguments and print diagnostics`, `fix(cli): Read command-line arguments as UTF-8 on Windows`.
 
 ---
 
@@ -146,7 +146,7 @@
 
 - [ ] **Step 4: Verify**: `py -3 tools/check.py --preset windows-debug --ctest-regex "Exchange|Examples.Cli"` exits 0; `Tests/Cli/Goldens` unchanged.
 
-- [ ] **Step 5: Commit**: `fix(exchange): Write glTF pairs atomically and keep accessor bounds exact`.
+- [ ] **Step 5: Commit**: `fix(exchange): Write glTF pairs atomically, keep accessor bounds exact`.
 
 ---
 
@@ -170,7 +170,7 @@
 
 - [ ] **Step 5: Verify**: `py -3 tools/check.py --preset windows-debug --ctest-regex "Media|Shell|Examples"` exits 0. Record which tests needed a real audio device.
 
-- [ ] **Step 6: Commit** in two: `fix(media): Settle seeks before End, log read errors and open views off-thread`, `build(media): Fail on a missing FFmpeg runtime and pin the pkg-config floor`.
+- [ ] **Step 6: Commit** in two: `fix(media): Settle seeks before End, log read errors, open off-thread`, `build(media): Fail without FFmpeg DLLs and pin the pkg-config floor`.
 
 ---
 
@@ -201,7 +201,7 @@
 
 - [ ] **Step 4: Verify**: `py -3 tools/check.py --preset windows-debug --ctest-regex "Ui|Shell|Media|Examples"` exits 0 with zero validation messages.
 
-- [ ] **Step 5: Commit** in three: `feat(ui): Stream hot textures through a ring that never waits on the queue`, `fix(ui): Let one audio output serve several views and report null decodes`, `fix(shell): Apply SetAudioOutput at the frame boundary and stop audio first`.
+- [ ] **Step 5: Commit** in three: `feat(ui): Stream hot textures through a ring with no queue wait`, `fix(ui): Share one audio output across views, report null decodes`, `fix(shell): Apply SetAudioOutput between frames and stop audio first`.
 
 ---
 
@@ -224,7 +224,7 @@
 
 - [ ] **Step 5: Verify**: `py -3 tools/check.py --preset windows-debug --ctest-regex "Prism|Examples.Cli"` exits 0; `Tests/Cli/Goldens` unchanged.
 
-- [ ] **Step 6: Commit**: `fix(prism): Pin the palette, writer and view edge cases and share the test rig`.
+- [ ] **Step 6: Commit**: `fix(prism): Pin palette, writer and view edge cases, share the test rig`.
 
 ---
 
