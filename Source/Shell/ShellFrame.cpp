@@ -3,6 +3,7 @@
 #include <GLFW/glfw3.h>
 #include <imgui_impl_glfw.h>
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
 
@@ -11,6 +12,22 @@ namespace Onyx::Shell {
 namespace {
 
 constexpr double kMinimisedWaitSeconds = 0.05;
+// Frames rendered without waiting after input arrives, so hover, tooltips and menus opened by that
+// input appear without waiting for the next event.
+constexpr int kFramesAfterInput = 3;
+
+bool InputPending() {
+    const ImGuiContext* context = ImGui::GetCurrentContext();
+    return context && context->InputEventsQueue.Size > 0;
+}
+
+// Interaction that animates without further events: a held button, a drag or text edit, an open popup.
+bool Interacting() {
+    if (!ImGui::GetCurrentContext()) return false;
+    return ImGui::IsAnyItemActive() || ImGui::IsAnyMouseDown() ||
+           ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
+}
+
 constexpr glm::vec4 kClearColor{0.10f, 0.10f, 0.10f, 1.0f};
 
 struct StepGuard {
@@ -49,21 +66,31 @@ Result<bool> ShellFrame::Step(const std::function<void(Gpu::Frame&)>& drawUi) {
         const glm::ivec2 size = m_window.FramebufferSize();
         return size.x <= 0 || size.y <= 0;
     };
+    if (InputPending()) {
+        m_pollFrames = kFramesAfterInput;
+    }
     if (minimised()) {
         m_window.WaitEvents(kMinimisedWaitSeconds);
-    } else if (m_clock.WantsContinuous()) {
+    } else if (m_clock.WantsContinuous() || m_pollFrames > 0 || Interacting()) {
         m_window.PollEvents();
     } else {
         const double remaining = m_clock.RemainingAnimation();
         m_window.WaitEvents(remaining > 0.0 ? (std::min)(remaining, m_idleWaitCap) : m_idleWaitCap);
+    }
+    if (InputPending()) {
+        m_pollFrames = kFramesAfterInput;
     }
     if (m_window.ShouldClose()) {
         return Out::Ok(false);
     }
 
     if (minimised()) {
-        m_clock.BeginFrame(glfwGetTime());
+        m_lastTime = glfwGetTime();
+        m_clock.BeginFrame(m_lastTime);
         return Out::Ok(true);
+    }
+    if (m_pollFrames > 0) {
+        --m_pollFrames;
     }
     const glm::ivec2 framebuffer = m_window.FramebufferSize();
     const VkExtent2D extent = m_presenter.Extent();

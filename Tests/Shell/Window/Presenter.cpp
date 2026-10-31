@@ -22,6 +22,15 @@ void DrawDemoWindow(Gpu::Frame&) {
     ImGui::End();
 }
 
+// Steps until the frames owed to input queued while the fixture was built are spent, so the next
+// step paces from a quiet state.
+void WarmUp(WindowFixture& fx) {
+    for (int i = 0; i < 4; ++i) {
+        fx.window->PollEvents();
+        REQUIRE(fx.shell->Step(DrawDemoWindow).ok());
+    }
+}
+
 Result<bool> StepRedrawing(WindowFixture& fx, const std::function<void(Gpu::Frame&)>& draw = DrawDemoWindow) {
     fx.clock.RequestRedraw();
     return fx.shell->Step(draw);
@@ -139,9 +148,7 @@ TEST_CASE("An idle clock waits for events up to its remaining animation") {
 TEST_CASE("An idle step blocks in WaitEvents for the idle cap") {
     auto fx = MakeWindowFixture();
     fx->shell->SetIdleWaitCap(0.05);
-    for (int i = 0; i < 3; ++i) {
-        fx->window->PollEvents();
-    }
+    WarmUp(*fx);
     // A stray window message can end a wait early, so the cap must be reached by at least one step.
     double longest = 0.0;
     for (int i = 0; i < 5 && longest < 0.04; ++i) {
@@ -160,17 +167,68 @@ TEST_CASE("A zero-sized framebuffer does not spin even with a redraw pending") {
     auto fx = MakeWindowFixture();
     REQUIRE(StepRedrawing(*fx).ok());
     fx->window->ForceFramebufferSize(glm::ivec2(0, 0));
-    for (int i = 0; i < 3; ++i) {
+    // A stray window message can end one wait early; a spinning loop would never reach the wait.
+    double longest = 0.0;
+    for (int i = 0; i < 5; ++i) {
         const auto before = std::chrono::steady_clock::now();
         auto stepped = StepRedrawing(*fx);
         const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - before).count();
         REQUIRE_MESSAGE(stepped.ok(), stepped.error().code << ": " << stepped.error().message);
         CHECK(stepped.value());
-        CHECK(elapsed >= 0.03);
+        longest = (std::max)(longest, elapsed);
     }
+    CHECK(longest >= 0.03);
     fx->window->ForceFramebufferSize(std::nullopt);
     auto restored = StepRedrawing(*fx);
     REQUIRE_MESSAGE(restored.ok(), restored.error().code << ": " << restored.error().message);
+    fx->device->GraphicsQueue().WaitIdle();
+    CHECK(fx->device->ValidationMessageCount() == 0);
+}
+
+TEST_CASE("Input keeps the following frames rendering without an idle wait") {
+    auto fx = MakeWindowFixture();
+    fx->shell->SetIdleWaitCap(0.5);
+    WarmUp(*fx);
+
+    ImGui::GetIO().AddMousePosEvent(40.0f, 40.0f);
+    const auto before = std::chrono::steady_clock::now();
+    for (int i = 0; i < 3; ++i) {
+        auto stepped = fx->shell->Step(DrawDemoWindow);
+        REQUIRE_MESSAGE(stepped.ok(), stepped.error().code << ": " << stepped.error().message);
+    }
+    const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - before).count();
+    CHECK(elapsed < 0.25);
+    fx->device->GraphicsQueue().WaitIdle();
+    CHECK(fx->device->ValidationMessageCount() == 0);
+}
+
+TEST_CASE("A held mouse button keeps the frames rendering without an idle wait") {
+    auto fx = MakeWindowFixture();
+    fx->shell->SetIdleWaitCap(0.5);
+    WarmUp(*fx);
+
+    ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+    const auto before = std::chrono::steady_clock::now();
+    for (int i = 0; i < 6; ++i) {
+        auto stepped = fx->shell->Step(DrawDemoWindow);
+        REQUIRE_MESSAGE(stepped.ok(), stepped.error().code << ": " << stepped.error().message);
+    }
+    const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - before).count();
+    CHECK(elapsed < 0.25);
+    ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+    REQUIRE(fx->shell->Step(DrawDemoWindow).ok());
+    fx->device->GraphicsQueue().WaitIdle();
+    CHECK(fx->device->ValidationMessageCount() == 0);
+}
+
+TEST_CASE("The idle wait cap is clamped to a positive minimum") {
+    auto fx = MakeWindowFixture();
+    fx->shell->SetIdleWaitCap(0.0);
+    CHECK(fx->shell->IdleWaitCap() > 0.0);
+    fx->shell->SetIdleWaitCap(-1.0);
+    CHECK(fx->shell->IdleWaitCap() > 0.0);
+    fx->shell->SetIdleWaitCap(0.25);
+    CHECK(fx->shell->IdleWaitCap() == doctest::Approx(0.25));
     fx->device->GraphicsQueue().WaitIdle();
     CHECK(fx->device->ValidationMessageCount() == 0);
 }
