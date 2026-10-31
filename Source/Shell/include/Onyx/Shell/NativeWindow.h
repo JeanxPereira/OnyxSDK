@@ -26,8 +26,13 @@ struct WindowOptions {
     std::string title;
     glm::ivec2 size{1280, 800};
     // Win32: a frameless window that keeps native snapping and resizing, with the caption area given
-    // by SetTitleBarRect. Elsewhere: an undecorated GLFW window.
+    // by SetTitleBarRect. Ignored elsewhere: the window is always decorated, since nothing would draw
+    // or hit-test a caption for it.
+#if defined(_WIN32)
     bool borderless = true;
+#else
+    bool borderless = false;
+#endif
     bool visible = true;
 };
 

@@ -74,7 +74,12 @@ Result<std::unique_ptr<NativeWindow>> NativeWindow::Create(const WindowOptions& 
     glfwDefaultWindowHints();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_VISIBLE, options.visible ? GLFW_TRUE : GLFW_FALSE);
+#if defined(_WIN32)
     glfwWindowHint(GLFW_DECORATED, options.borderless ? GLFW_FALSE : GLFW_TRUE);
+#else
+    // Only the Win32 platform draws and hit-tests a caption for a frameless window.
+    glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
+#endif
     window->m_window = glfwCreateWindow(options.size.x, options.size.y, options.title.c_str(), nullptr, nullptr);
     if (window->m_window == nullptr) {
         const char* description = nullptr;

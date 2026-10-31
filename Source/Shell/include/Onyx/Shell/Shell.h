@@ -42,7 +42,13 @@ struct ShellOptions {
     // Empty: Paths::UserConfig(appName). Holds settings.toml and imgui.ini.
     std::filesystem::path configDir;
     glm::ivec2 windowSize{1280, 800};
+    // A frameless window with the menu bar as its caption: the default on Windows. Elsewhere the
+    // window is always decorated and this is ignored (see WindowOptions::borderless).
+#if defined(_WIN32)
     bool borderless = true;
+#else
+    bool borderless = false;
+#endif
     // An invisible window that never idles long between frames: for tests and automation.
     bool hiddenWindow = false;
     unsigned workerThreads = 2;

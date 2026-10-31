@@ -41,6 +41,25 @@ TEST_CASE("A hidden window reports the framebuffer size it was created with") {
     }
 }
 
+TEST_CASE("Only Windows makes a borderless window frameless") {
+#if defined(_WIN32)
+    CHECK(Shell::WindowOptions{}.borderless);
+#else
+    CHECK_FALSE(Shell::WindowOptions{}.borderless);
+#endif
+    for (const bool borderless : {true, false}) {
+        CAPTURE(borderless);
+        auto window = Shell::NativeWindow::Create(Hidden(borderless));
+        REQUIRE_MESSAGE(window.ok(), window.error().code << ": " << window.error().message);
+        const bool decorated = glfwGetWindowAttrib(window.value()->Handle(), GLFW_DECORATED) == GLFW_TRUE;
+#if defined(_WIN32)
+        CHECK(decorated == !borderless);
+#else
+        CHECK(decorated);
+#endif
+    }
+}
+
 TEST_CASE("The window names the instance extensions a surface needs") {
     auto window = Shell::NativeWindow::Create(Hidden(true));
     REQUIRE(window.ok());
