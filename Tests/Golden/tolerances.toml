@@ -5,3 +5,14 @@ maxChannelDelta = 160
 maxDifferingPct = 2.0
 maxHighDeltaPct = 0.8
 maxMae = 1.0
+
+# software: lavapipe (Mesa llvmpipe Vulkan, Mesa 25.2.8, LLVM 20.1.2). Cause: the corpus was rendered on AMD,
+# which exports colour to 8-bit targets as fp16 rounded toward zero and filters UNORM8 textures at higher
+# precision, while lavapipe rounds fp32 to nearest and filters UNORM8 in 8-bit fixed point; interior pixels near
+# a rounding boundary move by one step, and edge deltas stay as on hardware.
+# Values: per-knob maxima of three identical runs over the corpus plus 10%.
+[software]
+maxChannelDelta = 135
+maxDifferingPct = 16.0
+maxHighDeltaPct = 0.46
+maxMae = 0.21
