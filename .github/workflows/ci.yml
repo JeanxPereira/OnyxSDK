@@ -24,6 +24,8 @@ jobs:
           path: build/windows-debug/_deps
           key: deps-windows-debug-${{ hashFiles('cmake/Deps/*.cmake') }}
 
+      # Media.Unit runs on both runners (the Windows configure downloads FFmpeg);
+      # Media.Gpu skips on Windows.
       # Hosted Windows runners have no Vulkan device: Gpu.Device, Render.Gpu,
       # Render.Parity, Render.Reproducible, Ui.Gpu, Shell.Window and
       # Examples.Embedded exit 77 and report SKIP here. Examples.Build needs
@@ -44,7 +46,7 @@ jobs:
       - name: Install toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang ninja-build glslang-tools libvulkan-dev mesa-vulkan-drivers vulkan-validationlayers libxkbcommon-dev libwayland-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl-dev
+          sudo apt-get install -y clang ninja-build glslang-tools libvulkan-dev mesa-vulkan-drivers vulkan-validationlayers libxkbcommon-dev libwayland-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev pkg-config
 
       - uses: actions/cache@v4
         with:

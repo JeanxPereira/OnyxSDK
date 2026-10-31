@@ -1,0 +1,7 @@
+include(${PROJECT_SOURCE_DIR}/cmake/Assets.cmake)
+onyx_add_tests(Media LINK Onyx::TestKit Onyx::ExampleBox ffmpeg::ffmpeg)
+onyx_install_assets(OnyxMediaTests)
+onyx_install_media_runtime(OnyxMediaTests)
+onyx_add_tests(Media SUITE Gpu SKIP_RETURN_CODE 77 LINK Onyx::TestKit Onyx::ExampleBox ffmpeg::ffmpeg)
+onyx_install_assets(OnyxMediaGpuTests)
+onyx_install_media_runtime(OnyxMediaGpuTests)
