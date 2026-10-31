@@ -32,6 +32,8 @@ def main():
         write(root, "Source/Core/Hist.cpp", "// Task 4 added this\nint Value() { return 1; }\n")
         # (f) style colors written outside the theme
         write(root, "Source/Ui/Widget.cpp", "void F() { ImGui::GetStyle().Colors[0] = {}; }\n")
+        write(root, "Source/Ui/Widget2.cpp", "void H() { style.Colors[1] = {}; }\n")
+        write(root, "Source/Shell/Bar.cpp", "void I() { ImGui::GetStyle().Colors[2] = {}; }\n")
         write(root, "Source/Ui/Theme.cpp", "void G() { ImGui::GetStyle().Colors[0] = {}; }\n")
         # skipped trees and non-violations
         write(root, "legacy/Old.cpp", "#include <imgui.h>\n// wad Task 1\n")
@@ -46,7 +48,7 @@ def main():
         "game-name": 1,
         "pragma-once": 1,
         "comment-history": 1,
-        "style-writer": 1,
+        "style-writer": 3,
     }
     if dict(rules) != expected:
         print("unexpected result:", dict(rules))

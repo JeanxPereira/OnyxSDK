@@ -4,6 +4,6 @@
 
 #include "Onyx/Shell/Layer.h"
 
-TEST_CASE("Shell layer links with a device and glfw") {
+TEST_CASE("Shell layer links and names itself") {
     CHECK(std::strcmp(Onyx::Shell::LayerName(), "Shell") == 0);
 }

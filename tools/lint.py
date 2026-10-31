@@ -31,7 +31,7 @@ PRAGMA_ONCE = re.compile(r"^\s*#\s*pragma\s+once\b", re.MULTILINE)
 HISTORY_CASE = re.compile(r"Task \d|\bT\d{1,2}:|\bM\d ")
 HISTORY_ICASE = re.compile(r"fix-round|milestone", re.IGNORECASE)
 
-STYLE_WRITE = re.compile(r"GetStyle\(\)\.Colors\[|style\.Colors\[")
+STYLE_WRITE = re.compile(r"GetStyle\(\)\.Colors\[|\bstyle\.Colors\[")
 STYLE_WRITER_FILE = "Source/Ui/Theme.cpp"
 STYLE_LAYERS = {"Ui", "Shell"}
 

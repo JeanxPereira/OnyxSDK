@@ -4,7 +4,8 @@ onyx_dep_imgui()
 
 set(icon_header "${CMAKE_CURRENT_SOURCE_DIR}/include/Onyx/Ui/SfSymbols.h")
 set(icon_table "${PROJECT_BINARY_DIR}/generated/Onyx/Ui/IconTable.cpp")
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${icon_header}")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${icon_header}" "${PROJECT_SOURCE_DIR}/cmake/GenerateIconTable.cmake")
 execute_process(
     COMMAND ${CMAKE_COMMAND} -DHEADER=${icon_header} -DOUTPUT=${icon_table}
             -P ${PROJECT_SOURCE_DIR}/cmake/GenerateIconTable.cmake
