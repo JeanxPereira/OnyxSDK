@@ -148,7 +148,7 @@ Geometry BuildRingedBox(float halfX, float halfY, const std::vector<float>& zLev
     return geo;
 }
 
-// The v1 skeleton stored Euler angles as Q.14 fractions of a turn; the same quantisation is applied
+// The frozen corpus stores Euler angles as Q.14 fractions of a turn; the same quantisation is applied
 // here so the rest pose matches bit for bit. The rotation is about a single axis (0 = X, 1 = Y).
 glm::quat QuantisedAxisRotation(double degrees, int axis) {
     const long q14 = std::lround(degrees / 360.0 * 16384.0);
@@ -289,7 +289,7 @@ SceneFixture BuildAnimatedChain() {
     SceneFixture f = BuildSkinnedCube();
     f.name = "animated-chain";
 
-    // The v1 clip swept joints 1 and 2 about X from 60 to 120 degrees; the keys here start and end
+    // The frozen corpus clip sweeps joints 1 and 2 about X from 60 to 120 degrees; the keys here start and end
     // at the rest rotation, so the clip at 0 s reproduces the rest pose, and reach the mid-sweep
     // angle of 90 degrees at 0.5 s.
     const glm::quat rest = QuantisedAxisRotation(30.0, 0);
