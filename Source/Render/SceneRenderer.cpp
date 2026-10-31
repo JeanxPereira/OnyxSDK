@@ -16,6 +16,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "Overlays.h"
 #include "ScenePipelines.h"
 #include "ShaderTypes.h"
 
@@ -204,6 +205,18 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::Create(Gpu::Device& device
         return Result<std::unique_ptr<SceneRenderer>>::Fail(backgroundPool.error());
     }
     renderer->m_backgroundPool.emplace(std::move(backgroundPool.value()));
+
+    auto gridPool = Gpu::DescriptorPool::Create(device, backgroundSizes, kSets);
+    if (!gridPool.ok()) {
+        return Result<std::unique_ptr<SceneRenderer>>::Fail(gridPool.error());
+    }
+    renderer->m_gridPool.emplace(std::move(gridPool.value()));
+
+    auto overlayPool = Gpu::DescriptorPool::Create(device, backgroundSizes, kSets);
+    if (!overlayPool.ok()) {
+        return Result<std::unique_ptr<SceneRenderer>>::Fail(overlayPool.error());
+    }
+    renderer->m_overlayPool.emplace(std::move(overlayPool.value()));
 
     return Result<std::unique_ptr<SceneRenderer>>::Ok(std::move(renderer));
 }
@@ -759,6 +772,11 @@ Result<void> SceneRenderer::Draw(Gpu::Frame& frame, Gpu::RenderTarget& target, c
         backgroundSet = set.value();
     }
 
+    auto overlayPlan = PlanOverlays(frame, scene, view, overlays);
+    if (!overlayPlan.ok()) {
+        return Result<void>::Fail(overlayPlan.error());
+    }
+
     frame.AddWait(scene.Ready());
 
     const auto& fn = m_device.Fn();
@@ -836,11 +854,101 @@ Result<void> SceneRenderer::Draw(Gpu::Frame& frame, Gpu::RenderTarget& target, c
         drawList(scene.m_blended);
     }
 
-    DrawOverlays(cmd, scene, view, overlays);
+    RecordOverlays(cmd, overlayPlan.value());
     target.End(cmd);
     return Result<void>::Ok();
 }
 
-void SceneRenderer::DrawOverlays(VkCommandBuffer, const GpuScene&, const View&, const Overlays&) {}
+Result<VkDescriptorSet> SceneRenderer::UniformSet(std::optional<Gpu::DescriptorPool>& pool,
+                                                  std::unordered_map<VkBuffer, VkDescriptorSet>& sets,
+                                                  VkDescriptorSetLayout layout, VkBuffer transient, VkDeviceSize range) {
+    if (auto found = sets.find(transient); found != sets.end()) {
+        return Result<VkDescriptorSet>::Ok(found->second);
+    }
+    auto set = pool->Allocate(layout);
+    if (!set.ok()) {
+        return set;
+    }
+    VkDescriptorBufferInfo info{transient, 0, range};
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = set.value();
+    write.dstBinding = 0;
+    write.descriptorCount = 1;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+    write.pBufferInfo = &info;
+    m_device.Fn().vkUpdateDescriptorSets(m_device.Handle(), 1, &write, 0, nullptr);
+    sets.emplace(transient, set.value());
+    return set;
+}
+
+Result<OverlayPlan> SceneRenderer::PlanOverlays(Gpu::Frame& frame, const GpuScene& scene, const View& view,
+                                                const Overlays& overlays) {
+    OverlayPlan plan;
+    if (overlays.grid) {
+        auto ubo = frame.Allocate(sizeof(Shader::GridUbo), Shader::kBufferAlignment);
+        if (!ubo.ok()) {
+            return Result<OverlayPlan>::Fail(ubo.error());
+        }
+        const Shader::GridUbo data = MakeGridUbo(view, overlays);
+        std::memcpy(ubo.value().mapped, &data, sizeof(data));
+        auto set = UniformSet(m_gridPool, m_gridSets, m_pipelines->grid.setLayouts[0].Get(), ubo.value().buffer,
+                              sizeof(Shader::GridUbo));
+        if (!set.ok()) {
+            return Result<OverlayPlan>::Fail(set.error());
+        }
+        plan.grid = ubo.value();
+        plan.gridSet = set.value();
+    }
+
+    if (overlays.skeleton && scene.m_skeleton) {
+        const std::vector<Shader::OverlayVertex> lines =
+            BuildSkeletonLines(*scene.m_skeleton, scene.m_worlds, scene.m_transform, overlays.boneColor);
+        if (!lines.empty()) {
+            auto ubo = frame.Allocate(sizeof(Shader::OverlayUbo), Shader::kBufferAlignment);
+            if (!ubo.ok()) {
+                return Result<OverlayPlan>::Fail(ubo.error());
+            }
+            const Shader::OverlayUbo data{view.proj.matrix * view.view};
+            std::memcpy(ubo.value().mapped, &data, sizeof(data));
+            auto vertices = frame.Allocate(lines.size() * sizeof(Shader::OverlayVertex), 16);
+            if (!vertices.ok()) {
+                return Result<OverlayPlan>::Fail(vertices.error());
+            }
+            std::memcpy(vertices.value().mapped, lines.data(), lines.size() * sizeof(Shader::OverlayVertex));
+            auto set = UniformSet(m_overlayPool, m_overlaySets, m_pipelines->overlay.setLayouts[0].Get(),
+                                  ubo.value().buffer, sizeof(Shader::OverlayUbo));
+            if (!set.ok()) {
+                return Result<OverlayPlan>::Fail(set.error());
+            }
+            plan.skeletonUbo = ubo.value();
+            plan.skeletonSet = set.value();
+            plan.vertices = vertices.value();
+            plan.vertexCount = static_cast<uint32_t>(lines.size());
+        }
+    }
+    return Result<OverlayPlan>::Ok(std::move(plan));
+}
+
+void SceneRenderer::RecordOverlays(VkCommandBuffer cmd, const OverlayPlan& plan) {
+    const auto& fn = m_device.Fn();
+    if (plan.grid) {
+        const uint32_t offset = static_cast<uint32_t>(plan.grid->offset);
+        fn.vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelines->grid.pipeline.Get());
+        fn.vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelines->grid.layout.Get(), 0, 1,
+                                   &plan.gridSet, 1, &offset);
+        fn.vkCmdDraw(cmd, 3, 1, 0, 0);
+    }
+    if (plan.skeletonUbo) {
+        const uint32_t offset = static_cast<uint32_t>(plan.skeletonUbo->offset);
+        fn.vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelines->overlay.pipeline.Get());
+        fn.vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelines->overlay.layout.Get(), 0, 1,
+                                   &plan.skeletonSet, 1, &offset);
+        const VkBuffer buffer = plan.vertices.buffer;
+        const VkDeviceSize vertexOffset = plan.vertices.offset;
+        fn.vkCmdBindVertexBuffers(cmd, 0, 1, &buffer, &vertexOffset);
+        fn.vkCmdDraw(cmd, plan.vertexCount, 1, 0, 0);
+    }
+}
 
 }

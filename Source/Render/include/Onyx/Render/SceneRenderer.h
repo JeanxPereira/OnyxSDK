@@ -20,6 +20,7 @@
 namespace Onyx::Render {
 
 struct ScenePipelines;
+struct OverlayPlan;
 
 struct RendererOptions {
     VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_4_BIT;
@@ -61,6 +62,7 @@ public:
                       const Overlays& overlays, Services::DiagSink* diags = nullptr);
 
     const RendererOptions& Options() const { return m_options; }
+    Gpu::Device& GetDevice() const { return m_device; }
 
 private:
     SceneRenderer(Gpu::Device& device, const RendererOptions& options);
@@ -69,7 +71,12 @@ private:
                           Services::DiagSink* diags);
     Result<VkDescriptorSet> FrameSet(VkBuffer transient, VkDeviceSize paletteRange);
     Result<VkDescriptorSet> BackgroundSet(VkBuffer transient);
-    void DrawOverlays(VkCommandBuffer cmd, const GpuScene& scene, const View& view, const Overlays& overlays);
+    Result<VkDescriptorSet> UniformSet(std::optional<Gpu::DescriptorPool>& pool,
+                                       std::unordered_map<VkBuffer, VkDescriptorSet>& sets, VkDescriptorSetLayout layout,
+                                       VkBuffer transient, VkDeviceSize range);
+    Result<OverlayPlan> PlanOverlays(Gpu::Frame& frame, const GpuScene& scene, const View& view,
+                                     const Overlays& overlays);
+    void RecordOverlays(VkCommandBuffer cmd, const OverlayPlan& plan);
 
     Gpu::Device& m_device;
     RendererOptions m_options;
@@ -78,6 +85,10 @@ private:
     std::optional<Gpu::DescriptorPool> m_backgroundPool;
     std::map<std::pair<VkBuffer, VkDeviceSize>, VkDescriptorSet> m_frameSets;
     std::unordered_map<VkBuffer, VkDescriptorSet> m_backgroundSets;
+    std::optional<Gpu::DescriptorPool> m_gridPool;
+    std::optional<Gpu::DescriptorPool> m_overlayPool;
+    std::unordered_map<VkBuffer, VkDescriptorSet> m_gridSets;
+    std::unordered_map<VkBuffer, VkDescriptorSet> m_overlaySets;
 };
 
 }

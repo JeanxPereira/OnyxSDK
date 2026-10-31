@@ -52,6 +52,34 @@ struct BackgroundUbo {
 static_assert(sizeof(BackgroundUbo) == 32);
 static_assert(offsetof(BackgroundUbo, bottom) == 16);
 
+// Set 0, binding 0 of the grid shaders (std140).
+struct GridUbo {
+    glm::mat4 viewProj;
+    glm::mat4 invViewProj;
+    glm::vec4 gridColor;
+    glm::vec3 cameraPos;
+    float gridScale;
+};
+static_assert(sizeof(GridUbo) == 160);
+static_assert(offsetof(GridUbo, invViewProj) == 64);
+static_assert(offsetof(GridUbo, gridColor) == 128);
+static_assert(offsetof(GridUbo, cameraPos) == 144);
+static_assert(offsetof(GridUbo, gridScale) == 156);
+
+// Set 0, binding 0 of the overlay shaders (std140).
+struct OverlayUbo {
+    glm::mat4 viewProj;
+};
+static_assert(sizeof(OverlayUbo) == 64);
+
+// One line-list vertex of the skeleton overlay.
+struct OverlayVertex {
+    float position[3];
+    float color[4];
+};
+static_assert(sizeof(OverlayVertex) == 28);
+static_assert(offsetof(OverlayVertex, color) == 12);
+
 // Push constant of the scene vertex shader.
 struct ScenePush {
     glm::mat4 model;
