@@ -9,8 +9,8 @@ function(onyx_dep_ffmpeg)
         include(FetchContent)
         set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
         set(ONYX_FFMPEG_WIN_URL
-            "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-03-31-13-11/ffmpeg-n7.1.3-43-g5a1f107b4c-win64-gpl-shared-7.1.zip"
-            CACHE STRING "FFmpeg 7.x win64 gpl-shared archive used by Onyx")
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-03-31-13-11/ffmpeg-n7.1.3-43-g5a1f107b4c-win64-lgpl-shared-7.1.zip"
+            CACHE STRING "FFmpeg 7.x win64 LGPL shared archive used by Onyx (not the GPL build)")
         FetchContent_Declare(ffmpeg_prebuilt
             URL "${ONYX_FFMPEG_WIN_URL}"
             DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
