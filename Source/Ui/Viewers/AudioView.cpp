@@ -8,6 +8,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <string_view>
 #include <utility>
 
 namespace Onyx::Ui {
@@ -45,19 +46,22 @@ void AudioView::Draw(UiContext& ui) {
     const double duration = Duration();
     ImGui::Text("%u Hz  %u ch  %.2f s  %zu samples", m_audio.sampleRate, m_audio.channels, duration, m_audio.samples.size());
 
+    // The output serves every audio view; this one shows its state only while it owns the clip.
+    const auto owns = [&] { return ui.audio && ui.audio->Owner() == m_id && ui.audio->Playing(); };
     if (ui.audio) {
-        const bool playing = ui.audio->Playing();
+        const bool playing = owns();
+        if (const std::string_view who = ui.audio->Owner(); !who.empty() && who != m_id) m_position = 0.0;
         if (Widgets::ToolbarButton(playing ? "Stop" : "Play")) {
             if (playing) {
                 ui.audio->Stop();
-            } else if (auto started = ui.audio->Play(m_audio); !started.ok()) {
+            } else if (auto started = ui.audio->Play(m_audio, m_id); !started.ok()) {
                 m_playError = started.error().code + ": " + started.error().message;
             } else {
                 m_playError.reset();
                 m_position = 0.0;
             }
         }
-        if (ui.audio->Playing()) {
+        if (owns()) {
             ImGui::SameLine();
             if (Widgets::ToolbarButton(ui.audio->Paused() ? "Resume" : "Pause")) {
                 if (ui.audio->Paused()) {
@@ -80,7 +84,7 @@ void AudioView::Draw(UiContext& ui) {
     if (size.x < 2.0f) return;
     const ImVec2 origin = ImGui::GetCursorScreenPos();
     ImGui::InvisibleButton("##wave", size);
-    if (ui.audio && ui.audio->Playing() && duration > 0.0 && ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+    if (owns() && duration > 0.0 && ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
         const float fraction = std::clamp((ImGui::GetIO().MousePos.x - origin.x) / size.x, 0.0f, 1.0f);
         m_position = static_cast<double>(fraction) * duration;
         ui.audio->Seek(m_position);
@@ -102,7 +106,7 @@ void AudioView::Draw(UiContext& ui) {
         list->AddLine(ImVec2(px, top), ImVec2(px, std::max(bottom, top + 1.0f)), wave);
     }
 
-    if (ui.audio && ui.audio->Playing() && duration > 0.0) {
+    if (owns() && duration > 0.0) {
         const float fraction = static_cast<float>(std::clamp(ui.audio->Position() / duration, 0.0, 1.0));
         const float px = origin.x + fraction * size.x;
         list->AddLine(ImVec2(px, origin.y), ImVec2(px, end.y), ImGui::GetColorU32(ImGuiCol_PlotHistogram), 2.0f);

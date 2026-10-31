@@ -18,7 +18,9 @@ struct WavePeak {
 
 // A waveform and the format of a decoded clip. Play, Stop, Pause and Resume drive the context's audio
 // output when it has one, and a click on the waveform seeks the playing clip (a stopped output has
-// nothing to seek).
+// nothing to seek). The output is shared: Play passes Id() as the owner, and the view shows the
+// output's state (Stop, Pause, the playhead, Position) only while Owner() names it; otherwise it
+// shows Play at position 0, and Play takes the output over.
 class AudioView : public IDocumentView {
 public:
     AudioView(Modules::DocumentId doc, Modules::NodePath node, std::string name, Domain::Audio audio);
@@ -33,7 +35,8 @@ public:
     double Duration() const;
     // One min/max pair per pixel column over every channel, cached for the last width asked.
     const std::vector<WavePeak>& Peaks(size_t width);
-    // Seconds into the clip: the output's position at the last draw while it played, or the last seek.
+    // Seconds into the clip: the output's position at the last draw while this view owned it, the last
+    // seek, or 0 once another view took the output over.
     double Position() const { return m_position; }
 
 private:

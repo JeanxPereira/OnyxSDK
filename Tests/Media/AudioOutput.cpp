@@ -40,9 +40,10 @@ bool Started(const Result<void>& played) {
 TEST_CASE("Play a 0.2 s tone, Position advances and Playing drops at the end") {
     Media::AudioOutput output;
     CHECK_FALSE(output.Playing());
-    if (!Started(output.Play(Tone(0.2)))) return;
+    if (!Started(output.Play(Tone(0.2), "test"))) return;
     CHECK(output.Playing());
     CHECK_FALSE(output.Paused());
+    CHECK(output.Owner() == "test");
 
     std::this_thread::sleep_for(100ms);
     CHECK(output.Position() > 0.0);
@@ -50,12 +51,13 @@ TEST_CASE("Play a 0.2 s tone, Position advances and Playing drops at the end") {
     const auto deadline = std::chrono::steady_clock::now() + 2s;
     while (output.Playing() && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(5ms);
     CHECK_FALSE(output.Playing());
+    CHECK(output.Owner().empty());
     CHECK(output.Position() == doctest::Approx(0.2).epsilon(0.01));
 }
 
 TEST_CASE("Pause holds Position, Seek moves it") {
     Media::AudioOutput output;
-    if (!Started(output.Play(Tone(2.0)))) return;
+    if (!Started(output.Play(Tone(2.0), "test"))) return;
     std::this_thread::sleep_for(150ms);
     output.Pause();
     CHECK(output.Paused());
@@ -83,24 +85,26 @@ TEST_CASE("Pause holds Position, Seek moves it") {
 
 TEST_CASE("AudioOutput rejects a clip without samples") {
     Media::AudioOutput output;
-    auto played = output.Play(Domain::Audio{});
+    auto played = output.Play(Domain::Audio{}, "test");
     REQUIRE_FALSE(played.ok());
     CHECK(played.error().code == "media.audio");
     CHECK_FALSE(output.Playing());
+    CHECK(output.Owner().empty());
 }
 
 TEST_CASE("Stop stops the device") {
     Media::AudioOutput output;
     CHECK_FALSE(output.DeviceRunning());
-    if (!Started(output.Play(Tone(1.0)))) return;
+    if (!Started(output.Play(Tone(1.0), "test"))) return;
     CHECK(output.Playing());
     CHECK(output.DeviceRunning());
 
     output.Stop();
     CHECK_FALSE(output.Playing());
+    CHECK(output.Owner().empty());
     CHECK_FALSE(output.DeviceRunning());
 
-    REQUIRE(output.Play(Tone(1.0)).ok());
+    REQUIRE(output.Play(Tone(1.0), "test").ok());
     CHECK(output.DeviceRunning());
     std::this_thread::sleep_for(100ms);
     CHECK(output.Position() > 0.0);
@@ -109,7 +113,7 @@ TEST_CASE("Stop stops the device") {
 TEST_CASE("Latency is non-negative and below one second") {
     Media::AudioOutput output;
     CHECK(output.Latency() == 0.0);
-    if (!Started(output.Play(Tone(0.5)))) return;
+    if (!Started(output.Play(Tone(0.5), "test"))) return;
     const double latency = output.Latency();
     MESSAGE("device latency " << latency * 1000.0 << " ms");
     CHECK(latency >= 0.0);

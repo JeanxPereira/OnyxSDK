@@ -7,6 +7,8 @@
 
 #include "Support/ObxWorkspace.h"
 
+#include <string>
+#include <string_view>
 #include <vector>
 
 using namespace Onyx;
@@ -27,16 +29,18 @@ Domain::Audio Ramp(uint32_t frames, uint32_t channels) {
 }
 
 struct FakeOutput : IAudioOutput {
-    Result<void> Play(const Domain::Audio&) override {
+    Result<void> Play(const Domain::Audio&, std::string_view who) override {
         playing = true;
         paused = false;
         position = 0.0;
+        owner = who;
         ++plays;
         return Result<void>::Ok();
     }
     void Stop() override {
         playing = false;
         paused = false;
+        owner.clear();
     }
     void Pause() override {
         paused = true;
@@ -53,10 +57,12 @@ struct FakeOutput : IAudioOutput {
     bool Paused() const override { return paused; }
     bool Playing() const override { return playing; }
     double Position() const override { return position; }
+    std::string_view Owner() const override { return playing ? std::string_view(owner) : std::string_view(); }
 
     bool playing = false;
     bool paused = false;
     double position = 0.5;
+    std::string owner;
     int plays = 0;
     int pauses = 0;
     int resumes = 0;
@@ -144,7 +150,7 @@ TEST_CASE("Pause keeps the position and Resume continues") {
     ui.audio = &output;
     AudioView view(1, Modules::NodePath{{0}}, "a", Ramp(400, 1));
 
-    REQUIRE(output.Play(Domain::Audio{}).ok());
+    REQUIRE(output.Play(Domain::Audio{}, view.Id()).ok());
     output.position = 1.25;
     DrawFrames(imgui, view, ui);
     CHECK(view.Position() == doctest::Approx(1.25));
@@ -175,7 +181,7 @@ TEST_CASE("a click on the waveform seeks") {
     AudioView view(1, Modules::NodePath{{0}}, "a", Ramp(400, 1));
     REQUIRE(view.Duration() == doctest::Approx(4.0));
 
-    REQUIRE(output.Play(Domain::Audio{}).ok());
+    REQUIRE(output.Play(Domain::Audio{}, view.Id()).ok());
     Frame(imgui, view, ui, 240.0f, 250.0f, false);
     Frame(imgui, view, ui, 240.0f, 250.0f, false);
     CHECK(output.seeks.empty());
@@ -200,7 +206,7 @@ TEST_CASE("AudioView asks the clock for another frame while playing and not whil
     Frame(imgui, view, ui, -10.0f, -10.0f, false);
     CHECK_FALSE(fx.clock.WantsContinuous());
 
-    REQUIRE(output.Play(Domain::Audio{}).ok());
+    REQUIRE(output.Play(Domain::Audio{}, view.Id()).ok());
     Frame(imgui, view, ui, -10.0f, -10.0f, false);
     CHECK(fx.clock.WantsContinuous());
 
@@ -208,4 +214,38 @@ TEST_CASE("AudioView asks the clock for another frame while playing and not whil
     output.Pause();
     Frame(imgui, view, ui, -10.0f, -10.0f, false);
     CHECK_FALSE(fx.clock.WantsContinuous());
+}
+
+TEST_CASE("two AudioViews share one output and only the owner shows Stop") {
+    HeadlessImGui imgui;
+    ObxUi fx;
+    UiContext ui = fx.Make();
+    FakeOutput output;
+    ui.audio = &output;
+    AudioView a(1, Modules::NodePath{{0}}, "a", Ramp(400, 1));
+    AudioView b(1, Modules::NodePath{{1}}, "b", Ramp(400, 1));
+    REQUIRE(a.Id() != b.Id());
+
+    Click(imgui, a, ui, FindButton(imgui, a, ui, "Play"));
+    REQUIRE(output.plays == 1);
+    CHECK(output.owner == a.Id());
+    output.position = 1.5;
+    DrawFrames(imgui, a, ui);
+    CHECK(a.Position() == doctest::Approx(1.5));
+
+    Click(imgui, b, ui, FindButton(imgui, b, ui, "Play"));
+    REQUIRE(output.plays == 2);
+    CHECK(output.owner == b.Id());
+    CHECK(output.Playing());
+
+    output.position = 0.75;
+    FindButton(imgui, a, ui, "Play");
+    CHECK(a.Position() == 0.0);
+    DrawFrames(imgui, b, ui);
+    CHECK(b.Position() == doctest::Approx(0.75));
+    FindButton(imgui, b, ui, "Stop");
+
+    Click(imgui, a, ui, FindButton(imgui, a, ui, "Play"));
+    CHECK(output.plays == 3);
+    CHECK(output.owner == a.Id());
 }

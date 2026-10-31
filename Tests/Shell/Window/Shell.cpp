@@ -13,6 +13,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "../../Prism/Support/PrismFixture.h"
@@ -60,7 +61,7 @@ struct FixedDialogs final : Shell::IDialogs {
 
 struct SpyOutput final : Ui::IAudioOutput {
     explicit SpyOutput(int& stopCount) : stops(stopCount) {}
-    Result<void> Play(const Domain::Audio&) override { return Result<void>::Ok(); }
+    Result<void> Play(const Domain::Audio&, std::string_view) override { return Result<void>::Ok(); }
     void Stop() override { ++stops; }
     void Pause() override {}
     void Resume() override {}
@@ -68,6 +69,7 @@ struct SpyOutput final : Ui::IAudioOutput {
     bool Paused() const override { return false; }
     bool Playing() const override { return false; }
     double Position() const override { return 0.0; }
+    std::string_view Owner() const override { return {}; }
 
     int& stops;
 };
