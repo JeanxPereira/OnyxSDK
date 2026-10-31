@@ -505,11 +505,16 @@ ImGui components drawn by the host inside its own frame.
 namespace Onyx::Ui {
 struct UiContext {              // passed to every Draw; built by the host or the Shell once per frame
     Modules::Workspace& workspace;
-    Gpu::Device*        gpu;    // null when the host has no GPU layer
-    TexturePool&        textures;
+    Gpu::Device*        gpu;       // null when the host has no GPU layer
+    Gpu::Frame*         frame;     // the host's current frame; the Viewport records into it
+    TexturePool*        textures;  // null when gpu is null
     Theme&              theme;
     CommandRegistry&    commands;
+    ViewerRegistry&     viewers;
+    PanelHost&          panels;
+    FrameClock&         clock;
     float               dt;
+    IAudioOutput*       audio = nullptr;
 };
 class IPanel {
 public:
@@ -620,6 +625,12 @@ int main(int argc, char** argv) {
 the device idle, and returns from `Run`; nothing calls `exit`. The v1
 `Window.cpp` splits into these parts; no part exceeds ~300 lines.
 
+`Shell::Step()` runs one iteration of the loop (events, UI, present) and
+returns `Result<bool>`; `Run` loops over it, and tests and hosts that own the
+loop call it directly. `ShellOptions::hiddenWindow` creates the window hidden,
+so window tests run on machines that can create a window but not show one.
+Dialogs run between frames and `SetDialogs` injects a replacement.
+
 Platform dialogs (`OpenFile`, `OpenFolder`, `SaveFile`) are a Shell service
 with Windows and Linux (zenity/xdg portal) backends.
 
@@ -728,6 +739,9 @@ tree stays available as `v1.3.3` for reference; nothing in `v2` includes it.
 | **W1 Core** | Vfs stateless + ISO + lz4; TypeCatalog object; Domain model; module contract with `Any` and `Capabilities`; Workspace; jobs/events/diags moved; Settings atomic + schema; Log; OnyxBox ported; Core tests ported and extended (ISO, Slice, lz4, Capabilities, Settings corruption). | Core tests green; `Tests/Consumer/CoreOnly` configures with no GPU/UI fetch; Standalone compile test |
 | **W2 Gpu + Render** | Device own/adopt, handles, retire, frame ring, upload context, pipeline builder + cache, render target, swapchain; SceneRenderer one orchestration; AnimationPlayer over AnimClip; RenderToImage; OnyxOracle ported. | Frozen goldens pass within v1 tolerances; VkAnimation gate ports; a resize-under-validation test; a submit-count test (Load = 1, Draw = 0). Oracle in `Tests/Oracle`; lavapipe uses the `[software]` profile |
 | **W3 Ui + Shell** | UiContext, IPanel, ViewerRegistry, CommandRegistry, Theme single writer, widgets, icons, TexturePool, stock panels and viewers, Viewport split; Shell composition; dialogs; MinimalViewer. | MinimalViewer opens OnyxBox files; theme and settings tests; `Embedded` example builds and draws (manual check on Windows, build-only on CI) |
+
+W3 location notes: Ui sources are in `Source/Ui/` (headers in `Source/Ui/include/Onyx/Ui/`), Shell in `Source/Shell/`; `MinimalViewer` and `Embedded` are in `Examples/`. The suites are `Ui.Unit`, `Ui.Gpu`, `Shell.Unit`, `Shell.Window` and `Examples.Build`. The Gallery panel moves to W4, where Prism's UI is its second consumer.
+
 | **W4 Media + Cli + Exchange + Prism** | MediaSource/AudioOutput/MediaView; Cli verb table with Render/Exchange registration; glTF animation, PNG, WAV; Prism module + PrismUi; TestKit fixture builders. | Prism opens, decodes, renders and shows its palette viewer with zero SDK edits logged during its build; CLI goldens; Linux CI green |
 | **W5 Repo** | Delete `legacy/`; README final with SVG; CLAUDE.md; docs; CHANGELOG 2.0.0; tag. | `check.py` green on both OS; lint finds zero game names and zero forbidden includes |
 

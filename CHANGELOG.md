@@ -40,6 +40,18 @@ v2 is a break-and-port: the public surface is redesigned and nothing from 1.x is
 - **Software profile.** A `[software]` tolerance profile for lavapipe (Mesa 25.2.8 / LLVM 20.1.2). The cause is in `Tests/Golden/tolerances.toml`: fp16 round-toward-zero colour export on AMD against fp32 round-to-nearest on llvmpipe, plus 8-bit fixed-point UNORM8 texture filtering.
 - **Build and tests.** glslang is looked up on the machine (Vulkan SDK) before it is fetched; GPU test suites exit 77 (skip) without a device; the Linux `check.py` run is green on WSL with all eleven suites.
 
+### W3
+- **Ui contracts.** `UiContext` (workspace, `Gpu::Device*`, `Gpu::Frame*`, nullable `TexturePool*`, theme, commands, viewers, panels, clock, `dt`, `IAudioOutput*`), `IPanel` and `IDocumentView`.
+- **Registries.** `CommandRegistry` with `Shortcut`, and `ViewerRegistry` with `Route` (type key beats media kind, then priority, then registration order).
+- **Theme.** Single writer of `ImGuiStyle`, committed once per frame, with token-named colour overrides persisted as `ui.theme.*`; `BuildFonts` merges the text face with the symbol face.
+- **Textures and backend.** `TexturePool`, `ITextureBinder` and `ImGuiVulkanBackend` on dynamic rendering, with `Fault()`.
+- **Panels.** `onyx.browser`, `inspector`, `problems`, `log`, `settings`, `viewport`, `transport`, `timeline` and `documents` (`DocumentTabs`).
+- **Viewers.** `onyx.image`, `text`, `hex`, `table` and `audio` through `RegisterStockViewers`, and `onyx.scene` through `RegisterSceneViewer`; opening decodes on job lane 0 and places the view in `Pump()`.
+- **Rulings.** The Gallery panel and the Media-backed `IAudioOutput` are deferred to W4; ImPlot and ImGuiColorTextEdit are not dependencies.
+- **Shell.** `NativeWindow` (GLFW 3.4, Win32 borderless), `Presenter`, `GlfwPlatform`, `ShellFrame::Step` pacing, `Shell` with `Run`, `Open`, `Step()` and `hiddenWindow`, extensions, lifecycle, injectable dialogs, `Dock`, menu bar, `Recents`, stock commands and the CLI path over `Cli::StockVerbs()`.
+- **Examples.** `MinimalViewer` and `Embedded` (own GLFW, ImGui and Vulkan device adopted into Onyx).
+- **Tools.** Suites `Ui.Unit`, `Ui.Gpu`, `Shell.Unit`, `Shell.Window` and `Examples.Build`; a lint rule restricting writes to `ImGuiStyle` colours to `Source/Ui/Theme.cpp`; Linux CI installs the X11 and Wayland development packages.
+
 ## v1.3.3 — 2026-10-16
 
 ### Fixed
