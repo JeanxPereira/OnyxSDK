@@ -50,7 +50,7 @@ v2 is a break-and-port: the public surface is redesigned and nothing from 1.x is
 - **Rulings.** The Gallery panel and the Media-backed `IAudioOutput` are deferred to W4; ImPlot and ImGuiColorTextEdit are not dependencies.
 
 ### W4
-- **Dependencies.** FFmpeg (a pinned Windows download, system packages on Linux), miniaudio and cgltf, fetched only with the component that links them; `-DONYX_WITH_MEDIA=OFF` skips FFmpeg.
+- **Dependencies.** FFmpeg (downloaded on Windows, pkg-config on Linux), cgltf (fetched) and miniaudio (vendored), each present only with the component that links it; `-DONYX_WITH_MEDIA=OFF` skips FFmpeg.
 - **Cli.** Entry resolution in Core (`Cli::ResolveEntry`, `Modules::FindAllByName`): an ambiguous name fails with `cli.ambiguous` and lists the `@paths` unless `--first` is given; `extract` takes no entry names. CLI goldens in `Tests/Cli/Goldens`.
 - **Exchange.** `WriteGltf` (skin and animation), `WritePng` and `WriteWav`, registered as `decode --to` exporters by `Exchange::AddExporters`; cgltf and stb are private.
 - **Render verb.** `Render::CliVerbs()` provides `render`, which writes through the table's `png` exporter (`render.noPng` otherwise).
