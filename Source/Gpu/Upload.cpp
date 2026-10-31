@@ -162,24 +162,55 @@ Result<UploadContext::Staged> UploadContext::Stage(VkDeviceSize size) {
         m_oneOff.push_back(std::move(oneOff.value()));
         return R::Ok(staged);
     }
-    VkDeviceSize offset = AlignUp(m_stagingOffset, m_copyAlignment);
-    if (offset + size > m_staging.size) {
-        // The copies recorded so far still read the ring: submit them and wait before reusing it.
+    const VkDeviceSize capacity = m_staging.size;
+    Queue& queue = m_device.GraphicsQueue();
+    for (;;) {
+        ReclaimStaging(queue.Completed());
+        if (m_stagingTail == m_stagingHead && m_stagingHead % capacity != 0) {
+            // Nothing is live: start again at the beginning of the buffer.
+            m_stagingHead += capacity - m_stagingHead % capacity;
+            m_stagingTail = m_stagingHead;
+        }
+        const uint64_t base = m_stagingHead - m_stagingHead % capacity;
+        const VkDeviceSize aligned = AlignUp(m_stagingHead % capacity, m_copyAlignment);
+        // A request never straddles the end of the buffer; the skipped bytes stay with this batch.
+        const uint64_t at = aligned + size > capacity ? base + capacity : base + aligned;
+        if (at + size - m_stagingTail <= capacity) {
+            m_stagingHead = at + size;
+            const VkDeviceSize offset = at % capacity;
+            return R::Ok(Staged{m_staging.handle.Get(), offset, static_cast<std::byte*>(m_staging.mapped) + offset,
+                                m_staging.allocation});
+        }
+        if (!m_stagingInFlight.empty()) {
+            auto waited = queue.Wait(m_stagingInFlight.front().value);
+            if (!waited.ok()) {
+                return R::Fail(waited.error());
+            }
+            continue;
+        }
+        if (m_cmd == VK_NULL_HANDLE) {
+            // Bytes staged for a request that never recorded its copy: nothing reads them.
+            m_stagingHead = PendingStagingBegin();
+            continue;
+        }
+        // The pending batch fills the ring by itself: submit it, and the next pass waits for it.
         auto flushed = Flush();
         if (!flushed.ok()) {
             return R::Fail(flushed.error());
         }
-        if (flushed.value() != 0) {
-            auto waited = m_device.GraphicsQueue().Wait(flushed.value());
-            if (!waited.ok()) {
-                return R::Fail(waited.error());
-            }
-        }
-        offset = 0;
+        ++m_fullDrains;
     }
-    m_stagingOffset = offset + size;
-    return R::Ok(Staged{m_staging.handle.Get(), offset, static_cast<std::byte*>(m_staging.mapped) + offset,
-                        m_staging.allocation});
+}
+
+void UploadContext::ReclaimStaging(FenceValue completed) {
+    while (!m_stagingInFlight.empty() && m_stagingInFlight.front().value <= completed) {
+        m_stagingTail = m_stagingInFlight.front().end;
+        m_stagingInFlight.pop_front();
+    }
+}
+
+uint64_t UploadContext::PendingStagingBegin() const {
+    return m_stagingInFlight.empty() ? m_stagingTail : m_stagingInFlight.back().end;
 }
 
 Result<Buffer> UploadContext::Upload(std::span<const std::byte> bytes, VkBufferUsageFlags usage) {
@@ -347,9 +378,12 @@ Result<FenceValue> UploadContext::Flush() {
     std::vector<Buffer> oneOff = std::move(m_oneOff);
     m_oneOff.clear();
 
+    // A dropped batch never reads its staging bytes, so they return to the ring at once.
+    const uint64_t stagingBegin = PendingStagingBegin();
     VkResult ended = fn.vkEndCommandBuffer(cmd);
     if (ended != VK_SUCCESS) {
         fn.vkFreeCommandBuffers(m_device.Handle(), m_pool.Get(), 1, &cmd);
+        m_stagingHead = stagingBegin;
         return Result<FenceValue>::Fail(VkFail("gpu.vk", "vkEndCommandBuffer", ended));
     }
     SubmitDesc desc;
@@ -357,10 +391,14 @@ Result<FenceValue> UploadContext::Flush() {
     auto value = m_device.GraphicsQueue().Submit(desc);
     if (!value.ok()) {
         fn.vkFreeCommandBuffers(m_device.Handle(), m_pool.Get(), 1, &cmd);
+        m_stagingHead = stagingBegin;
         return value;
     }
     m_lastFlushed = value.value();
     m_inFlight.push_back({cmd, value.value(), std::move(oneOff)});
+    if (m_stagingHead > stagingBegin) {
+        m_stagingInFlight.push_back({value.value(), m_stagingHead});
+    }
     return value;
 }
 

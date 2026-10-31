@@ -298,3 +298,33 @@ TEST_CASE("Remove on a streamed id frees the ring") {
     CHECK(AllocationCount(*fx->device) == withRing - 3);
     CHECK_MESSAGE(fx->device->ValidationMessageCount() == 0, fx->device->LastValidationMessage());
 }
+
+TEST_CASE("Streaming 1080p frames wraps the staging buffer without draining the queue") {
+    auto fx = MakeUiGpuFixture();
+    auto target = StreamTarget(*fx->device);
+    Domain::Texture frame = Solid(1920, 1080, std::byte{0}, std::byte{0}, std::byte{0});
+    auto created = fx->textures->Create(frame);
+    REQUIRE(created.ok());
+
+    // 20 frames of about 8.3 MB each wrap the default 64 MiB staging buffer twice.
+    ImTextureID shown = created.value();
+    std::vector<ImTextureID> ids;
+    for (int i = 0; i < 20; ++i) {
+        const auto shade = static_cast<std::byte>(i * 12);
+        for (size_t p = 0; p < frame.pixels.size(); p += 4) frame.pixels[p] = shade;
+        auto streamed = fx->textures->Stream(shown, frame);
+        REQUIRE_MESSAGE(streamed.ok(), streamed.error().code << ": " << streamed.error().message);
+        shown = streamed.value();
+        ids.push_back(shown);
+        const std::array<int, 3> centre = DrawCentre(*fx, *target, shown);
+        CHECK(std::abs(centre[0] - i * 12) <= 2);
+    }
+    CHECK(ids[0] != ids[1]);
+    CHECK(ids[1] != ids[2]);
+    CHECK(ids[0] != ids[2]);
+    for (size_t i = 3; i < ids.size(); ++i) CHECK(ids[i] == ids[i % 3]);
+    CHECK(fx->upload->FullDrains() == 0);
+
+    fx->device->GraphicsQueue().WaitIdle();
+    CHECK_MESSAGE(fx->device->ValidationMessageCount() == 0, fx->device->LastValidationMessage());
+}

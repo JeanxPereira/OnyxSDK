@@ -36,7 +36,14 @@ namespace Onyx::Ui {
 //
 // Stream is the per-frame path: it never rewrites a descriptor, so a frame still in flight keeps
 // sampling the image it was recorded with. Call it at most once per frame for a texture, before the
-// frame draws the id it returns; the frame waits on Flush like any other upload.
+// frame draws the id it returns; the frame waits on Flush like any other upload. A second Stream in the
+// same frame may overwrite an image that frame already draws: the frame then shows the newer texels,
+// never a torn copy, because the copy is ordered after earlier work on the queue.
+//
+// Stream waits on the host in two cases only: all three images of the ring are still in flight (it
+// waits for the oldest), or the UploadContext's staging ring needs bytes back (it waits for the oldest
+// flushed upload batch, or drains when the uploads recorded since the last Flush fill the staging
+// buffer by themselves; see UploadContext).
 //
 // Must be destroyed before the binder, the UploadContext and the Device. Not thread-safe.
 class TexturePool {

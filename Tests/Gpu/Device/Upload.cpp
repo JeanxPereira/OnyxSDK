@@ -217,3 +217,56 @@ TEST_CASE("A texture with a zero dimension is refused before its size is compute
     REQUIRE_FALSE(img.ok());
     CHECK(img.error().code == "gpu.upload.size");
 }
+
+TEST_CASE("Staging wraps over flushed batches without draining the queue") {
+    auto device = CreateTestDevice();
+    auto up = Gpu::UploadContext::Create(*device, {.stagingBytes = 1u << 20});
+    REQUIRE(up.ok());
+    Gpu::Queue& queue = device->GraphicsQueue();
+
+    // Twelve 256 KiB uploads wrap the 1 MiB ring three times. The first pass lets each flush complete
+    // before the next upload; the second leaves every flush in flight, so the context reclaims the
+    // oldest batch itself.
+    for (const bool completeEach : {true, false}) {
+        std::vector<Gpu::Buffer> buffers;
+        std::vector<std::vector<std::byte>> sources;
+        for (size_t i = 0; i < 12; ++i) {
+            sources.push_back(Pattern(256 * 1024, i + 3));
+            auto b = up.value()->Upload(sources.back(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+            REQUIRE(b.ok());
+            buffers.push_back(std::move(b.value()));
+            auto flushed = up.value()->Flush();
+            REQUIRE(flushed.ok());
+            if (completeEach) REQUIRE(queue.Wait(flushed.value()).ok());
+        }
+        CHECK(up.value()->FullDrains() == 0);
+        for (size_t i : {size_t{0}, size_t{5}, size_t{11}}) {
+            auto back = up.value()->Download(buffers[i], buffers[i].size);
+            REQUIRE(back.ok());
+            CHECK(back.value() == sources[i]);
+        }
+    }
+    CHECK(up.value()->FullDrains() == 0);
+    CHECK(device->ValidationMessageCount() == 0);
+}
+
+TEST_CASE("A batch that outgrows the staging buffer flushes and drains") {
+    auto device = CreateTestDevice();
+    auto up = Gpu::UploadContext::Create(*device, {.stagingBytes = 1u << 20});
+    REQUIRE(up.ok());
+    std::vector<Gpu::Buffer> buffers;
+    std::vector<std::vector<std::byte>> sources;
+    for (size_t i = 0; i < 3; ++i) {
+        sources.push_back(Pattern(512 * 1024, i + 3));
+        auto b = up.value()->Upload(sources.back(), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        REQUIRE(b.ok());
+        buffers.push_back(std::move(b.value()));
+    }
+    CHECK(up.value()->FullDrains() >= 1);
+    for (size_t i = 0; i < 3; ++i) {
+        auto back = up.value()->Download(buffers[i], buffers[i].size);
+        REQUIRE(back.ok());
+        CHECK(back.value() == sources[i]);
+    }
+    CHECK(device->ValidationMessageCount() == 0);
+}
