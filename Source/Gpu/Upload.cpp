@@ -241,7 +241,7 @@ Result<Image> UploadContext::Upload(const Domain::Texture& texture) {
                                     0});
     }
 
-    const uint32_t levels = mipped ? static_cast<uint32_t>(std::bit_width((std::max)(texture.width, texture.height))) : 1;
+    const uint32_t levels = mipped ? static_cast<uint32_t>(std::bit_width(std::max(texture.width, texture.height))) : 1;
 
     auto staged = Stage(texture.pixels.size());
     if (!staged.ok()) {
@@ -290,8 +290,8 @@ Result<Image> UploadContext::Upload(const Domain::Texture& texture) {
         ImageBarrier(m_device, cmd, handle, level - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                      VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, kTransfer, VK_ACCESS_2_TRANSFER_WRITE_BIT, kTransfer,
                      VK_ACCESS_2_TRANSFER_READ_BIT);
-        const int32_t nextWidth = (std::max)(1, width / 2);
-        const int32_t nextHeight = (std::max)(1, height / 2);
+        const int32_t nextWidth = std::max(1, width / 2);
+        const int32_t nextHeight = std::max(1, height / 2);
         VkImageBlit blit{};
         blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level - 1, 0, 1};
         blit.srcOffsets[1] = {width, height, 1};

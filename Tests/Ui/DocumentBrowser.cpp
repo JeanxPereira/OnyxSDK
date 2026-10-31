@@ -137,7 +137,7 @@ TEST_CASE("DocumentBrowser draws a bounded number of rows for 20000 children") {
     CHECK(frameMs() < 1000.0);
     CHECK(browser.VisibleRows() == 1 + 5 + 20000);
     double best = 1e9;
-    for (int i = 0; i < 3; ++i) best = (std::min)(best, frameMs());
+    for (int i = 0; i < 3; ++i) best = std::min(best, frameMs());
     CHECK(best < 100.0);
 
     CHECK(browser.RowsDrawn() > 0);

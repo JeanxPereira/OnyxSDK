@@ -72,7 +72,7 @@ Result<std::unique_ptr<ImGuiVulkanBackend>> ImGuiVulkanBackend::Create(Gpu::Devi
     }
 
     const VkFormat colorFormat = options.colorFormat;
-    const uint32_t imageCount = (std::max)(options.imageCount, 2u);
+    const uint32_t imageCount = std::max(options.imageCount, 2u);
 
     ImGui_ImplVulkan_InitInfo info{};
     info.ApiVersion = VK_API_VERSION_1_3;

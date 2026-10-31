@@ -46,7 +46,7 @@ void Timeline::Draw(UiContext& ui) {
     }
 
     const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const ImVec2 size((std::max)(avail.x, 1.0f), (std::min)((std::max)(avail.y, kTrackHeight), kTrackHeight * 2.0f));
+    const ImVec2 size(std::max(avail.x, 1.0f), std::min(std::max(avail.y, kTrackHeight), kTrackHeight * 2.0f));
     ImGui::InvisibleButton("##track", size);
     const ImVec2 min = ImGui::GetItemRectMin();
     const ImVec2 max = ImGui::GetItemRectMax();
@@ -73,7 +73,7 @@ void Timeline::Draw(UiContext& ui) {
         }
     }
     const int seconds = static_cast<int>(std::floor(duration));
-    const int labelStep = (std::max)(1, static_cast<int>(std::ceil(kMinLabelGap / (width / duration))));
+    const int labelStep = std::max(1, static_cast<int>(std::ceil(kMinLabelGap / (width / duration))));
     for (int s = 0; s <= seconds; s += labelStep) {
         const float x = PixelAt(static_cast<float>(s), min.x, max.x, duration);
         char label[16];

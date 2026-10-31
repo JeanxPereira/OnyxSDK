@@ -75,7 +75,7 @@ Result<bool> ShellFrame::Step(const std::function<void(Gpu::Frame&)>& drawUi) {
         m_window.PollEvents();
     } else {
         const double remaining = m_clock.RemainingAnimation();
-        m_window.WaitEvents(remaining > 0.0 ? (std::min)(remaining, m_idleWaitCap) : m_idleWaitCap);
+        m_window.WaitEvents(remaining > 0.0 ? std::min(remaining, m_idleWaitCap) : m_idleWaitCap);
     }
     if (InputPending()) {
         m_pollFrames = kFramesAfterInput;
@@ -103,7 +103,7 @@ Result<bool> ShellFrame::Step(const std::function<void(Gpu::Frame&)>& drawUi) {
     }
 
     const double now = glfwGetTime();
-    const float dt = static_cast<float>((std::max)(0.0, now - m_lastTime));
+    const float dt = static_cast<float>(std::max(0.0, now - m_lastTime));
     m_lastTime = now;
     m_clock.BeginFrame(now);
     m_theme.Update(dt);

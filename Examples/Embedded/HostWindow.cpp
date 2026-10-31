@@ -328,14 +328,14 @@ void HostWindow::CreateSwapchain() {
         int width = 0;
         int height = 0;
         glfwGetFramebufferSize(m_window, &width, &height);
-        extent.width = std::clamp(static_cast<uint32_t>((std::max)(width, 1)), caps.minImageExtent.width,
+        extent.width = std::clamp(static_cast<uint32_t>(std::max(width, 1)), caps.minImageExtent.width,
                                   caps.maxImageExtent.width);
-        extent.height = std::clamp(static_cast<uint32_t>((std::max)(height, 1)), caps.minImageExtent.height,
+        extent.height = std::clamp(static_cast<uint32_t>(std::max(height, 1)), caps.minImageExtent.height,
                                    caps.maxImageExtent.height);
     }
     uint32_t imageCount = caps.minImageCount + 1;
     if (caps.maxImageCount > 0) {
-        imageCount = (std::min)(imageCount, caps.maxImageCount);
+        imageCount = std::min(imageCount, caps.maxImageCount);
     }
     VkCompositeAlphaFlagBitsKHR alpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     if ((caps.supportedCompositeAlpha & alpha) == 0) {

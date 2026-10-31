@@ -137,7 +137,7 @@ Result<void> Swapchain::Build(VkExtent2D requested) {
     const VkSurfaceFormatKHR format = ChooseFormat(formats, m_options.preferredFormat);
     uint32_t imageCount = caps.minImageCount + 1;
     if (caps.maxImageCount > 0) {
-        imageCount = (std::min)(imageCount, caps.maxImageCount);
+        imageCount = std::min(imageCount, caps.maxImageCount);
     }
 
     VkSwapchainCreateInfoKHR info{};

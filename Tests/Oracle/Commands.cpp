@@ -199,7 +199,7 @@ TestKit::Image8 DiffImage(const TestKit::Image8& a, const TestKit::Image8& b) {
     diff.rgba.resize(a.rgba.size());
     for (size_t i = 0; i < a.rgba.size(); ++i) {
         const int d = std::abs(static_cast<int>(a.rgba[i]) - static_cast<int>(b.rgba[i]));
-        diff.rgba[i] = static_cast<std::byte>((i % 4 == 3) ? 255 : (std::min)(d * 4, 255));
+        diff.rgba[i] = static_cast<std::byte>((i % 4 == 3) ? 255 : std::min(d * 4, 255));
     }
     return diff;
 }

@@ -27,7 +27,7 @@ constexpr float kGizmoMargin = 16.0f;
 constexpr float kGizmoRadius = 38.0f;
 
 uint32_t Pixels(float points, float scale) {
-    return static_cast<uint32_t>((std::max)(1.0f, std::floor(points * scale)));
+    return static_cast<uint32_t>(std::max(1.0f, std::floor(points * scale)));
 }
 
 void ShowFault(const Error& error) {
@@ -135,7 +135,7 @@ void Viewport::Draw(UiContext& ui) {
 
     session.Tick(ui.dt);
 
-    const float scale = (std::max)(1.0f, ImGui::GetIO().DisplayFramebufferScale.x);
+    const float scale = std::max(1.0f, ImGui::GetIO().DisplayFramebufferScale.x);
     if (!EnsureTarget(ui, Pixels(avail.x, scale), Pixels(avail.y, scale))) {
         ShowFault(*m_fault);
         return;
