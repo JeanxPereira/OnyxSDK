@@ -2,21 +2,37 @@ include(${PROJECT_SOURCE_DIR}/cmake/Deps/Doctest.cmake)
 include(${PROJECT_SOURCE_DIR}/cmake/StandaloneHeaders.cmake)
 onyx_dep_doctest()
 
-# onyx_add_tests(<Layer> [SOURCES <files>...] [LINK <targets>...])
-# Builds Onyx<Layer>Tests from Tests/<Layer>/*.cpp (or SOURCES) and registers
-# the ctest entry <Layer>.Unit.
+# onyx_add_tests(<Layer> [SUITE <Name>] [SOURCES <files>...] [LINK <targets>...]
+#                [SKIP_RETURN_CODE <n>])
+# Builds Onyx<Layer>Tests (Onyx<Layer><Suite>Tests for a named suite) from
+# Tests/<Layer>/*.cpp (Tests/<Layer>/<Suite>/*.cpp for a named suite, or
+# SOURCES) and registers the ctest entry <Layer>.<Suite>; the default suite
+# is Unit.
 function(onyx_add_tests layer)
-    cmake_parse_arguments(ARG "" "" "SOURCES;LINK" ${ARGN})
-    if(NOT ARG_SOURCES)
-        file(GLOB ARG_SOURCES CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/Tests/${layer}/*.cpp")
+    cmake_parse_arguments(ARG "" "SUITE;SKIP_RETURN_CODE" "SOURCES;LINK" ${ARGN})
+    if(NOT ARG_SUITE)
+        set(ARG_SUITE Unit)
     endif()
-    add_executable(Onyx${layer}Tests ${ARG_SOURCES})
-    target_link_libraries(Onyx${layer}Tests PRIVATE Onyx::${layer} doctest::doctest ${ARG_LINK})
-    target_compile_definitions(Onyx${layer}Tests PRIVATE
+    if(ARG_SUITE STREQUAL "Unit")
+        set(exe Onyx${layer}Tests)
+        set(source_dir "${PROJECT_SOURCE_DIR}/Tests/${layer}")
+    else()
+        set(exe Onyx${layer}${ARG_SUITE}Tests)
+        set(source_dir "${PROJECT_SOURCE_DIR}/Tests/${layer}/${ARG_SUITE}")
+    endif()
+    if(NOT ARG_SOURCES)
+        file(GLOB ARG_SOURCES CONFIGURE_DEPENDS "${source_dir}/*.cpp")
+    endif()
+    add_executable(${exe} ${ARG_SOURCES})
+    target_link_libraries(${exe} PRIVATE Onyx::${layer} doctest::doctest ${ARG_LINK})
+    target_compile_definitions(${exe} PRIVATE
         ONYX_GOLDEN_DIR="${PROJECT_SOURCE_DIR}/Tests/Golden")
-    onyx_warnings(Onyx${layer}Tests)
-    set_target_properties(Onyx${layer}Tests PROPERTIES CXX_SCAN_FOR_MODULES OFF)
-    add_test(NAME ${layer}.Unit COMMAND Onyx${layer}Tests)
+    onyx_warnings(${exe})
+    set_target_properties(${exe} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+    add_test(NAME ${layer}.${ARG_SUITE} COMMAND ${exe})
+    if(DEFINED ARG_SKIP_RETURN_CODE)
+        set_tests_properties(${layer}.${ARG_SUITE} PROPERTIES SKIP_RETURN_CODE ${ARG_SKIP_RETURN_CODE})
+    endif()
     onyx_add_standalone_headers(${layer})
 endfunction()
 
@@ -24,3 +40,7 @@ add_subdirectory(Cli)
 add_subdirectory(Consumer)
 add_subdirectory(Core)
 add_subdirectory(TestKit)
+if(ONYX_WITH_GPU)
+    add_subdirectory(Gpu)
+    add_subdirectory(Render)
+endif()

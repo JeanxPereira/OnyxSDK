@@ -24,6 +24,7 @@ message(STATUS "Onyx components: GPU=${ONYX_WITH_GPU} UI=${ONYX_WITH_UI} SHELL=$
 include(cmake/Warnings.cmake)
 include(cmake/Layer.cmake)
 include(cmake/Version.cmake)
+include(cmake/Shaders.cmake)
 
 add_subdirectory(Source/Core)
 add_subdirectory(Source/Cli)
