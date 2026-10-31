@@ -1,0 +1,7 @@
+# The frozen corpus PNGs are the render oracle. A profile is chosen by the device type.
+# hardware: measured on the GPU the v1 parity gate was tuned on (AMD Radeon RX 6750 XT).
+[hardware]
+maxChannelDelta = 160
+maxDifferingPct = 2.0
+maxHighDeltaPct = 0.8
+maxMae = 1.0

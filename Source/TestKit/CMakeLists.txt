@@ -1,4 +1,6 @@
 include(${PROJECT_SOURCE_DIR}/cmake/Deps/Stb.cmake)
+include(${PROJECT_SOURCE_DIR}/cmake/Deps/TomlPlusPlus.cmake)
 onyx_dep_stb()
-onyx_add_layer(TestKit PUBLIC_DEPS Onyx::Core DEPS Onyx_stb)
+onyx_dep_tomlplusplus()
+onyx_add_layer(TestKit PUBLIC_DEPS Onyx::Core DEPS Onyx_stb tomlplusplus::tomlplusplus)
 target_link_libraries(Onyx_TestKit PRIVATE Onyx_lz4)
