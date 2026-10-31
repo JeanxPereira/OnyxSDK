@@ -5,7 +5,7 @@
 #include "Onyx/Core/Services/Settings.h"
 #include "Onyx/Ui/Theme.h"
 #include "Onyx/Ui/Widgets.h"
-#include "Support/HeadlessImGui.h"
+#include "HeadlessImGui.h"
 
 namespace W = Onyx::Ui::Widgets;
 

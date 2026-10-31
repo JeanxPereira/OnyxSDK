@@ -26,7 +26,7 @@ std::unique_ptr<Gpu::Device> MakeDevice() {
     options.validation = true;
     auto device = Gpu::Device::Create(options);
     REQUIRE_MESSAGE(device.ok(), device.error().code << ": " << device.error().message);
-    RequireRenderValidationLayer(*device.value());
+    RequireValidationLayer(*device.value());
     return std::move(device.value());
 }
 

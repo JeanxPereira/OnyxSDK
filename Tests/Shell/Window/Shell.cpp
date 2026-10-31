@@ -74,7 +74,7 @@ TEST_CASE("The shell opens a document, shows a viewer tab and records the recent
         REQUIRE_MESSAGE(stepped.ok(), stepped.error().code << ": " << stepped.error().message);
         CHECK(stepped.value());
     }
-    RequireWindowValidationLayer(*shell.GpuDevice());
+    RequireValidationLayer(*shell.GpuDevice());
     CHECK(shell.Workspace().Documents().size() == 1);
     REQUIRE(shell.RecentFiles().Entries().size() == 1);
     CHECK(shell.RecentFiles().Entries()[0].moduleId == "obx");
@@ -113,7 +113,7 @@ TEST_CASE("A file routed from the command line opens in the window") {
     REQUIRE(shell.Open(route.file).ok());
 
     REQUIRE(StepUntil(shell, [&] { return !shell.Workspace().Documents().empty() && shell.Workspace().Documents()[0]->ready.load(); }));
-    RequireWindowValidationLayer(*shell.GpuDevice());
+    RequireValidationLayer(*shell.GpuDevice());
     CHECK(shell.Workspace().Documents().size() == 1);
     CHECK(shell.RecentFiles().Entries().size() == 1);
 
@@ -125,7 +125,7 @@ TEST_CASE("A theme font change rebuilds the atlas with the new font and size") {
     TempDir dir("shell_fonts");
     Shell::Shell shell(TestOptions(dir.path));
     REQUIRE(StepUntil(shell, [] { return true; }));
-    RequireWindowValidationLayer(*shell.GpuDevice());
+    RequireValidationLayer(*shell.GpuDevice());
     ImGuiIO& io = ImGui::GetIO();
     REQUIRE(io.FontDefault != nullptr);
     const float sizeBefore = io.FontDefault->LegacySize;
@@ -159,7 +159,7 @@ TEST_CASE("The ImGui ini lives under a config directory with a non-ASCII name") 
     REQUIRE(StepUntil(shell, [] { return true; }, 2));
     ImGui::SaveIniSettingsToDisk(ImGui::GetIO().IniFilename);
     CHECK(std::filesystem::exists(options.configDir / "imgui.ini"));
-    RequireWindowValidationLayer(*shell.GpuDevice());
+    RequireValidationLayer(*shell.GpuDevice());
     shell.GpuDevice()->GraphicsQueue().WaitIdle();
     CHECK_MESSAGE(shell.GpuDevice()->ValidationMessageCount() == 0, shell.GpuDevice()->LastValidationMessage());
 }
@@ -207,7 +207,7 @@ TEST_CASE("The open command runs its dialog between frames and opens the answer"
     REQUIRE(shell.Step().ok());
     CHECK(fake->asked == 1);
     CHECK(shell.Workspace().Documents().size() == 1);
-    RequireWindowValidationLayer(*shell.GpuDevice());
+    RequireValidationLayer(*shell.GpuDevice());
     shell.GpuDevice()->GraphicsQueue().WaitIdle();
     CHECK_MESSAGE(shell.GpuDevice()->ValidationMessageCount() == 0, shell.GpuDevice()->LastValidationMessage());
 }
@@ -222,7 +222,7 @@ TEST_CASE("Settings are written when the shell closes") {
         auto stepped = shell.Step();
         REQUIRE(stepped.ok());
         CHECK_FALSE(stepped.value());
-        RequireWindowValidationLayer(*shell.GpuDevice());
+        RequireValidationLayer(*shell.GpuDevice());
         shell.GpuDevice()->GraphicsQueue().WaitIdle();
         CHECK_MESSAGE(shell.GpuDevice()->ValidationMessageCount() == 0, shell.GpuDevice()->LastValidationMessage());
     }
@@ -241,7 +241,7 @@ TEST_CASE("A live theme change is written when the shell closes without Apply") 
         auto stepped = shell.Step();
         REQUIRE(stepped.ok());
         CHECK_FALSE(stepped.value());
-        RequireWindowValidationLayer(*shell.GpuDevice());
+        RequireValidationLayer(*shell.GpuDevice());
         shell.GpuDevice()->GraphicsQueue().WaitIdle();
         CHECK_MESSAGE(shell.GpuDevice()->ValidationMessageCount() == 0, shell.GpuDevice()->LastValidationMessage());
     }

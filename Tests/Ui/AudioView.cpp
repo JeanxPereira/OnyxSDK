@@ -3,7 +3,7 @@
 #include <Onyx/Ui/AudioOutput.h>
 #include <Onyx/Ui/Viewers/AudioView.h>
 
-#include "Support/ObxViewerFixture.h"
+#include "Support/ObxWorkspace.h"
 
 using namespace Onyx;
 using namespace Onyx::Ui;
@@ -64,13 +64,13 @@ TEST_CASE("AudioView of an empty clip has no duration and flat peaks") {
 
 TEST_CASE("AudioView draws without an output and with one") {
     HeadlessImGui imgui;
-    TestSupport::ObxViewerFixture fx;
+    ObxUi fx;
     UiContext ui = fx.Make();
     AudioView view(1, Modules::NodePath{{0}}, "a", Ramp(400, 1));
-    TestSupport::DrawFrames(imgui, view, ui);
+    DrawFrames(imgui, view, ui);
 
     FakeOutput output;
     ui.audio = &output;
-    TestSupport::DrawFrames(imgui, view, ui);
+    DrawFrames(imgui, view, ui);
     CHECK(output.plays == 0);
 }

@@ -1,7 +1,7 @@
 #include <doctest/doctest.h>
 
 #include "Support/BareContext.h"
-#include "Support/HeadlessImGui.h"
+#include "HeadlessImGui.h"
 
 #include <Onyx/Ui/Command.h>
 

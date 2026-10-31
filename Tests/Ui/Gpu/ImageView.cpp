@@ -1,7 +1,7 @@
 #include <doctest/doctest.h>
 
 // The Core headers come first: the Vulkan headers pull in windows.h, whose max macro breaks Reader.h.
-#include "../Support/ObxViewerFixture.h"
+#include "../Support/ObxWorkspace.h"
 
 #include <Onyx/Gpu/RenderTarget.h>
 #include <Onyx/Ui/Viewers/ImageView.h>
@@ -60,7 +60,7 @@ Result<TestKit::Image8> DrawView(UiGpuFixture& fx, Gpu::RenderTarget& target, Ui
 
 TEST_CASE("ImageView uploads on its first draw, shows the pixels and removes the texture on destruction") {
     auto fx = MakeUiGpuFixture();
-    TestSupport::ObxViewerFixture obx;
+    ObxUi obx;
     Ui::UiContext ui = obx.Make();
     ui.textures = fx->textures.get();
     auto target = MakeTarget(*fx->device);
@@ -86,7 +86,7 @@ TEST_CASE("ImageView uploads on its first draw, shows the pixels and removes the
 
 TEST_CASE("ImageView alpha mode adds a texture and frees it with the view") {
     auto fx = MakeUiGpuFixture();
-    TestSupport::ObxViewerFixture obx;
+    ObxUi obx;
     Ui::UiContext ui = obx.Make();
     ui.textures = fx->textures.get();
     auto target = MakeTarget(*fx->device);
@@ -106,7 +106,7 @@ TEST_CASE("ImageView alpha mode adds a texture and frees it with the view") {
 
 TEST_CASE("ImageView keeps the pool's code when the upload fails") {
     auto fx = MakeUiGpuFixture();
-    TestSupport::ObxViewerFixture obx;
+    ObxUi obx;
     Ui::UiContext ui = obx.Make();
     ui.textures = fx->textures.get();
     auto target = MakeTarget(*fx->device);
@@ -123,13 +123,13 @@ TEST_CASE("ImageView keeps the pool's code when the upload fails") {
 
 TEST_CASE("OpenEntry on the image entry decodes on the job lane and places an ImageView after Pump") {
     auto fx = MakeUiGpuFixture();
-    TestSupport::ObxViewerFixture obx;
+    ObxUi obx;
     Ui::UiContext ui = obx.Make();
     ui.textures = fx->textures.get();
     auto target = MakeTarget(*fx->device);
 
     std::unique_ptr<Ui::IDocumentView> placed;
-    const auto opened = Ui::OpenEntry(ui, obx.Pick(TestSupport::ObxViewerFixture::kImage),
+    const auto opened = Ui::OpenEntry(ui, obx.Pick(ObxWorkspace::kImage),
                                       [&](std::unique_ptr<Ui::IDocumentView> v) { placed = std::move(v); });
     REQUIRE_MESSAGE(opened.ok(), opened.error().code << ": " << opened.error().message);
     CHECK(placed == nullptr);

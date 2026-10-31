@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../Support/ObxViewerFixture.h"
+#include "../../Support/ObxWorkspace.h"
 
 #include <Onyx/Gpu/FrameRing.h>
 #include <Onyx/Gpu/RenderTarget.h>
@@ -99,9 +99,9 @@ inline std::unique_ptr<Gpu::RenderTarget> MakeHostTarget(Gpu::Device& device, ui
     return std::move(target.value());
 }
 
-// The obx workspace of ObxViewerFixture with a document-tabs panel and the scene viewer registered.
+// The obx workspace of ObxUi with a document-tabs panel and the scene viewer registered.
 struct SceneRig {
-    ObxViewerFixture obx;
+    ObxUi obx;
     Ui::DocumentTabs* tabs = nullptr;
 
     SceneRig() {
@@ -123,7 +123,7 @@ struct SceneRig {
     // Opens the obx mesh through OpenEntry and waits for the view to be placed.
     Ui::SceneView* OpenMesh(UiGpuFixture& fx) {
         Ui::UiContext ui = Context(fx, nullptr);
-        const auto opened = Ui::OpenEntry(ui, obx.Pick(ObxViewerFixture::kMesh),
+        const auto opened = Ui::OpenEntry(ui, obx.Pick(ObxWorkspace::kMesh),
                                           [&](std::unique_ptr<Ui::IDocumentView> v) { tabs->Add(std::move(v)); });
         REQUIRE_MESSAGE(opened.ok(), opened.error().code << ": " << opened.error().message);
         REQUIRE(obx.PumpUntil([&] { return tabs->Count() == 1; }));

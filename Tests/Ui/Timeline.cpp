@@ -6,7 +6,7 @@
 #include <Onyx/Ui/Viewers/SceneView.h>
 
 #include "Support/BareContext.h"
-#include "Support/HeadlessImGui.h"
+#include "HeadlessImGui.h"
 
 #include <memory>
 

@@ -1,7 +1,7 @@
 #include <doctest/doctest.h>
 
 #include "../../Source/Ui/Panels/AxisGizmo.h"
-#include "Support/HeadlessImGui.h"
+#include "HeadlessImGui.h"
 
 using namespace Onyx;
 

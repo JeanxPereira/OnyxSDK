@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-#include "../Ui/Support/HeadlessImGui.h"
+#include "HeadlessImGui.h"
 #include "Onyx/Shell/MenuBar.h"
 #include "Onyx/Ui/Command.h"
 #include "Onyx/Ui/PanelHost.h"

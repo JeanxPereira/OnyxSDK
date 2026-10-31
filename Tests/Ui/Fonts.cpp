@@ -9,7 +9,7 @@
 
 #include <atomic>
 #include <string>
-#include "Support/HeadlessImGui.h"
+#include "HeadlessImGui.h"
 
 using namespace Onyx::Ui;
 

@@ -4,7 +4,7 @@
 
 #include <string>
 
-#include "../Ui/Support/HeadlessImGui.h"
+#include "HeadlessImGui.h"
 #include "Onyx/Shell/Shell.h"
 #include "Onyx/Shell/StockCommands.h"
 #include "Support/ShellSupport.h"

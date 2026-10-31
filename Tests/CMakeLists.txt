@@ -25,6 +25,9 @@ function(onyx_add_tests layer)
     endif()
     add_executable(${exe} ${ARG_SOURCES})
     target_link_libraries(${exe} PRIVATE Onyx::${layer} doctest::doctest ${ARG_LINK})
+    # Tests/Support holds helpers shared across layers (the validation-layer requirement, the
+    # headless ImGui rig); TestKit cannot carry them because it may not include Vulkan or ImGui.
+    target_include_directories(${exe} PRIVATE "${PROJECT_SOURCE_DIR}/Tests/Support")
     target_compile_definitions(${exe} PRIVATE
         ONYX_GOLDEN_DIR="${PROJECT_SOURCE_DIR}/Tests/Golden"
         ONYX_SOURCE_DIR="${PROJECT_SOURCE_DIR}")

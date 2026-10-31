@@ -2,7 +2,7 @@
 
 #include <Onyx/Ui/Viewers/TableView.h>
 
-#include "Support/ObxViewerFixture.h"
+#include "Support/ObxWorkspace.h"
 
 using namespace Onyx;
 using namespace Onyx::Ui;
@@ -47,10 +47,10 @@ TEST_CASE("TableView sorts numbers numerically and text lexically") {
 
 TEST_CASE("TableView draws") {
     HeadlessImGui imgui;
-    TestSupport::ObxViewerFixture fx;
+    ObxUi fx;
     UiContext ui = fx.Make();
     TableView view = Make();
-    TestSupport::DrawFrames(imgui, view, ui);
+    DrawFrames(imgui, view, ui);
     TableView empty(1, Modules::NodePath{{0}}, "e", Domain::Table{});
-    TestSupport::DrawFrames(imgui, empty, ui);
+    DrawFrames(imgui, empty, ui);
 }

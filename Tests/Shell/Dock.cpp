@@ -8,7 +8,7 @@
 #include <map>
 #include <string>
 
-#include "../Ui/Support/HeadlessImGui.h"
+#include "HeadlessImGui.h"
 #include "Onyx/Shell/Dock.h"
 #include "Onyx/Shell/Shell.h"
 #include "Support/ShellSupport.h"

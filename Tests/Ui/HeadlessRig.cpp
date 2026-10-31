@@ -1,6 +1,6 @@
 #include <doctest/doctest.h>
 
-#include "Support/HeadlessImGui.h"
+#include "HeadlessImGui.h"
 
 TEST_CASE("Headless ImGui renders a frame") {
     HeadlessImGui rig;

@@ -7,7 +7,7 @@
 #include <ctime>
 #include <string>
 
-#include "Support/HeadlessImGui.h"
+#include "HeadlessImGui.h"
 #include "Support/ObxWorkspace.h"
 
 using namespace Onyx;

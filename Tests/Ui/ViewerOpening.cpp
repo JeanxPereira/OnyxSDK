@@ -7,7 +7,7 @@
 #include <Onyx/Ui/Viewers/TableView.h>
 #include <Onyx/Ui/Viewers/TextView.h>
 
-#include "Support/ObxViewerFixture.h"
+#include "Support/ObxWorkspace.h"
 
 #include <chrono>
 #include <cstdio>
@@ -18,7 +18,6 @@
 
 using namespace Onyx;
 using namespace Onyx::Ui;
-using TestSupport::ObxViewerFixture;
 
 namespace {
 
@@ -45,11 +44,11 @@ TEST_CASE("RegisterStockViewers registers the five stock viewers") {
 }
 
 TEST_CASE("OpenEntry decodes a text entry on the job lane and places a TextView after Pump") {
-    ObxViewerFixture fx;
+    ObxUi fx;
     UiContext ui = fx.Make();
     Placed placed;
 
-    const auto opened = OpenEntry(ui, fx.Pick(ObxViewerFixture::kText), placed.Callback());
+    const auto opened = OpenEntry(ui, fx.Pick(ObxWorkspace::kText), placed.Callback());
     REQUIRE_MESSAGE(opened.ok(), opened.error().code << ": " << opened.error().message);
     CHECK(placed.calls == 0);
 
@@ -59,16 +58,16 @@ TEST_CASE("OpenEntry decodes a text entry on the job lane and places a TextView 
     REQUIRE(view != nullptr);
     CHECK(view->Lines() == 3);
     CHECK(view->Document() == fx.doc);
-    CHECK(view->Node().indices == std::vector<uint32_t>{ObxViewerFixture::kText});
+    CHECK(view->Node().indices == std::vector<uint32_t>{ObxWorkspace::kText});
     CHECK(view->Title() == "txt");
 }
 
 TEST_CASE("OpenEntry places an ImageView for an image entry") {
-    ObxViewerFixture fx;
+    ObxUi fx;
     UiContext ui = fx.Make();
     Placed placed;
 
-    REQUIRE(OpenEntry(ui, fx.Pick(ObxViewerFixture::kImage), placed.Callback()).ok());
+    REQUIRE(OpenEntry(ui, fx.Pick(ObxWorkspace::kImage), placed.Callback()).ok());
     REQUIRE(fx.PumpUntil([&] { return placed.calls > 0; }));
     auto* view = dynamic_cast<ImageView*>(placed.view.get());
     REQUIRE(view != nullptr);
@@ -77,21 +76,21 @@ TEST_CASE("OpenEntry places an ImageView for an image entry") {
 }
 
 TEST_CASE("OpenEntry places a HexView over a blob that reads its rows from the file") {
-    ObxViewerFixture fx;
+    ObxUi fx;
     UiContext ui = fx.Make();
     Placed placed;
 
-    REQUIRE(OpenEntry(ui, fx.Pick(ObxViewerFixture::kBlob), placed.Callback()).ok());
+    REQUIRE(OpenEntry(ui, fx.Pick(ObxWorkspace::kBlob), placed.Callback()).ok());
     REQUIRE(fx.PumpUntil([&] { return placed.calls > 0; }));
     auto* view = dynamic_cast<HexView*>(placed.view.get());
     REQUIRE(view != nullptr);
-    CHECK(view->Size() == ObxViewerFixture::kBlobSize);
-    CHECK(view->RowCount() == (ObxViewerFixture::kBlobSize + 15) / 16);
+    CHECK(view->Size() == ObxWorkspace::kBlobSize);
+    CHECK(view->RowCount() == (ObxWorkspace::kBlobSize + 15) / 16);
 
     std::string expected;
     for (size_t i = 16; i < 32; ++i) {
         char buf[4];
-        std::snprintf(buf, sizeof buf, "%02X", static_cast<unsigned>(ObxViewerFixture::BlobByte(i)));
+        std::snprintf(buf, sizeof buf, "%02X", static_cast<unsigned>(ObxWorkspace::BlobByte(i)));
         if (!expected.empty()) expected += ' ';
         expected += buf;
     }
@@ -102,11 +101,11 @@ TEST_CASE("OpenEntry places a HexView over a blob that reads its rows from the f
 }
 
 TEST_CASE("OpenEntry places a TableView with the fixture's columns") {
-    ObxViewerFixture fx;
+    ObxUi fx;
     UiContext ui = fx.Make();
     Placed placed;
 
-    REQUIRE(OpenEntry(ui, fx.Pick(ObxViewerFixture::kTable), placed.Callback()).ok());
+    REQUIRE(OpenEntry(ui, fx.Pick(ObxWorkspace::kTable), placed.Callback()).ok());
     REQUIRE(fx.PumpUntil([&] { return placed.calls > 0; }));
     auto* view = dynamic_cast<TableView*>(placed.view.get());
     REQUIRE(view != nullptr);
@@ -115,11 +114,11 @@ TEST_CASE("OpenEntry places a TableView with the fixture's columns") {
 }
 
 TEST_CASE("OpenEntry reports ui.viewer.none when nothing routes the type") {
-    ObxViewerFixture fx;
+    ObxUi fx;
     UiContext ui = fx.Make();
     Placed placed;
 
-    const auto opened = OpenEntry(ui, fx.Pick(ObxViewerFixture::kMesh), placed.Callback());
+    const auto opened = OpenEntry(ui, fx.Pick(ObxWorkspace::kMesh), placed.Callback());
     REQUIRE_FALSE(opened.ok());
     CHECK(opened.error().code == "ui.viewer.none");
     fx.workspace.Jobs().Pump();
@@ -127,7 +126,7 @@ TEST_CASE("OpenEntry reports ui.viewer.none when nothing routes the type") {
 }
 
 TEST_CASE("OpenEntry rejects a selection that names no entry") {
-    ObxViewerFixture fx;
+    ObxUi fx;
     UiContext ui = fx.Make();
     Placed placed;
 
@@ -142,15 +141,15 @@ TEST_CASE("OpenEntry rejects a selection that names no entry") {
 }
 
 TEST_CASE("OpenEntry reports a failed decode on the document and places nothing") {
-    ObxViewerFixture fx;
+    ObxUi fx;
     Modules::Document* document = fx.workspace.Get(fx.doc);
     REQUIRE(document != nullptr);
-    fx.workspace.Decoders().Text(document->roots[ObxViewerFixture::kText].type,
+    fx.workspace.Decoders().Text(document->roots[ObxWorkspace::kText].type,
                                  [](Modules::DecodeContext&) { return std::optional<Domain::Text>(); });
     UiContext ui = fx.Make();
     Placed placed;
 
-    REQUIRE(OpenEntry(ui, fx.Pick(ObxViewerFixture::kText), placed.Callback()).ok());
+    REQUIRE(OpenEntry(ui, fx.Pick(ObxWorkspace::kText), placed.Callback()).ok());
     const size_t before = document->diags.Count();
     REQUIRE(fx.PumpUntil([&] { return document->diags.Count() > before; }));
     CHECK(placed.calls == 0);
@@ -160,7 +159,7 @@ TEST_CASE("OpenEntry reports a failed decode on the document and places nothing"
 }
 
 TEST_CASE("OpenEntry lets the last reference to a closed document die inside Pump") {
-    ObxViewerFixture fx;
+    ObxUi fx;
     UiContext ui = fx.Make();
     Placed placed;
     std::weak_ptr<Modules::Document> watch;
@@ -169,7 +168,7 @@ TEST_CASE("OpenEntry lets the last reference to a closed document die inside Pum
     }
     REQUIRE_FALSE(watch.expired());
 
-    REQUIRE(OpenEntry(ui, fx.Pick(ObxViewerFixture::kText), placed.Callback()).ok());
+    REQUIRE(OpenEntry(ui, fx.Pick(ObxWorkspace::kText), placed.Callback()).ok());
     // The worker has finished and dropped its closure; only the continuation's result holds the document.
     while (fx.workspace.Jobs().PendingCallbacks() == 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
     fx.workspace.Close(fx.doc);
@@ -180,11 +179,11 @@ TEST_CASE("OpenEntry lets the last reference to a closed document die inside Pum
 }
 
 TEST_CASE("OpenEntry on a document closed before the worker starts places nothing") {
-    ObxViewerFixture fx;
+    ObxUi fx;
     UiContext ui = fx.Make();
     Placed placed;
 
-    REQUIRE(OpenEntry(ui, fx.Pick(ObxViewerFixture::kText), placed.Callback()).ok());
+    REQUIRE(OpenEntry(ui, fx.Pick(ObxWorkspace::kText), placed.Callback()).ok());
     fx.workspace.Close(fx.doc);
     while (fx.workspace.Jobs().PendingCallbacks() == 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
     fx.workspace.Jobs().Pump();

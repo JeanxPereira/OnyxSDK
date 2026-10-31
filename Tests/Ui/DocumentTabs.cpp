@@ -3,13 +3,12 @@
 #include <Onyx/Ui/Viewers/DocumentTabs.h>
 #include <Onyx/Ui/Viewers/TextView.h>
 
-#include "Support/ObxViewerFixture.h"
+#include "Support/ObxWorkspace.h"
 
 #include <memory>
 
 using namespace Onyx;
 using namespace Onyx::Ui;
-using TestSupport::ObxViewerFixture;
 
 namespace {
 
@@ -20,7 +19,7 @@ std::unique_ptr<IDocumentView> MakeView(Modules::DocumentId doc, const char* nam
 }
 
 TEST_CASE("DocumentTabs adds, activates and closes tabs") {
-    ObxViewerFixture fx;
+    ObxUi fx;
     DocumentTabs tabs(fx.workspace);
     CHECK(tabs.Id() == "onyx.documents");
     CHECK(tabs.Title() == "Viewer");
@@ -45,7 +44,7 @@ TEST_CASE("DocumentTabs adds, activates and closes tabs") {
 }
 
 TEST_CASE("DocumentTabs closes the tabs of one document") {
-    ObxViewerFixture fx;
+    ObxUi fx;
     DocumentTabs tabs(fx.workspace);
     tabs.Add(MakeView(1, "one"));
     tabs.Add(MakeView(2, "two"));
@@ -57,7 +56,7 @@ TEST_CASE("DocumentTabs closes the tabs of one document") {
 }
 
 TEST_CASE("DocumentTabs drops tabs when the workspace closes their document") {
-    ObxViewerFixture fx;
+    ObxUi fx;
     DocumentTabs tabs(fx.workspace);
     tabs.Add(MakeView(fx.doc, "mine"));
     tabs.Add(MakeView(fx.doc + 1, "other"));
@@ -69,17 +68,17 @@ TEST_CASE("DocumentTabs drops tabs when the workspace closes their document") {
 }
 
 TEST_CASE("DocumentTabs draws and destroys a closed tab after the frame") {
-    ObxViewerFixture fx;
+    ObxUi fx;
     HeadlessImGui imgui;
     UiContext ui = fx.Make();
     DocumentTabs tabs(fx.workspace);
     tabs.Add(MakeView(1, "one"));
     tabs.Add(MakeView(1, "two"));
 
-    TestSupport::DrawFrames(imgui, tabs, ui);
+    DrawFrames(imgui, tabs, ui);
     CHECK(tabs.Count() == 2);
     tabs.CloseActive();
-    TestSupport::DrawFrames(imgui, tabs, ui);
+    DrawFrames(imgui, tabs, ui);
     REQUIRE(tabs.Count() == 1);
     CHECK(tabs.Active()->Title() == "one");
 }
