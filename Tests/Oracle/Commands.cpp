@@ -215,7 +215,7 @@ int RunParity(const fs::path& golden, const fs::path& out, const fs::path& toler
     if (!session) {
         return exit;
     }
-    const bool cpu =session->device->Info().deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU;
+    const bool cpu = session->device->Info().deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU;
     const std::string profile = !profileName.empty() ? profileName : (cpu ? "software" : "hardware");
 
     if (!fs::exists(tolerances)) {
