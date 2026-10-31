@@ -30,6 +30,10 @@
 //   gpu.wait          vkWaitSemaphores failed
 //   gpu.timeout       vkWaitSemaphores timed out
 //   gpu.pipelineCache vkCreatePipelineCache failed
+//   gpu.transientFull a Frame's transient ring cannot hold the requested allocation
+//   gpu.frame         FrameRing misuse: bad options, Begin while a frame is open, End of a stale frame
+//   gpu.upload.size   UploadContext was given empty data, a short texture pixel vector or a bad copy range
+//   gpu.upload.format the device cannot sample or blit the texture's format
 //   gpu.vk            any other failing VkResult (enumerations, counter reads)
 namespace Onyx::Gpu {
 
