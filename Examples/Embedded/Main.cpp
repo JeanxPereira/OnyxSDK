@@ -295,7 +295,8 @@ int RunHost(const Options& options) {
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        Ui::UiContext ui{workspace, device.get(), &frame, &pool, theme, commands, viewers, panels, clock, dt, nullptr};
+        Ui::UiContext ui{workspace, device.get(), &frame, &pool, theme,  commands,
+                         viewers,   panels,       clock,  dt,    nullptr, fonts.text ? &fonts : nullptr};
         const ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
         if (freshLayout) {
             BuildLayout(dockspace, panels);

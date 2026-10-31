@@ -524,6 +524,7 @@ struct UiContext {              // passed to every Draw; built by the host or th
     FrameClock&         clock;
     float               dt;
     IAudioOutput*       audio = nullptr;
+    const FontSet*      fonts = nullptr;   // the host's atlas fonts; null with ImGui's default font
 };
 class IPanel {
 public:
@@ -540,6 +541,10 @@ public:
 };
 }
 ```
+
+`fonts` points at the `FontSet` the host built (`BuildFonts` or
+`BuildThemeFonts`; the Shell and `Examples/Embedded` set it from their
+atlas). The text and hex viewers push `fonts->mono` when it is set.
 
 ### 8.2 Viewer registry
 
@@ -560,8 +565,9 @@ public:
 
 Stock viewers register themselves by `MediaKind` (Image, Text, Mesh/Scene,
 Audio, Table, Raw → hex). A module ships a viewer for its own `TypeKey`
-through a Ui-side extension the host adds (`ui.AddExtension(std::make_unique<
-PrismUi>())`), so `Core` stays UI-free and a module author writes UI only
+through an extension the host adds (`shell.AddExtension(std::make_unique<
+MyModuleUi>())`, an `IShellExtension` that registers viewers, or the same
+registration done by an embedding host on its `ViewerRegistry`), so `Core` stays UI-free and a module author writes UI only
 when they want to. The `OpenRequest` carries the decoded payload (any slot of
 §5.5) already decoded on the job lane.
 
@@ -578,12 +584,14 @@ by default; a host opts in).
 
 ```cpp
 struct Command { std::string id; std::string label; std::string menuPath;   // "File/Open…"
-                 std::optional<Shortcut> shortcut; std::function<bool()> enabled;
+                 std::optional<Shortcut> shortcut; std::function<bool(UiContext&)> enabled;
                  std::function<void(UiContext&)> run; };
 class CommandRegistry {
-    void Add(Command); void Remove(std::string_view id); void Override(std::string_view id, Command);
-    void Run(std::string_view id, UiContext&);
-    const std::vector<Command>& All() const;
+    void Add(Command); void Remove(std::string_view id);
+    Result<void> Override(std::string_view id, Command);   // ui.command.unknown
+    Result<void> Run(std::string_view id, UiContext&);      // ui.command.unknown
+    const std::vector<Command>& All() const; const Command* Find(std::string_view id) const;
+    void PollShortcuts(UiContext&);
 };
 ```
 
@@ -691,7 +699,8 @@ Two modules live in `Examples/` and both are used by the SDK's own tests:
 
 ## 14. Examples
 
-- `MinimalViewer`: the Shell with OnyxBox and Prism, ~40 lines.
+- `MinimalViewer`: the Shell with OnyxBox, under twenty lines. Prism joins it
+  in W4.
 - `Embedded`: a host with its own GLFW window, ImGui context and Vulkan
   device that adopts them into Onyx and draws `DocumentBrowser` + `Viewport`
   inside its own frame. This is the Icon-Composer / SF-Symbols scenario.

@@ -124,6 +124,9 @@ public:
 private:
     void Teardown();
     void ServiceDialogs();
+    // Writes the theme into the settings when it changed since the last write, so a live change
+    // (the Appearance tab, a Mutate) reaches the file without Apply.
+    void SyncTheme();
     void SaveSettings();
     bool ConfirmClose();
     void UpdateTitle();
@@ -148,6 +151,7 @@ private:
     bool m_closeRequested = false;
     bool m_started = false;
     std::optional<std::chrono::steady_clock::time_point> m_dirtySince;
+    Ui::ThemeState m_savedTheme;
     std::unique_ptr<GuiStack> m_gui;
 };
 

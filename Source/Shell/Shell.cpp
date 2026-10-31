@@ -96,7 +96,8 @@ Shell::Shell(ShellOptions options)
       m_theme(m_workspace.Settings()),
       m_recents(m_workspace.Settings()),
       m_dialogs(NativeDialogs()),
-      m_layout(DefaultLayout()) {
+      m_layout(DefaultLayout()),
+      m_savedTheme(m_theme.State()) {
     m_verbs.Add(Cli::StockVerbs());
     InstallStockPanels(*this);
     AddStockCommands(m_commands, *this);
@@ -129,8 +130,9 @@ Gpu::Device* Shell::GpuDevice() {
 Ui::UiContext Shell::Context(Gpu::Frame* frame) {
     Gpu::Device* device = m_gui ? m_gui->device.get() : nullptr;
     Ui::TexturePool* textures = m_gui ? m_gui->textures.get() : nullptr;
+    const Ui::FontSet* fonts = m_gui && m_gui->fonts.text ? &m_gui->fonts : nullptr;
     return Ui::UiContext{m_workspace, device, frame, textures, m_theme, m_commands, m_viewers, m_panels, m_clock,
-                         0.0f,        nullptr};
+                         0.0f,        nullptr, fonts};
 }
 
 void Shell::AddExtension(std::unique_ptr<IShellExtension> extension) {
@@ -175,7 +177,15 @@ bool Shell::ConfirmClose() {
     return !m_lifecycle || m_lifecycle->WillClose(*this);
 }
 
+void Shell::SyncTheme() {
+    if (m_theme.State() != m_savedTheme) {
+        m_theme.Save();
+        m_savedTheme = m_theme.State();
+    }
+}
+
 void Shell::SaveSettings() {
+    SyncTheme();
     auto saved = Settings().SaveIfDirty();
     if (!saved.ok()) {
         Services::Log::Default().Write(Services::LogLevel::Error, "shell.settings", "{}: {}", saved.error().code,
@@ -283,6 +293,7 @@ Result<bool> Shell::Step() {
             m_lifecycle->DidStart(*this);
         }
     }
+    SyncTheme();
     if (Settings().Dirty()) {
         const auto now = std::chrono::steady_clock::now();
         if (!m_dirtySince) {

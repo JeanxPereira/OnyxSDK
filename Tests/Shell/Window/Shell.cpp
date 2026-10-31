@@ -14,6 +14,7 @@
 #include "../Support/ShellSupport.h"
 #include "Onyx/Shell/Shell.h"
 #include "Onyx/Ui/Panels/DocumentBrowser.h"
+#include "Onyx/Ui/Fonts.h"
 #include "Onyx/Ui/Theme.h"
 #include "Onyx/Ui/Viewers/DocumentTabs.h"
 #include "Support/WindowFixture.h"
@@ -139,6 +140,12 @@ TEST_CASE("A theme font change rebuilds the atlas with the new font and size") {
     CHECK(io.FontDefault->LegacySize != sizeBefore);
     CHECK(io.FontDefault->LegacySize == shell.Theme().Applied().atlasRefPx);
     CHECK(shell.Theme().Applied().atlasFontPath == font.string());
+    CHECK(ImGui::GetStyle().FontSizeBase == doctest::Approx(20.0f));
+    const Ui::UiContext ui = shell.Context();
+    REQUIRE(ui.fonts != nullptr);
+    CHECK(ui.fonts->text == io.FontDefault);
+    CHECK(ui.fonts->mono != nullptr);
+    CHECK(ImGui::GetStyle().FontSizeBase == doctest::Approx(shell.Theme().Applied().textBasePx));
     REQUIRE(StepUntil(shell, [] { return true; }));
     shell.GpuDevice()->GraphicsQueue().WaitIdle();
     CHECK_MESSAGE(shell.GpuDevice()->ValidationMessageCount() == 0, shell.GpuDevice()->LastValidationMessage());
@@ -152,6 +159,9 @@ TEST_CASE("The ImGui ini lives under a config directory with a non-ASCII name") 
     REQUIRE(StepUntil(shell, [] { return true; }, 2));
     ImGui::SaveIniSettingsToDisk(ImGui::GetIO().IniFilename);
     CHECK(std::filesystem::exists(options.configDir / "imgui.ini"));
+    RequireWindowValidationLayer(*shell.GpuDevice());
+    shell.GpuDevice()->GraphicsQueue().WaitIdle();
+    CHECK_MESSAGE(shell.GpuDevice()->ValidationMessageCount() == 0, shell.GpuDevice()->LastValidationMessage());
 }
 
 TEST_CASE("A lifecycle delegate can veto the close") {
@@ -218,4 +228,24 @@ TEST_CASE("Settings are written when the shell closes") {
     }
     auto reloaded = Services::Settings::Load(dir.path / "config" / "settings.toml");
     CHECK(reloaded.GetString("shell.probe") == std::optional<std::string>("kept"));
+}
+
+TEST_CASE("A live theme change is written when the shell closes without Apply") {
+    TempDir dir("shell_save_theme");
+    {
+        Shell::Shell shell(TestOptions(dir.path));
+        REQUIRE(StepUntil(shell, [] { return true; }));
+        shell.Theme().Mutate([](Ui::ThemeState& state) { state.fontSizePt = 21.0f; });
+        REQUIRE(StepUntil(shell, [] { return true; }));
+        shell.RequestClose();
+        auto stepped = shell.Step();
+        REQUIRE(stepped.ok());
+        CHECK_FALSE(stepped.value());
+        RequireWindowValidationLayer(*shell.GpuDevice());
+        shell.GpuDevice()->GraphicsQueue().WaitIdle();
+        CHECK_MESSAGE(shell.GpuDevice()->ValidationMessageCount() == 0, shell.GpuDevice()->LastValidationMessage());
+    }
+    auto reloaded = Services::Settings::Load(dir.path / "config" / "settings.toml");
+    REQUIRE(reloaded.GetDouble("ui.theme.fontSizePt").has_value());
+    CHECK(*reloaded.GetDouble("ui.theme.fontSizePt") == doctest::Approx(21.0));
 }
