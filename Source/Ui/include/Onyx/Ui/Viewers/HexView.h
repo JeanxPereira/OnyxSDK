@@ -26,6 +26,7 @@ public:
     static constexpr uint64_t kRowBytes = 16;
 
     HexView(Modules::DocumentId doc, Modules::NodePath node, std::string name, Vfs::Reader reader);
+    // For a host that already holds the bytes (OpenRequest::raw); OpenEntry itself never supplies them.
     HexView(Modules::DocumentId doc, Modules::NodePath node, std::string name, std::vector<std::byte> bytes);
 
     std::string_view Id() const override { return m_id; }

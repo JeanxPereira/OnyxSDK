@@ -42,6 +42,7 @@ struct Decoded {
     std::unique_ptr<Domain::Scene> scene;
     std::optional<Domain::Audio> audio;
     std::optional<Domain::Table> table;
+    std::shared_ptr<Modules::Document> owner;
     bool ok = false;
 
     Decoded(const Domain::AssetEntry& e, Services::Settings s) : entry(e), settings(std::move(s)) {}
@@ -119,20 +120,30 @@ Result<void> OpenEntry(UiContext& ui, const Selection& selection, std::function<
     Modules::Workspace* const ws = &workspace;
     const Selection where = selection;
 
+    // The strong reference to the document travels inside `decoded` and is released in Pump(), never
+    // on the worker: a close that lands before the continuation must not run ~Document there.
+    std::weak_ptr<Modules::Document> weak = owner;
+    owner.reset();
+
     workspace.Jobs().Submit(
         kDecodeLane,
-        [decoded, owner, ws, kind](Services::Progress& progress) {
+        [decoded, weak, ws, kind](Services::Progress& progress) {
+            decoded->owner = weak.lock();
+            Modules::Document* doc = decoded->owner.get();
+            if (!doc) return;
             const Domain::ByteRange& range = decoded->entry.source;
-            Modules::DecodeContext ctx{owner.get(),
+            Modules::DecodeContext ctx{doc,
                                        decoded->entry,
-                                       Vfs::Reader(owner->files[range.fileIndex], range.offset, range.size),
+                                       Vfs::Reader(doc->files[range.fileIndex], range.offset, range.size),
                                        decoded->diags,
                                        progress,
                                        decoded->settings,
-                                       owner->moduleState};
+                                       doc->moduleState};
             Decode(*decoded, ws->Decoders(), kind, ctx);
         },
-        [decoded, owner, ws, where, kind, create, place = std::move(place)]() {
+        [decoded, ws, where, kind, create, place = std::move(place)]() {
+            const std::shared_ptr<Modules::Document> owner = std::move(decoded->owner);
+            if (!owner) return;
             for (Services::Diag& d : decoded->diags.Drain()) owner->diags.Report(std::move(d));
             if (ws->Get(where.doc) != owner.get()) return;
             if (!decoded->ok) {

@@ -1,6 +1,7 @@
 #include "Onyx/Ui/Viewers/StockViewers.h"
 
 #include <Onyx/Core/Modules/Selection.h>
+#include <Onyx/Core/Services/Log.h>
 #include <Onyx/Ui/Viewers/AudioView.h>
 #include <Onyx/Ui/Viewers/HexView.h>
 #include <Onyx/Ui/Viewers/ImageView.h>
@@ -43,7 +44,10 @@ std::unique_ptr<IDocumentView> CreateHex(OpenRequest& r) {
     }
     Modules::Document* doc = r.workspace.Get(r.doc);
     const Domain::AssetEntry* entry = doc ? Modules::Resolve(*doc, r.node) : nullptr;
-    if (!entry || entry->source.fileIndex >= doc->files.size()) return nullptr;
+    if (!entry || entry->source.fileIndex >= doc->files.size()) {
+        ONYX_LOG_WARN("ui.viewer", "no hex view for {}: the entry or its file is gone", r.name);
+        return nullptr;
+    }
     const Domain::ByteRange& range = entry->source;
     return std::make_unique<HexView>(r.doc, std::move(r.node), std::move(r.name),
                                      Vfs::Reader(doc->files[range.fileIndex], range.offset, range.size));

@@ -9,9 +9,11 @@
 
 #include "Support/ObxViewerFixture.h"
 
+#include <chrono>
 #include <cstdio>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace Onyx;
@@ -155,4 +157,36 @@ TEST_CASE("OpenEntry reports a failed decode on the document and places nothing"
     bool reported = false;
     for (const Services::Diag& d : document->diags.Snapshot()) reported = reported || d.code == "ui.open.decode";
     CHECK(reported);
+}
+
+TEST_CASE("OpenEntry lets the last reference to a closed document die inside Pump") {
+    ObxViewerFixture fx;
+    UiContext ui = fx.Make();
+    Placed placed;
+    std::weak_ptr<Modules::Document> watch;
+    for (const auto& d : fx.workspace.Documents()) {
+        if (d->id == fx.doc) watch = d;
+    }
+    REQUIRE_FALSE(watch.expired());
+
+    REQUIRE(OpenEntry(ui, fx.Pick(ObxViewerFixture::kText), placed.Callback()).ok());
+    // The worker has finished and dropped its closure; only the continuation's result holds the document.
+    while (fx.workspace.Jobs().PendingCallbacks() == 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    fx.workspace.Close(fx.doc);
+    CHECK_FALSE(watch.expired());
+    fx.workspace.Jobs().Pump();
+    CHECK(placed.calls == 0);
+    CHECK(watch.expired());
+}
+
+TEST_CASE("OpenEntry on a document closed before the worker starts places nothing") {
+    ObxViewerFixture fx;
+    UiContext ui = fx.Make();
+    Placed placed;
+
+    REQUIRE(OpenEntry(ui, fx.Pick(ObxViewerFixture::kText), placed.Callback()).ok());
+    fx.workspace.Close(fx.doc);
+    while (fx.workspace.Jobs().PendingCallbacks() == 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    fx.workspace.Jobs().Pump();
+    CHECK(placed.calls == 0);
 }
