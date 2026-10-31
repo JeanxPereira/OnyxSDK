@@ -46,6 +46,11 @@ public:
     // formats with one mip; RgbaF16 becomes R16G16B16A16_SFLOAT with one mip. Ends in
     // SHADER_READ_ONLY_OPTIMAL.
     Result<Image> Upload(const Domain::Texture& texture);
+    // Records a copy of `texture` into `image`, which Upload(texture) returned for a texture of the same
+    // extent and format: every level is rewritten and the image ends in SHADER_READ_ONLY_OPTIMAL again.
+    // The copy waits for all earlier work on the queue that touches the image; a submission that samples
+    // it after the copy sees the new texels. gpu.upload.size when the extent, format or byte count differ.
+    Result<void> UploadInto(const Domain::Texture& texture, const Image& image);
 
     // One Queue::Submit if anything is pending, otherwise the last flushed value. A failure (the
     // vkEndCommandBuffer error, or the Submit error unchanged) drops the pending batch and is returned;
@@ -73,6 +78,7 @@ private:
 
     Result<VkCommandBuffer> Recording();
     Result<Staged> Stage(VkDeviceSize size);
+    Result<void> RecordTexture(const Domain::Texture& texture, VkImage image, uint32_t levels, bool overwrite);
     void Reap();
 
     Device& m_device;

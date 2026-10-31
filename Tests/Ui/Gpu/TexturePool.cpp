@@ -2,6 +2,9 @@
 
 #include <Onyx/Core/Domain/Texture.h>
 
+#include <array>
+#include <cstdlib>
+#include <memory>
 #include <vector>
 
 #include "Support/UiGpuFixture.h"
@@ -180,4 +183,118 @@ TEST_CASE("TexturePool Update of an external id fails with ui.texture.size") {
     CHECK(updated.error().code == "ui.texture.size");
     fx->textures->Remove(id.value());
     CHECK(fx->device->ValidationMessageCount() == 0);
+}
+
+namespace {
+
+std::unique_ptr<Gpu::RenderTarget> StreamTarget(Gpu::Device& device) {
+    Gpu::RenderTargetDesc desc;
+    desc.extent = {64, 64};
+    desc.colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+    desc.depthFormat = VK_FORMAT_UNDEFINED;
+    desc.samples = VK_SAMPLE_COUNT_1_BIT;
+    auto target = Gpu::RenderTarget::Create(device, desc);
+    REQUIRE_MESSAGE(target.ok(), target.error().code << ": " << target.error().message);
+    return std::move(target.value());
+}
+
+// The centre pixel of a frame that draws `id` over the whole 64x64 target.
+std::array<int, 3> DrawCentre(UiGpuFixture& fx, Gpu::RenderTarget& target, ImTextureID id) {
+    auto image = RenderImGuiFrame(fx, target, [&] {
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(ImVec2(64, 64));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        ImGui::Begin("plate", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings);
+        ImGui::Image(id, ImVec2(64, 64));
+        ImGui::End();
+        ImGui::PopStyleVar(2);
+    });
+    REQUIRE_MESSAGE(image.ok(), image.error().code << ": " << image.error().message);
+    const size_t at = (32 * 64 + 32) * 4;
+    return {std::to_integer<int>(image.value().rgba[at]), std::to_integer<int>(image.value().rgba[at + 1]),
+            std::to_integer<int>(image.value().rgba[at + 2])};
+}
+
+uint32_t AllocationCount(Gpu::Device& device) {
+    VmaTotalStatistics stats{};
+    vmaCalculateStatistics(device.Allocator(), &stats);
+    return stats.total.statistics.allocationCount;
+}
+
+}
+
+TEST_CASE("Stream rotates through three ids and the first returns on the fourth frame") {
+    auto fx = MakeUiGpuFixture();
+    auto target = StreamTarget(*fx->device);
+    auto created = fx->textures->Create(Solid(4, 4, std::byte{0}, std::byte{0}, std::byte{0}));
+    REQUIRE(created.ok());
+
+    const std::array<std::array<std::byte, 3>, 4> colours{{{std::byte{255}, std::byte{0}, std::byte{0}},
+                                                           {std::byte{0}, std::byte{255}, std::byte{0}},
+                                                           {std::byte{0}, std::byte{0}, std::byte{255}},
+                                                           {std::byte{255}, std::byte{255}, std::byte{0}}}};
+    ImTextureID shown = created.value();
+    std::vector<ImTextureID> ids;
+    for (const auto& colour : colours) {
+        auto streamed = fx->textures->Stream(shown, Solid(4, 4, colour[0], colour[1], colour[2]));
+        REQUIRE_MESSAGE(streamed.ok(), streamed.error().code << ": " << streamed.error().message);
+        shown = streamed.value();
+        ids.push_back(shown);
+        const std::array<int, 3> centre = DrawCentre(*fx, *target, shown);
+        for (size_t c = 0; c < 3; ++c) {
+            CHECK(std::abs(centre[c] - std::to_integer<int>(colour[c])) <= 2);
+        }
+    }
+    REQUIRE(ids.size() == 4);
+    CHECK(ids[0] != ids[1]);
+    CHECK(ids[1] != ids[2]);
+    CHECK(ids[0] != ids[2]);
+    CHECK(ids[3] == ids[0]);
+    for (ImTextureID id : ids) CHECK(fx->textures->Size(id) == glm::uvec2(4, 4));
+
+    auto resized = fx->textures->Stream(shown, Solid(8, 8, std::byte{0}, std::byte{0}, std::byte{0}));
+    REQUIRE_FALSE(resized.ok());
+    CHECK(resized.error().code == "ui.texture.size");
+
+    fx->device->GraphicsQueue().WaitIdle();
+    CHECK_MESSAGE(fx->device->ValidationMessageCount() == 0, fx->device->LastValidationMessage());
+}
+
+TEST_CASE("Remove on a streamed id frees the ring") {
+    auto fx = MakeUiGpuFixture();
+    auto target = StreamTarget(*fx->device);
+    auto created = fx->textures->Create(Solid(4, 4, std::byte{255}, std::byte{0}, std::byte{0}));
+    REQUIRE(created.ok());
+    ImTextureID shown = created.value();
+    std::vector<ImTextureID> ids{shown};
+    for (int frame = 0; frame < 3; ++frame) {
+        auto streamed = fx->textures->Stream(shown, Solid(4, 4, std::byte{0}, std::byte{255}, std::byte{0}));
+        REQUIRE_MESSAGE(streamed.ok(), streamed.error().code << ": " << streamed.error().message);
+        shown = streamed.value();
+        ids.push_back(shown);
+        DrawCentre(*fx, *target, shown);
+    }
+    CHECK(fx->textures->Count() == 3);
+    fx->device->GraphicsQueue().WaitIdle();
+    fx->device->Retire().Collect(fx->device->GraphicsQueue().Completed());
+    const uint32_t withRing = AllocationCount(*fx->device);
+
+    fx->textures->Remove(ids[1]);
+    CHECK(fx->textures->Count() == 0);
+    for (ImTextureID id : ids) {
+        CHECK(fx->textures->Size(id) == glm::uvec2(0, 0));
+        auto updated = fx->textures->Update(id, Solid(4, 4, std::byte{0}, std::byte{0}, std::byte{0}));
+        REQUIRE_FALSE(updated.ok());
+        CHECK(updated.error().code == "ui.texture.size");
+        auto streamed = fx->textures->Stream(id, Solid(4, 4, std::byte{0}, std::byte{0}, std::byte{0}));
+        REQUIRE_FALSE(streamed.ok());
+        CHECK(streamed.error().code == "ui.texture.size");
+    }
+
+    fx->device->GraphicsQueue().WaitIdle();
+    fx->device->Retire().Collect(fx->device->GraphicsQueue().Completed());
+    // The ring's three images are the only allocations Remove releases.
+    CHECK(AllocationCount(*fx->device) == withRing - 3);
+    CHECK_MESSAGE(fx->device->ValidationMessageCount() == 0, fx->device->LastValidationMessage());
 }

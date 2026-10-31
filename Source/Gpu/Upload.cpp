@@ -243,10 +243,6 @@ Result<Image> UploadContext::Upload(const Domain::Texture& texture) {
 
     const uint32_t levels = mipped ? static_cast<uint32_t>(std::bit_width(std::max(texture.width, texture.height))) : 1;
 
-    auto staged = Stage(texture.pixels.size());
-    if (!staged.ok()) {
-        return Result<Image>::Fail(staged.error());
-    }
     ImageDesc desc;
     desc.extent = {texture.width, texture.height};
     desc.format = format;
@@ -257,9 +253,39 @@ Result<Image> UploadContext::Upload(const Domain::Texture& texture) {
     if (!image.ok()) {
         return image;
     }
+    auto recorded = RecordTexture(texture, image.value().handle.Get(), levels, false);
+    if (!recorded.ok()) {
+        return Result<Image>::Fail(recorded.error());
+    }
+    return image;
+}
+
+Result<void> UploadContext::UploadInto(const Domain::Texture& texture, const Image& image) {
+    if (!image.handle || image.extent.width != texture.width || image.extent.height != texture.height ||
+        image.format != ToVkFormat(texture.format)) {
+        return Result<void>::Fail(
+            SizeError(std::format("texture '{}' does not match the extent and format of the target image", texture.name)));
+    }
+    const size_t expected = Domain::ExpectedByteSize(texture.format, texture.width, texture.height);
+    if (texture.pixels.size() != expected) {
+        return Result<void>::Fail(SizeError(std::format("texture '{}' holds {} bytes, expected {} for {}x{}",
+                                                        texture.name, texture.pixels.size(), expected, texture.width,
+                                                        texture.height)));
+    }
+    return RecordTexture(texture, image.handle.Get(), image.mipLevels, true);
+}
+
+// Stages the pixels and records the copy, the mip blits and the final transition. `overwrite` names an
+// image that earlier submissions may still read or write: its first barrier then waits for them.
+Result<void> UploadContext::RecordTexture(const Domain::Texture& texture, VkImage handle, uint32_t levels,
+                                          bool overwrite) {
+    auto staged = Stage(texture.pixels.size());
+    if (!staged.ok()) {
+        return Result<void>::Fail(staged.error());
+    }
     auto recording = Recording();
     if (!recording.ok()) {
-        return Result<Image>::Fail(recording.error());
+        return Result<void>::Fail(recording.error());
     }
     const VkCommandBuffer cmd = recording.value();
 
@@ -267,16 +293,16 @@ Result<Image> UploadContext::Upload(const Domain::Texture& texture) {
     VkResult r = vmaFlushAllocation(m_device.Allocator(), staged.value().allocation, staged.value().offset,
                                     texture.pixels.size());
     if (r != VK_SUCCESS) {
-        return Result<Image>::Fail(VkFail("gpu.vk", "vmaFlushAllocation", r));
+        return Result<void>::Fail(VkFail("gpu.vk", "vmaFlushAllocation", r));
     }
 
     const auto& fn = m_device.Fn();
-    const VkImage handle = image.value().handle.Get();
     constexpr auto kTransfer = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
     constexpr auto kReadStages = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
     ImageBarrier(m_device, cmd, handle, 0, levels, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                 VK_PIPELINE_STAGE_2_NONE, 0, kTransfer, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+                 overwrite ? VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_2_NONE, 0, kTransfer,
+                 VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
     VkBufferImageCopy copy{};
     copy.bufferOffset = staged.value().offset;
@@ -308,7 +334,7 @@ Result<Image> UploadContext::Upload(const Domain::Texture& texture) {
     ImageBarrier(m_device, cmd, handle, levels - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, kTransfer, VK_ACCESS_2_TRANSFER_WRITE_BIT, kReadStages,
                  VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-    return image;
+    return Result<void>::Ok();
 }
 
 Result<FenceValue> UploadContext::Flush() {
