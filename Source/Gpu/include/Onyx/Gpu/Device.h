@@ -19,7 +19,8 @@
 // Error codes used by the Gpu layer (Result<T>::error().code; Error::native carries the VkResult
 // when one applies):
 //   gpu.noDevice      no Vulkan loader, incompatible driver, or no physical device qualifies
-//   gpu.feature       the device lacks dynamicRendering, synchronization2, timelineSemaphore or Vulkan 1.3
+//   gpu.feature       the device lacks dynamicRendering, synchronization2, timelineSemaphore or Vulkan 1.3, or an
+//                     adopted device does not resolve the Vulkan 1.3 core entry points
 //   gpu.adopt         the ExternalDevice is missing a handle or a proc address loader
 //   gpu.instance      vkCreateInstance or the debug messenger failed for a reason other than gpu.noDevice
 //   gpu.device        vkCreateDevice failed
@@ -36,6 +37,7 @@
 //   gpu.upload.format the device cannot sample or blit the texture's format
 //   gpu.extent        a render target or swapchain was asked for a zero extent
 //   gpu.surface       the graphics queue family cannot present to the surface
+//   gpu.format        ReadbackColor was given a colour format it cannot convert
 //   gpu.vk            any other failing VkResult (enumerations, counter reads)
 namespace Onyx::Gpu {
 
@@ -63,7 +65,10 @@ struct ExternalFeatures {
 // The host's handles are never destroyed by Onyx. The queue is used only through Queue::Submit and
 // Queue::Present under Onyx's mutex, so the host either hands Onyx a dedicated queue of that family
 // or routes its own submissions through the same Queue::Submit. An adopted Device does not call
-// vkDeviceWaitIdle on shutdown; it waits on its own timeline instead.
+// vkDeviceWaitIdle on shutdown; it waits on its own timeline instead. The host's instance and device
+// must be created with apiVersion 1.3 or higher: Onyx calls the core entry points (vkQueueSubmit2,
+// vkCmdBeginRendering and the rest), never the KHR aliases, and Adopt refuses with gpu.feature naming
+// the first one that does not resolve.
 struct ExternalDevice {
     VkInstance instance = VK_NULL_HANDLE;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
@@ -108,7 +113,10 @@ class Device {
 public:
     // The first Create or Adopt in a process initialises volk's loader once (std::call_once): after an
     // Adopt, every later Create resolves through the host's getInstanceProcAddr. Concurrent calls are
-    // serialised around volk's process-wide function pointers.
+    // serialised around volk's process-wide function pointers. Create also calls volkLoadInstance on
+    // Onyx's own instance, which re-points volk's process-wide instance table; a tool that uses volk
+    // itself keeps its instance-level globals only if it reloads them after Create (Adopt does not
+    // touch them).
     static Result<std::unique_ptr<Device>> Create(const DeviceOptions& options);
     static Result<std::unique_ptr<Device>> Adopt(const ExternalDevice& external);
 

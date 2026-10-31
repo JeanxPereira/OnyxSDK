@@ -4,6 +4,7 @@
 #include <array>
 
 #include "Onyx/Gpu/Device.h"
+#include "Enumerate.h"
 #include "VkError.h"
 
 namespace Onyx::Gpu {
@@ -105,32 +106,24 @@ Result<void> Swapchain::Build(VkExtent2D requested) {
         return Result<void>::Fail(VkFail("gpu.vk", "vkGetPhysicalDeviceSurfaceCapabilitiesKHR", r));
     }
 
-    uint32_t formatCount = 0;
-    r = ifn.getPhysicalDeviceSurfaceFormatsKHR(physical, surface, &formatCount, nullptr);
-    if (r != VK_SUCCESS) {
-        return Result<void>::Fail(VkFail("gpu.vk", "vkGetPhysicalDeviceSurfaceFormatsKHR", r));
+    auto formatList = Enumerate<VkSurfaceFormatKHR>("vkGetPhysicalDeviceSurfaceFormatsKHR", [&](uint32_t* n, VkSurfaceFormatKHR* p) {
+        return ifn.getPhysicalDeviceSurfaceFormatsKHR(physical, surface, n, p);
+    });
+    if (!formatList.ok()) {
+        return Result<void>::Fail(formatList.error());
     }
-    if (formatCount == 0) {
+    std::vector<VkSurfaceFormatKHR> formats = std::move(formatList.value());
+    if (formats.empty()) {
         return Result<void>::Fail({"gpu.vk", "the surface reports no formats", 0});
     }
-    std::vector<VkSurfaceFormatKHR> formats(formatCount);
-    r = ifn.getPhysicalDeviceSurfaceFormatsKHR(physical, surface, &formatCount, formats.data());
-    if (r != VK_SUCCESS && r != VK_INCOMPLETE) {
-        return Result<void>::Fail(VkFail("gpu.vk", "vkGetPhysicalDeviceSurfaceFormatsKHR", r));
-    }
-    formats.resize(formatCount);
 
-    uint32_t modeCount = 0;
-    r = ifn.getPhysicalDeviceSurfacePresentModesKHR(physical, surface, &modeCount, nullptr);
-    if (r != VK_SUCCESS) {
-        return Result<void>::Fail(VkFail("gpu.vk", "vkGetPhysicalDeviceSurfacePresentModesKHR", r));
+    auto modeList = Enumerate<VkPresentModeKHR>("vkGetPhysicalDeviceSurfacePresentModesKHR", [&](uint32_t* n, VkPresentModeKHR* p) {
+        return ifn.getPhysicalDeviceSurfacePresentModesKHR(physical, surface, n, p);
+    });
+    if (!modeList.ok()) {
+        return Result<void>::Fail(modeList.error());
     }
-    std::vector<VkPresentModeKHR> modes(modeCount);
-    r = ifn.getPhysicalDeviceSurfacePresentModesKHR(physical, surface, &modeCount, modes.data());
-    if (r != VK_SUCCESS && r != VK_INCOMPLETE) {
-        return Result<void>::Fail(VkFail("gpu.vk", "vkGetPhysicalDeviceSurfacePresentModesKHR", r));
-    }
-    modes.resize(modeCount);
+    std::vector<VkPresentModeKHR> modes = std::move(modeList.value());
 
     VkExtent2D extent = caps.currentExtent;
     if (extent.width == UINT32_MAX) {

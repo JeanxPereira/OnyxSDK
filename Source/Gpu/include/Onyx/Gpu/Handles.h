@@ -16,6 +16,9 @@ class Device;
 // Device it was created from, because destruction queues work on that Device. A Unique built
 // with a null Device and a non-null handle is a precondition violation.
 //
+// Because destruction retires at the last submitted value, a Unique, Buffer or Image must not be
+// destroyed or reset between recording a command buffer that uses it and submitting that buffer.
+//
 // Owns one Vulkan handle. Destruction does not destroy immediately: the matching
 // destroy call is queued on Device::Retire() at the last submitted fence value.
 template <class T>

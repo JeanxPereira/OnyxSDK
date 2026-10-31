@@ -65,7 +65,9 @@ private:
 
 // Synchronous and meant for headless runs and tests: copies the resolve image to a host buffer after
 // the submission that wrote it (`after`, a value on the graphics queue timeline) and returns tightly
-// packed RGBA8 rows, top row first. Supports 8-bit RGBA and BGRA colour formats.
+// packed RGBA8 rows, top row first. Supports 8-bit RGBA and BGRA colour formats and fails with
+// gpu.format for any other. The resolve image is read in SHADER_READ_ONLY_OPTIMAL, so call it only
+// after at least one End of a frame that drew into the target.
 Result<std::vector<std::byte>> ReadbackColor(Device& device, RenderTarget& target, FenceValue after);
 
 }

@@ -238,7 +238,7 @@ Result<std::vector<std::byte>> ReadbackColor(Device& device, RenderTarget& targe
     using Out = Result<std::vector<std::byte>>;
     const VkFormat format = target.Desc().colorFormat;
     if (!IsRgba8(format) && !IsBgra8(format)) {
-        return Out::Fail({"gpu.vk", "ReadbackColor supports 8-bit RGBA and BGRA colour formats only", 0});
+        return Out::Fail({"gpu.format", "ReadbackColor supports 8-bit RGBA and BGRA colour formats only", 0});
     }
     const VkExtent2D extent = target.Extent();
     const VkDeviceSize byteCount = static_cast<VkDeviceSize>(extent.width) * extent.height * 4;

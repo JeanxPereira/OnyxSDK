@@ -5,6 +5,7 @@
 #include <fstream>
 #include <type_traits>
 
+#include "Enumerate.h"
 #include "VkError.h"
 
 namespace Onyx::Gpu {
@@ -37,27 +38,6 @@ void LoadTable(VolkDeviceTable& table, VkDevice device, PFN_vkGetDeviceProcAddr 
     ::vkGetDeviceProcAddr = getDeviceProcAddr;
     volkLoadDeviceTable(&table, device);
     ::vkGetDeviceProcAddr = previous;
-}
-
-// Runs a two-call enumeration, repeating while the driver reports VK_INCOMPLETE.
-template <class T, class Fn>
-Result<std::vector<T>> Enumerate(const char* what, Fn&& call) {
-    std::vector<T> items;
-    uint32_t count = 0;
-    VkResult r = VK_SUCCESS;
-    do {
-        r = call(&count, nullptr);
-        if (r != VK_SUCCESS) {
-            break;
-        }
-        items.resize(count);
-        r = count == 0 ? VK_SUCCESS : call(&count, items.data());
-    } while (r == VK_INCOMPLETE);
-    if (r != VK_SUCCESS) {
-        return Result<std::vector<T>>::Fail(VkFail("gpu.vk", what, r));
-    }
-    items.resize(count);
-    return Result<std::vector<T>>::Ok(std::move(items));
 }
 
 Result<bool> LayerAvailable(const char* name) {
@@ -462,6 +442,31 @@ Result<void> Device::AdoptExternal(const ExternalDevice& external) {
         std::lock_guard volkLock(g_volkMutex);
         LoadTable(m_fn, m_device, m_getDeviceProcAddr);
     }
+    // vkGetDeviceProcAddr returns null for core functions above the instance's API version, so a host
+    // instance created below 1.3 resolves only the KHR aliases.
+    const struct {
+        const char* name;
+        bool present;
+    } core13[] = {
+        {"vkQueueSubmit2", m_fn.vkQueueSubmit2 != nullptr},
+        {"vkCmdPipelineBarrier2", m_fn.vkCmdPipelineBarrier2 != nullptr},
+        {"vkCmdBeginRendering", m_fn.vkCmdBeginRendering != nullptr},
+        {"vkCmdEndRendering", m_fn.vkCmdEndRendering != nullptr},
+        {"vkWaitSemaphores", m_fn.vkWaitSemaphores != nullptr},
+        {"vkGetSemaphoreCounterValue", m_fn.vkGetSemaphoreCounterValue != nullptr},
+        {"vkCmdBlitImage", m_fn.vkCmdBlitImage != nullptr},
+        {"vkGetDeviceBufferMemoryRequirements", m_fn.vkGetDeviceBufferMemoryRequirements != nullptr},
+    };
+    for (const auto& entry : core13) {
+        if (!entry.present) {
+            m_device = VK_NULL_HANDLE;
+            return Result<void>::Fail({"gpu.feature",
+                                       std::format("the host device does not resolve the core entry point {}; create the instance and "
+                                                   "device with API version 1.3",
+                                                   entry.name),
+                                       0});
+        }
+    }
     m_queue.reset(new Queue(*this, external.queue, external.queueFamily));
     return FinishInit(external.pipelineCachePath);
 }
@@ -558,9 +563,11 @@ void Device::SavePipelineCache() const {
 
 Device::~Device() {
     if (m_owned && m_device != VK_NULL_HANDLE) {
-        m_fn.vkDeviceWaitIdle(m_device);
+        // A failed wait cannot be handled in a destructor; teardown continues and the driver reports the loss.
+        (void)m_fn.vkDeviceWaitIdle(m_device);
     } else if (!m_owned && m_queue && m_queue->Timeline() != VK_NULL_HANDLE) {
-        m_queue->Wait(m_queue->LastSubmitted());
+        // A failed wait is already recorded in the queue's Fault(); teardown cannot act on it.
+        (void)m_queue->Wait(m_queue->LastSubmitted());
     }
     m_retire.Drain();
     if (m_device != VK_NULL_HANDLE) {
