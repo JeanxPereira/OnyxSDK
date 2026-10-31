@@ -1,5 +1,6 @@
 #include "Onyx/Ui/Viewers/TextView.h"
 
+#include <Onyx/Ui/Fonts.h>
 #include <Onyx/Ui/UiContext.h>
 #include <Onyx/Ui/Widgets.h>
 
@@ -84,7 +85,8 @@ void TextView::LayoutWrap(float width) {
     }
 }
 
-void TextView::Draw(UiContext&) {
+void TextView::Draw(UiContext& ui) {
+    const ScopedFont mono(ui.fonts ? ui.fonts->mono : nullptr);
     if (Widgets::ToolbarButton("Wrap", wrap)) wrap = !wrap;
     ImGui::SameLine();
     if (Widgets::ToolbarButton("Copy all")) ImGui::SetClipboardText(m_text.text.c_str());

@@ -40,6 +40,20 @@ TEST_CASE("ThemeState survives Settings and back") {
     CHECK(reader.State() == state);
 }
 
+TEST_CASE("ReadState and WriteState round-trip without a Theme") {
+    ThemeState state;
+    state.fontSizePt = 20.0f;
+    state.userScale = 1.5f;
+    state.mode = ThemeMode::Dark;
+    state.accent = glm::vec4(Byte(40), Byte(80), Byte(120), Byte(255));
+    state.overrides.push_back({"Text", glm::vec4(Byte(1), Byte(2), Byte(3), Byte(4))});
+
+    Settings settings = Settings::Empty();
+    Theme::WriteState(settings, state);
+    CHECK(Theme::ReadState(settings) == state);
+    CHECK(Theme(settings).State() == state);
+}
+
 TEST_CASE("Each mode round-trips") {
     for (ThemeMode mode : {ThemeMode::Dark, ThemeMode::Light, ThemeMode::System}) {
         Settings settings = Settings::Empty();

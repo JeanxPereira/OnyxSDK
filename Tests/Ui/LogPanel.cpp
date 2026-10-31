@@ -3,6 +3,8 @@
 #include <Onyx/Core/Services/Log.h>
 #include <Onyx/Ui/Panels/LogPanel.h>
 
+#include <chrono>
+#include <ctime>
 #include <string>
 
 #include "Support/HeadlessImGui.h"
@@ -21,6 +23,34 @@ TEST_CASE("LogPanel receives entries written to the default log and stops after 
         CHECK(found);
     }
     Services::Log::Default().Write(Services::LogLevel::Warn, "ui.test", marker);
+}
+
+namespace {
+
+std::string LocalNow() {
+    const std::time_t seconds = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm local{};
+#if defined(_WIN32)
+    localtime_s(&local, &seconds);
+#else
+    localtime_r(&seconds, &local);
+#endif
+    char text[16] = {};
+    std::strftime(text, sizeof(text), "%H:%M:%S", &local);
+    return text;
+}
+
+}
+
+TEST_CASE("LogPanel stamps lines with the local time") {
+    Services::Log log;
+    LogPanel panel(log);
+    const std::string before = LocalNow();
+    log.Write(Services::LogLevel::Info, "cat", "stamped");
+    const std::string after = LocalNow();
+    REQUIRE(panel.Lines().size() == 1);
+    const std::string stamp = panel.Lines().front().substr(0, 8);
+    CHECK((stamp == before || stamp == after));
 }
 
 TEST_CASE("LogPanel drops the oldest line past its capacity") {

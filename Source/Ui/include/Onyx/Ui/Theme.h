@@ -35,6 +35,11 @@ public:
     // Writes ui.theme.* into the Settings object; the host decides when to write the file.
     void Save();
 
+    // The ui.theme.* keys as a ThemeState (sizes clamped, unknown values left at their defaults), and
+    // back, without a Theme: what the constructor reads and Save writes.
+    static ThemeState ReadState(const Services::Settings& settings);
+    static void WriteState(Services::Settings& settings, const ThemeState& state);
+
     static void DescribeSettings(Services::SettingsSchema& schema);
 
 private:

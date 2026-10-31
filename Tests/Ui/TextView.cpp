@@ -4,6 +4,9 @@
 
 #include "Support/ObxViewerFixture.h"
 
+#include <Onyx/Ui/AssetPaths.h>
+#include <Onyx/Ui/Fonts.h>
+
 #include <string>
 
 using namespace Onyx;
@@ -53,4 +56,22 @@ TEST_CASE("TextView draws with and without word wrap") {
     view.wrap = true;
     TestSupport::DrawFrames(imgui, view, ui);
     CHECK(view.Lines() == 2000);
+}
+
+TEST_CASE("TextView draws in the host's mono font when the context names one") {
+    HeadlessImGui imgui;
+    TestSupport::ObxViewerFixture fx;
+    auto fonts = BuildFonts(*ImGui::GetIO().Fonts, FindAsset("fonts/SFMono-Regular.otf"), 15.0f,
+                            FindAsset("fonts/SFSymbols.ttf"));
+    REQUIRE(fonts.ok());
+    ImGui::GetIO().FontDefault = fonts.value().text;
+    UiContext ui = fx.Make();
+    TextView view = Make("mono\ntext");
+
+    TestSupport::DrawFrames(imgui, view, ui);
+    CHECK(fonts.value().mono->LastBaked == nullptr);
+
+    ui.fonts = &fonts.value();
+    TestSupport::DrawFrames(imgui, view, ui);
+    CHECK(fonts.value().mono->LastBaked != nullptr);
 }

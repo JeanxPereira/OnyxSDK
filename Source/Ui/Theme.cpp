@@ -87,7 +87,7 @@ std::vector<ColorOverride> ParseOverrides(std::string_view text) {
     return out;
 }
 
-ThemeState ReadState(const Services::Settings& settings) {
+ThemeState ReadStateFrom(const Services::Settings& settings) {
     ThemeState state;
     if (const auto mode = settings.GetString(kKeyMode)) {
         if (*mode == "dark")
@@ -114,7 +114,7 @@ ThemeState ReadState(const Services::Settings& settings) {
 
 }
 
-Theme::Theme(Services::Settings& settings) : m_settings(settings), m_state(ReadState(settings)) {
+Theme::Theme(Services::Settings& settings) : m_settings(settings), m_state(ReadStateFrom(settings)) {
     NoteAtlasInputs(Resolve(m_state, m_env));
 }
 
@@ -182,8 +182,13 @@ void Theme::Commit() {
 
     const bool changed =
         !m_hasApplied || std::memcmp(&resolved.style, &m_applied.style, sizeof(ImGuiStyle)) != 0;
-    if (changed)
+    if (changed) {
         live = resolved.style;
+        // ImGui 1.92 rewrites FontSizeBase from its current font size whenever the current window
+        // changes, which happens in NewFrame before the style's value is read; the size takes effect
+        // only through the next-frame field NewFrame consumes first.
+        live._NextFrameFontSizeBase = resolved.style.FontSizeBase;
+    }
 
     m_applied = std::move(resolved);
     m_hasApplied = true;
@@ -200,12 +205,20 @@ void Theme::Update(float dt) {
 }
 
 void Theme::Save() {
-    m_settings.Set(kKeyMode, ModeName(m_state.mode));
-    m_settings.Set(kKeyFontSize, static_cast<double>(m_state.fontSizePt));
-    m_settings.Set(kKeyUserScale, static_cast<double>(m_state.userScale));
-    m_settings.Set(kKeyFontPath, m_state.fontPath);
-    m_settings.Set(kKeyAccent, FormatColor(m_state.accent));
-    m_settings.Set(kKeyOverrides, FormatOverrides(m_state.overrides));
+    WriteState(m_settings, m_state);
+}
+
+ThemeState Theme::ReadState(const Services::Settings& settings) {
+    return ReadStateFrom(settings);
+}
+
+void Theme::WriteState(Services::Settings& settings, const ThemeState& state) {
+    settings.Set(kKeyMode, ModeName(state.mode));
+    settings.Set(kKeyFontSize, static_cast<double>(state.fontSizePt));
+    settings.Set(kKeyUserScale, static_cast<double>(state.userScale));
+    settings.Set(kKeyFontPath, state.fontPath);
+    settings.Set(kKeyAccent, FormatColor(state.accent));
+    settings.Set(kKeyOverrides, FormatOverrides(state.overrides));
 }
 
 void Theme::DescribeSettings(Services::SettingsSchema& schema) {

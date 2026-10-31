@@ -24,6 +24,22 @@ Result<FontSet> BuildFonts(ImFontAtlas& atlas, const std::filesystem::path& text
                            const std::filesystem::path& iconFont,
                            const std::filesystem::path& monoFontOverride = {});
 
+// Pushes `font` at the current size for the scope; a null font pushes nothing. Inside an ImGui frame only.
+class ScopedFont {
+public:
+    explicit ScopedFont(ImFont* font) : m_pushed(font != nullptr) {
+        if (m_pushed) ImGui::PushFont(font, 0.0f);
+    }
+    ~ScopedFont() {
+        if (m_pushed) ImGui::PopFont();
+    }
+    ScopedFont(const ScopedFont&) = delete;
+    ScopedFont& operator=(const ScopedFont&) = delete;
+
+private:
+    bool m_pushed;
+};
+
 // The atlas a theme asks for: BuildFonts over the theme's applied font (Applied().atlasFontPath,
 // UTF-8) at Applied().atlasRefPx with the bundled symbols and mono font. A font path that names no
 // file logs a warning through Log::Default() and falls back to the bundled text font (FindAsset).

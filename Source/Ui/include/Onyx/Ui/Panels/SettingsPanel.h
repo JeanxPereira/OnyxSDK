@@ -32,7 +32,8 @@ public:
     static SettingsModel Model(UiContext& ui);
 
     // The Appearance values as Theme::Save writes them; the Appearance tab edits this copy of
-    // the keys DescribeSettings declares, then reads it back through a Theme.
+    // the keys DescribeSettings declares and reads it back with Theme::ReadState. The copy is
+    // rebuilt only when the theme's state changed from elsewhere.
     const Services::Settings& AppearanceValues() const { return m_appearance; }
 
     // Writes the theme and any dirty settings to disk.

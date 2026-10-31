@@ -1,5 +1,6 @@
 #include "Onyx/Ui/Viewers/HexView.h"
 
+#include <Onyx/Ui/Fonts.h>
 #include <Onyx/Ui/UiContext.h>
 #include <Onyx/Ui/Widgets.h>
 
@@ -75,7 +76,8 @@ void HexView::GoTo(uint64_t offset) {
     m_scrollPending = true;
 }
 
-void HexView::Draw(UiContext&) {
+void HexView::Draw(UiContext& ui) {
+    const ScopedFont mono(ui.fonts ? ui.fonts->mono : nullptr);
     ImGui::Text("%llu bytes", static_cast<unsigned long long>(m_size));
     ImGui::SameLine();
     ImGui::SetNextItemWidth(160.0f);

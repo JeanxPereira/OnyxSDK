@@ -196,3 +196,30 @@ TEST_CASE("An animated colour change eases to the target") {
     const ThemeResolved target = Resolve(theme.State(), theme.Env());
     CHECK(SameColors(target.style, ImGui::GetStyle()));
 }
+
+TEST_CASE("A committed font size survives the next frame") {
+    HeadlessImGui rig;
+    Onyx::Services::Settings settings = Onyx::Services::Settings::Empty();
+    Theme theme(settings);
+    theme.Commit();
+    const auto frame = [&] {
+        rig.NewFrame();
+        ImGui::Begin("probe");
+        ImGui::TextUnformatted("probe");
+        ImGui::End();
+        rig.EndFrame();
+    };
+    frame();
+    frame();
+
+    theme.Mutate([](ThemeState& s) { s.fontSizePt = 22.0f; });
+    theme.Commit();
+    float inFrame = 0.0f;
+    rig.NewFrame();
+    ImGui::Begin("probe");
+    inFrame = ImGui::GetStyle().FontSizeBase;
+    ImGui::End();
+    rig.EndFrame();
+    CHECK(inFrame == doctest::Approx(22.0f));
+    CHECK(ImGui::GetStyle().FontSizeBase == doctest::Approx(22.0f));
+}

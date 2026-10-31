@@ -162,9 +162,7 @@ void SettingsPanel::Draw(UiContext& ui) {
     if (!m_appearanceBuilt || !(m_appearanceFor == ui.theme.State())) {
         m_appearanceFor = ui.theme.State();
         m_appearance = Services::Settings::Empty();
-        Theme mirror(m_appearance);
-        mirror.Set(m_appearanceFor);
-        mirror.Save();
+        Theme::WriteState(m_appearance, m_appearanceFor);
         m_appearanceBuilt = true;
     }
 
@@ -179,8 +177,7 @@ void SettingsPanel::Draw(UiContext& ui) {
                 else DrawEntry(ui.workspace.Settings(), entry);
             }
             if (appearanceChanged) {
-                Theme edited(m_appearance);
-                m_appearanceFor = edited.State();
+                m_appearanceFor = Theme::ReadState(m_appearance);
                 ui.theme.Set(m_appearanceFor);
             }
 

@@ -16,6 +16,7 @@ class ViewerRegistry;
 class PanelHost;
 class FrameClock;
 class IAudioOutput;
+struct FontSet;
 
 struct UiContext {
     Modules::Workspace& workspace;
@@ -29,6 +30,9 @@ struct UiContext {
     FrameClock& clock;
     float dt;
     IAudioOutput* audio = nullptr;
+    // The fonts of the atlas the host built (BuildFonts or BuildThemeFonts); null when ImGui's default
+    // font is in use. Views that want monospaced text push `fonts->mono`.
+    const FontSet* fonts = nullptr;
 };
 
 }

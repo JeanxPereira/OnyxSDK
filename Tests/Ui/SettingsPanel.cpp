@@ -72,6 +72,22 @@ TEST_CASE("SettingsPanel renders every Appearance entry DescribeSettings declare
     }
 }
 
+TEST_CASE("SettingsPanel mirrors an outside theme change into its Appearance copy") {
+    ObxUi fx("settings_mirror");
+    UiContext ui = fx.Make();
+    // The accent is stored as #rrggbb; one that is already byte-exact survives the copy unchanged.
+    fx.theme.Mutate([](ThemeState& state) { state.accent = glm::vec4(51 / 255.0f, 102 / 255.0f, 153 / 255.0f, 1.0f); });
+    SettingsPanel panel;
+    HeadlessImGui rig;
+    DrawFrames(rig, 2, [&] { panel.Draw(ui); });
+    CHECK(Theme::ReadState(panel.AppearanceValues()) == fx.theme.State());
+
+    fx.theme.Mutate([](ThemeState& state) { state.userScale = 2.0f; });
+    DrawFrames(rig, 2, [&] { panel.Draw(ui); });
+    CHECK(Theme::ReadState(panel.AppearanceValues()).userScale == doctest::Approx(2.0f));
+    CHECK(Theme::ReadState(panel.AppearanceValues()) == fx.theme.State());
+}
+
 TEST_CASE("SettingsPanel tab labels stay unique when display names collide") {
     ObxUi fx("settings_labels");
     UiContext ui = fx.Make();

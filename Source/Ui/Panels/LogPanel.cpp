@@ -6,6 +6,7 @@
 #include <imgui.h>
 
 #include <chrono>
+#include <ctime>
 #include <format>
 
 namespace Onyx::Ui {
@@ -13,6 +14,20 @@ namespace Onyx::Ui {
 namespace {
 
 constexpr const char* kLevelNames[] = {"Trace", "Debug", "Info", "Warn", "Error"};
+
+// HH:MM:SS in the local time zone.
+std::string LocalClock(std::chrono::system_clock::time_point time) {
+    const std::time_t seconds = std::chrono::system_clock::to_time_t(time);
+    std::tm local{};
+#if defined(_WIN32)
+    localtime_s(&local, &seconds);
+#else
+    localtime_r(&seconds, &local);
+#endif
+    char text[16] = {};
+    std::strftime(text, sizeof(text), "%H:%M:%S", &local);
+    return text;
+}
 
 }
 
@@ -27,8 +42,8 @@ LogPanel::~LogPanel() {
 void LogPanel::Push(const Services::LogEntry& entry) {
     Line line;
     line.level = entry.level;
-    line.text = std::format("{:%H:%M:%S} {:<5} [{}] {}", std::chrono::floor<std::chrono::seconds>(entry.time),
-                            Services::LogLevelName(entry.level), entry.category, entry.message);
+    line.text = std::format("{} {:<5} [{}] {}", LocalClock(entry.time), Services::LogLevelName(entry.level),
+                            entry.category, entry.message);
     std::lock_guard lock(m_mutex);
     if (m_lines.size() == kCapacity) m_lines.pop_front();
     m_lines.push_back(std::move(line));

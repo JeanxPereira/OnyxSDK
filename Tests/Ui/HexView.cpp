@@ -5,6 +5,9 @@
 
 #include "Support/ObxViewerFixture.h"
 
+#include <Onyx/Ui/AssetPaths.h>
+#include <Onyx/Ui/Fonts.h>
+
 #include <memory>
 
 using namespace Onyx;
@@ -62,4 +65,22 @@ TEST_CASE("HexView of nothing has no rows, and a long one draws") {
     HexView view(1, Modules::NodePath{{0}}, "h", Ramp(5000));
     view.GoTo(4000);
     TestSupport::DrawFrames(imgui, view, ui);
+}
+
+TEST_CASE("HexView draws in the host's mono font when the context names one") {
+    HeadlessImGui imgui;
+    TestSupport::ObxViewerFixture fx;
+    auto fonts = BuildFonts(*ImGui::GetIO().Fonts, FindAsset("fonts/SFMono-Regular.otf"), 15.0f,
+                            FindAsset("fonts/SFSymbols.ttf"));
+    REQUIRE(fonts.ok());
+    ImGui::GetIO().FontDefault = fonts.value().text;
+    UiContext ui = fx.Make();
+    HexView view(1, Modules::NodePath{{0}}, "h", Ramp(64));
+
+    TestSupport::DrawFrames(imgui, view, ui);
+    CHECK(fonts.value().mono->LastBaked == nullptr);
+
+    ui.fonts = &fonts.value();
+    TestSupport::DrawFrames(imgui, view, ui);
+    CHECK(fonts.value().mono->LastBaked != nullptr);
 }
