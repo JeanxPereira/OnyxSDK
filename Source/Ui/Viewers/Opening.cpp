@@ -113,6 +113,10 @@ Result<void> OpenEntry(UiContext& ui, const Selection& selection, std::function<
     const std::string capability = spec->anyCapability;
 
     if (!NeedsDecode(kind) && capability.empty()) {
+        if (!FileOf(*doc, entry->source)) {
+            return Fail("ui.open.range", entry->name + " names file " + std::to_string(entry->source.fileIndex) +
+                                             " but the document holds " + std::to_string(doc->files.size()));
+        }
         OpenRequest request{workspace, selection.doc, selection.node, entry->type, kind, entry->name,
                             std::nullopt, std::nullopt, nullptr, std::nullopt, std::nullopt, {},
                             FileOf(*doc, entry->source), entry->source, nullptr, {}};

@@ -234,6 +234,7 @@ TEST_CASE("OpenEntry decodes the Any slot for a spec naming its capability") {
     Modules::Document* document = fx.workspace.Get(fx.doc);
     const Types::TypeId type = document->roots[ObxWorkspace::kBlob].type;
     fx.workspace.Decoders().Any(type, "probe", [](Modules::DecodeContext&) { return std::make_shared<int>(42); });
+    fx.workspace.Decoders().Any(type, "empty", [](Modules::DecodeContext&) { return std::shared_ptr<void>(); });
 
     std::shared_ptr<void> received;
     std::string capability;
@@ -259,8 +260,9 @@ TEST_CASE("OpenEntry decodes the Any slot for a spec naming its capability") {
     REQUIRE(received != nullptr);
     CHECK(*std::static_pointer_cast<int>(received) == 42);
     CHECK(capability == "probe");
+    CHECK(placed.view != nullptr);
 
-    ui.viewers.Register(make("missing"));
+    ui.viewers.Register(make("empty"));
     Placed refused;
     const size_t before = document->diags.Count();
     REQUIRE(OpenEntry(ui, fx.Pick(ObxWorkspace::kBlob), refused.Callback()).ok());
@@ -269,4 +271,29 @@ TEST_CASE("OpenEntry decodes the Any slot for a spec naming its capability") {
     bool reported = false;
     for (const Services::Diag& d : document->diags.Snapshot()) reported = reported || d.code == "ui.open.any";
     CHECK(reported);
+}
+
+TEST_CASE("OpenEntry on a bare entry naming a missing file fails with ui.open.range") {
+    ObxUi fx;
+    UiContext ui = fx.Make();
+    Modules::Document* document = fx.workspace.Get(fx.doc);
+    document->roots[ObxWorkspace::kBlob].source.fileIndex = static_cast<uint32_t>(document->files.size() + 3);
+
+    bool created = false;
+    ViewerSpec probe;
+    probe.id = "probe";
+    probe.target = Domain::MediaKind::Raw;
+    probe.priority = 100;
+    probe.create = [&](OpenRequest&) {
+        created = true;
+        return std::unique_ptr<IDocumentView>();
+    };
+    ui.viewers.Register(std::move(probe));
+
+    Placed placed;
+    const auto opened = OpenEntry(ui, fx.Pick(ObxWorkspace::kBlob), placed.Callback());
+    REQUIRE_FALSE(opened.ok());
+    CHECK(opened.error().code == "ui.open.range");
+    CHECK_FALSE(created);
+    CHECK(placed.calls == 0);
 }

@@ -17,7 +17,8 @@ struct WavePeak {
 };
 
 // A waveform and the format of a decoded clip. Play, Stop, Pause and Resume drive the context's audio
-// output when it has one, and a click on the waveform seeks.
+// output when it has one, and a click on the waveform seeks the playing clip (a stopped output has
+// nothing to seek).
 class AudioView : public IDocumentView {
 public:
     AudioView(Modules::DocumentId doc, Modules::NodePath node, std::string name, Domain::Audio audio);
