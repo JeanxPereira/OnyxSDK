@@ -119,6 +119,19 @@ std::string BuildReport(std::string_view scene, uint32_t width, uint32_t height,
     return out;
 }
 
+bool SameDirectory(const std::filesystem::path& a, const std::filesystem::path& b) {
+    std::error_code ec;
+    const auto left = std::filesystem::weakly_canonical(a, ec);
+    if (ec) {
+        return false;
+    }
+    const auto right = std::filesystem::weakly_canonical(b, ec);
+    if (ec) {
+        return false;
+    }
+    return left.lexically_normal() / "" == right.lexically_normal() / "";
+}
+
 bool JsonEqualMaskingPixelHash(std::string_view a, std::string_view b) {
     const auto linesA = SplitLines(a);
     const auto linesB = SplitLines(b);

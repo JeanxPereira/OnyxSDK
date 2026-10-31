@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <span>
 #include <string>
 #include <string_view>
@@ -22,5 +23,8 @@ std::string BuildReport(std::string_view scene, uint32_t width, uint32_t height,
 
 // True when both reports have the same lines apart from the value of the pixelHash line.
 bool JsonEqualMaskingPixelHash(std::string_view a, std::string_view b);
+
+// True when both paths name the same directory, whether or not either exists yet.
+bool SameDirectory(const std::filesystem::path& a, const std::filesystem::path& b);
 
 }

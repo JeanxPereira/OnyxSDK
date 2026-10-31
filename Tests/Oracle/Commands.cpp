@@ -101,6 +101,8 @@ bool RenderCorpus(Session& session, std::vector<RenderedScene>& scenes) {
     for (const TestKit::SceneFixture& fixture : TestKit::BuildCorpus()) {
         std::vector<Render::DrawInfo> draws;
         {
+            // The draw list comes from a load of its own: RenderToImage's reusing overload does not
+            // expose the GpuScene it loads.
             auto loaded = session.renderer->Load(fixture.scene, *session.upload);
             if (!loaded.ok()) {
                 PrintError(fixture.name.c_str(), loaded.error());
@@ -187,12 +189,33 @@ int RunRender(const fs::path& out) {
 
 int RunParity(const fs::path& golden, const fs::path& out, const fs::path& tolerances, const std::string& profileName,
               bool writeDiff) {
+    if (SameDirectory(out, golden)) {
+        std::fputs("--out must not be the golden directory\n", stderr);
+        return kExitUsage;
+    }
+
+    // Every golden image is read before anything renders, so each scene reports one line.
+    std::vector<TestKit::Image8> wanted;
+    bool missing = false;
+    for (const TestKit::SceneFixture& fixture : TestKit::BuildCorpus()) {
+        auto expected = TestKit::ReadPng(golden / (fixture.name + ".png"));
+        if (!expected.ok()) {
+            std::printf("%s: missing golden\n", fixture.name.c_str());
+            missing = true;
+            continue;
+        }
+        wanted.push_back(std::move(expected.value()));
+    }
+    if (missing) {
+        return kExitMissingFile;
+    }
+
     int exit = kExitWithin;
     auto session = OpenSession(exit);
     if (!session) {
         return exit;
     }
-    const bool cpu = session->device->Info().deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU;
+    const bool cpu =session->device->Info().deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU;
     const std::string profile = !profileName.empty() ? profileName : (cpu ? "software" : "hardware");
 
     if (!fs::exists(tolerances)) {
@@ -213,18 +236,9 @@ int RunParity(const fs::path& golden, const fs::path& out, const fs::path& toler
     std::printf("profile %s on %s\n", profile.c_str(), session->device->Info().deviceName.c_str());
 
     int result = kExitWithin;
-    for (const RenderedScene& scene : scenes) {
-        const fs::path goldenPng = golden / (scene.name + ".png");
-        if (!fs::exists(goldenPng)) {
-            std::fprintf(stderr, "missing golden image: %s\n", goldenPng.string().c_str());
-            return kExitMissingFile;
-        }
-        auto expected = TestKit::ReadPng(goldenPng);
-        if (!expected.ok()) {
-            PrintError(scene.name.c_str(), expected.error());
-            return kExitMissingFile;
-        }
-        const TestKit::Image8& want = expected.value();
+    for (size_t i = 0; i < scenes.size(); ++i) {
+        const RenderedScene& scene = scenes[i];
+        const TestKit::Image8& want = wanted[i];
         const auto metrics = TestKit::CompareRgba(scene.image.width, scene.image.height, scene.image.rgba, want.rgba);
         const bool sizeOk = want.width == scene.image.width && want.height == scene.image.height;
         const bool within = sizeOk && TestKit::WithinTolerance(metrics, tolerance.value());

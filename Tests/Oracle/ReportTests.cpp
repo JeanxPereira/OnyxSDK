@@ -4,6 +4,7 @@
 #include "Report.h"
 
 #include <clocale>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -143,4 +144,16 @@ TEST_CASE("JsonEqualMaskingPixelHash catches a real divergence") {
 TEST_CASE("JsonEqualMaskingPixelHash rejects a different line count") {
     const std::vector<Render::DrawInfo> draws = {Draw("solo")};
     CHECK_FALSE(JsonEqualMaskingPixelHash(BuildReport("s", 8, 8, 111, draws), BuildReport("s", 8, 8, 111, {})));
+}
+
+TEST_CASE("SameDirectory resolves spelling differences and missing directories") {
+    namespace fs = std::filesystem;
+    const fs::path base = fs::temp_directory_path() / "OnyxOracleSameDirectory";
+    fs::create_directories(base / "golden");
+    CHECK(SameDirectory(base / "golden", base / "golden"));
+    CHECK(SameDirectory(base / "golden", base / "golden" / ".." / "golden"));
+    CHECK(SameDirectory(base / "golden", base / "golden" / ""));
+    CHECK_FALSE(SameDirectory(base / "golden", base / "out"));
+    CHECK_FALSE(SameDirectory(base / "golden", base / "golden" / "a"));
+    fs::remove_all(base);
 }
