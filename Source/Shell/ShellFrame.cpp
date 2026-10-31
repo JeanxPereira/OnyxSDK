@@ -28,6 +28,13 @@ bool Interacting() {
            ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
 }
 
+// A delayed hover (a tooltip waiting for its delay) that completes by the clock alone: no event arrives
+// to wake the loop, so the frames must keep coming until the timer passes the delay.
+bool HoverDelayPending() {
+    const ImGuiContext* context = ImGui::GetCurrentContext();
+    return context && context->HoverItemDelayId != 0 && context->HoverItemDelayTimer < context->Style.HoverDelayNormal;
+}
+
 constexpr glm::vec4 kClearColor{0.10f, 0.10f, 0.10f, 1.0f};
 
 struct StepGuard {
@@ -71,7 +78,7 @@ Result<bool> ShellFrame::Step(const std::function<void(Gpu::Frame&)>& drawUi) {
     }
     if (minimised()) {
         m_window.WaitEvents(kMinimisedWaitSeconds);
-    } else if (m_clock.WantsContinuous() || m_pollFrames > 0 || Interacting()) {
+    } else if (m_clock.WantsContinuous() || m_pollFrames > 0 || Interacting() || HoverDelayPending()) {
         m_window.PollEvents();
     } else {
         const double remaining = m_clock.RemainingAnimation();

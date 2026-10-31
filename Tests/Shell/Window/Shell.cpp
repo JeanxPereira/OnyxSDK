@@ -13,6 +13,7 @@
 
 #include "../Support/ShellSupport.h"
 #include "Onyx/Shell/Shell.h"
+#include "Onyx/Ui/AudioOutput.h"
 #include "Onyx/Ui/Panels/DocumentBrowser.h"
 #include "Onyx/Ui/Fonts.h"
 #include "Onyx/Ui/Theme.h"
@@ -46,6 +47,20 @@ struct FixedDialogs final : Shell::IDialogs {
     }
     std::optional<std::filesystem::path> OpenFolder() override { return std::nullopt; }
     std::optional<std::filesystem::path> SaveFile(std::string_view) override { return std::nullopt; }
+};
+
+struct SpyOutput final : Ui::IAudioOutput {
+    explicit SpyOutput(int& stopCount) : stops(stopCount) {}
+    Result<void> Play(const Domain::Audio&) override { return Result<void>::Ok(); }
+    void Stop() override { ++stops; }
+    void Pause() override {}
+    void Resume() override {}
+    void Seek(double) override {}
+    bool Paused() const override { return false; }
+    bool Playing() const override { return false; }
+    double Position() const override { return 0.0; }
+
+    int& stops;
 };
 
 struct VetoClose final : Shell::LifecycleDelegate {
@@ -248,4 +263,31 @@ TEST_CASE("A live theme change is written when the shell closes without Apply") 
     auto reloaded = Services::Settings::Load(dir.path / "config" / "settings.toml");
     REQUIRE(reloaded.GetDouble("ui.theme.fontSizePt").has_value());
     CHECK(*reloaded.GetDouble("ui.theme.fontSizePt") == doctest::Approx(21.0));
+}
+
+TEST_CASE("SetAudioOutput reaches the context") {
+    TempDir dir("shell_audio");
+    int stops = 0;
+    int replacedStops = 0;
+    Shell::Shell shell(TestOptions(dir.path));
+    CHECK(shell.Context().audio == nullptr);
+
+    shell.SetAudioOutput(std::make_unique<SpyOutput>(replacedStops));
+    auto output = std::make_unique<SpyOutput>(stops);
+    Ui::IAudioOutput* raw = output.get();
+    shell.SetAudioOutput(std::move(output));
+    CHECK(replacedStops == 1);
+    CHECK(shell.Context().audio == raw);
+
+    REQUIRE(StepUntil(shell, [] { return true; }));
+    RequireValidationLayer(*shell.GpuDevice());
+    shell.GpuDevice()->GraphicsQueue().WaitIdle();
+    CHECK_MESSAGE(shell.GpuDevice()->ValidationMessageCount() == 0, shell.GpuDevice()->LastValidationMessage());
+
+    CHECK(stops == 0);
+    shell.RequestClose();
+    std::string program = "onyx";
+    char* argv[] = {program.data()};
+    CHECK(shell.Run(1, argv) == 0);
+    CHECK(stops == 1);
 }

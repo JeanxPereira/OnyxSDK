@@ -109,6 +109,9 @@ Shell::~Shell() {
 }
 
 void Shell::Teardown() {
+    if (m_audio) {
+        m_audio->Stop();
+    }
     if (m_gui) {
         m_gui->WaitIdle();
         ImGui::SetCurrentContext(m_gui->imgui);
@@ -132,7 +135,7 @@ Ui::UiContext Shell::Context(Gpu::Frame* frame) {
     Ui::TexturePool* textures = m_gui ? m_gui->textures.get() : nullptr;
     const Ui::FontSet* fonts = m_gui && m_gui->fonts.text ? &m_gui->fonts : nullptr;
     return Ui::UiContext{m_workspace, device, frame, textures, m_theme, m_commands, m_viewers, m_panels, m_clock,
-                         0.0f,        nullptr, fonts};
+                         0.0f,        m_audio.get(), fonts};
 }
 
 void Shell::AddExtension(std::unique_ptr<IShellExtension> extension) {
@@ -146,6 +149,13 @@ void Shell::AddExtension(std::unique_ptr<IShellExtension> extension) {
 
 void Shell::SetLifecycle(std::unique_ptr<LifecycleDelegate> delegate) {
     m_lifecycle = std::move(delegate);
+}
+
+void Shell::SetAudioOutput(std::unique_ptr<Ui::IAudioOutput> output) {
+    if (m_audio) {
+        m_audio->Stop();
+    }
+    m_audio = std::move(output);
 }
 
 void Shell::SetDialogs(std::unique_ptr<IDialogs> dialogs) {

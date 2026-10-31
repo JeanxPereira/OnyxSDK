@@ -35,7 +35,8 @@ public:
 
     // One frame. Pacing: events are waited for (at most the clock's remaining animation, or the idle cap)
     // unless the clock wants continuous rendering, input arrived within the last three frames, an item
-    // is active, a mouse button is down or a popup is open, in which case they are polled. Then the theme
+    // is active, a mouse button is down, a popup is open or a hover delay is still counting, in which case
+    // they are polled. Then the theme
     // advances and commits outside the ImGui frame, the font atlas is rebuilt when the theme marked it
     // dirty, ImGui starts a frame, `drawUi` runs with the open GPU frame (uploads and waits go on it),
     // and the draw data is recorded into the acquired swapchain image and presented. The swapchain is
