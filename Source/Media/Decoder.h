@@ -5,6 +5,8 @@
 
 #include <Onyx/Media/MediaSource.h>
 
+#include <cstddef>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <span>
@@ -21,9 +23,21 @@ public:
 
     Result<MediaInfo> Open(std::shared_ptr<const Vfs::IFile> file, uint64_t offset, uint64_t size);
 
-    // Reads one packet and hands every frame it completes to the sinks. At the end of the container
-    // it drains both decoders and returns false; later calls return false until the next Seek.
-    bool Feed(const VideoSink& video, const AudioSink& audio);
+    // Reads one packet and hands every frame it completes to the sinks. With `holdVideo`, or while
+    // packets are held, a video packet is queued undecoded instead, so the reader can reach audio
+    // that lies behind the video in the file without decoding more pictures. At the end of the
+    // container it drains the audio decoder and returns false; later calls return false until the next
+    // Seek.
+    bool Feed(const VideoSink& video, const AudioSink& audio, bool holdVideo = false);
+    // Decodes the oldest held video packet, or drains the video decoder once the container ended and
+    // nothing is held. False when there was nothing to do.
+    bool DecodeHeld(const VideoSink& video);
+    // The container ended; every audio frame was delivered.
+    bool ReadEnded() const { return m_readEnded; }
+    // Every frame of both streams was delivered.
+    bool Ended() const { return m_readEnded && m_held.empty() && m_videoDrained; }
+    size_t HeldCount() const { return m_held.size(); }
+    size_t HeldBytes() const { return m_heldBytes; }
     // Seeks to the key frame at or before `seconds` and flushes both decoders.
     Result<void> Seek(double seconds);
     // Audio packets are skipped from now on.
@@ -57,7 +71,10 @@ private:
     uint32_t m_sampleRate = 0;
     uint32_t m_channels = 0;
     std::vector<float> m_samples;
-    bool m_ended = false;
+    std::deque<PacketPtr> m_held;
+    size_t m_heldBytes = 0;
+    bool m_readEnded = false;
+    bool m_videoDrained = false;
 };
 
 }

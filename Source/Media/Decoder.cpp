@@ -113,21 +113,46 @@ double Decoder::Seconds(int64_t ts, AVRational base) const {
     return static_cast<double>(ts) * av_q2d(base) - m_startTime;
 }
 
-bool Decoder::Feed(const VideoSink& video, const AudioSink& audio) {
-    if (m_ended) return false;
+bool Decoder::Feed(const VideoSink& video, const AudioSink& audio, bool holdVideo) {
+    if (m_readEnded) return false;
     if (av_read_frame(m_input.get(), m_packet.get()) < 0) {
-        if (m_video && avcodec_send_packet(m_video.get(), nullptr) >= 0) ReceiveVideo(video);
         if (m_audio && avcodec_send_packet(m_audio.get(), nullptr) >= 0) ReceiveAudio(audio);
-        m_ended = true;
+        m_readEnded = true;
+        m_videoDrained = !m_video;
         return false;
     }
     if (m_packet->stream_index == m_videoIndex && m_video) {
-        if (avcodec_send_packet(m_video.get(), m_packet.get()) >= 0) ReceiveVideo(video);
+        if (holdVideo || !m_held.empty()) {
+            PacketPtr held(av_packet_alloc());
+            if (held) {
+                av_packet_move_ref(held.get(), m_packet.get());
+                m_heldBytes += static_cast<size_t>(std::max(held->size, 0));
+                m_held.push_back(std::move(held));
+            }
+        } else if (avcodec_send_packet(m_video.get(), m_packet.get()) >= 0) {
+            ReceiveVideo(video);
+        }
     } else if (m_packet->stream_index == m_audioIndex && m_audio) {
         if (avcodec_send_packet(m_audio.get(), m_packet.get()) >= 0) ReceiveAudio(audio);
     }
     av_packet_unref(m_packet.get());
     return true;
+}
+
+bool Decoder::DecodeHeld(const VideoSink& video) {
+    if (!m_held.empty()) {
+        PacketPtr packet = std::move(m_held.front());
+        m_held.pop_front();
+        m_heldBytes -= std::min(m_heldBytes, static_cast<size_t>(std::max(packet->size, 0)));
+        if (avcodec_send_packet(m_video.get(), packet.get()) >= 0) ReceiveVideo(video);
+        return true;
+    }
+    if (m_readEnded && !m_videoDrained) {
+        if (avcodec_send_packet(m_video.get(), nullptr) >= 0) ReceiveVideo(video);
+        m_videoDrained = true;
+        return true;
+    }
+    return false;
 }
 
 void Decoder::ReceiveVideo(const VideoSink& sink) {
@@ -180,7 +205,10 @@ Result<void> Decoder::Seek(double seconds) {
         avcodec_flush_buffers(m_audio.get());
         swr_init(m_resample.get());
     }
-    m_ended = false;
+    m_held.clear();
+    m_heldBytes = 0;
+    m_readEnded = false;
+    m_videoDrained = false;
     m_nextVideoPts = seconds;
     if (r < 0) return Result<void>::Fail({"media.seek", "the container refused the seek: " + AvErrorText(r), r});
     return Result<void>::Ok();

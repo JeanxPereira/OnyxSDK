@@ -40,9 +40,11 @@ enum class PlayState : uint8_t { Stopped, Playing, Paused, Ended };
 // [offset, offset + size), never through a path.
 //
 // The clock is the audio clock (frames the playback device consumed) when the clip has audio and a
-// device started, a steady clock otherwise. When the audio runs out before the video while playing,
-// the steady clock takes over from the audio position and the video plays out; a seek returns to the
-// audio clock. Decoding runs ahead of the clock by at most four video frames and blocks there, so a
+// device started, a steady clock otherwise. While the audio starves, the decode thread reads ahead
+// holding compressed video packets (never more decoded frames) to reach audio stored behind the video.
+// When the audio ends before the video, or stays starved for 250 ms with nothing more to read, the
+// steady clock takes over from the audio position and the video plays out; a seek returns to the audio
+// clock. Decoding runs ahead of the clock by at most four decoded video frames and blocks there, so a
 // paused source costs nothing. Methods other than Open may be called
 // from any one thread at a time; the destructor stops and joins the decode thread.
 class MediaSource {
@@ -68,6 +70,8 @@ public:
     PlayState State() const;
     double Position() const;
     const MediaInfo& Info() const;
+    // True while Position() follows the audio device rather than the steady clock.
+    bool UsesAudioClock() const;
     // The newest decoded frame due at Position(), dropping older ones; empty when nothing new is due.
     std::optional<VideoFrame> TakeFrame();
 

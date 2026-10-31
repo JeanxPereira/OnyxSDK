@@ -246,6 +246,34 @@ TEST_CASE("a long video tail after one second of audio still reaches Ended") {
     CHECK(played.last->pts > 3.8);
 }
 
+TEST_CASE("audio stored ten frames behind the video keeps the audio clock") {
+    const ClipFixture clip = WriteClip("audio-lag", true, 50, 0, 10);
+    Media::MediaSource source;
+    OpenClip(source, clip);
+    REQUIRE(source.Info().hasAudio);
+    if (!source.UsesAudioClock()) {
+        MESSAGE("media.audio: no playback device, the clip runs on the steady clock; skipping");
+        return;
+    }
+
+    source.Play();
+    const auto start = Clock::now();
+    bool audioClockThroughout = true;
+    double position = 0;
+    while (Clock::now() - start < 1200ms) {
+        source.TakeFrame();
+        audioClockThroughout = audioClockThroughout && source.UsesAudioClock();
+        position = source.Position();
+        std::this_thread::sleep_for(2ms);
+    }
+    CHECK(audioClockThroughout);
+    CHECK(position > 1.0);
+
+    const PlayedOut rest = PlayToEnd(source, 3000ms);
+    REQUIRE(rest.ended);
+    CHECK(std::abs(rest.finalPosition - 2.0) <= 0.1);
+}
+
 TEST_CASE("Ten Open/destroy cycles each return within one second") {
     const ClipFixture clip = WriteClip("cycles", true);
     auto file = OpenFile(clip);

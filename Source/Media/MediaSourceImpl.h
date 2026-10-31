@@ -7,11 +7,13 @@
 #include <Onyx/Media/MediaSource.h>
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <future>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <thread>
 #include <vector>
@@ -49,7 +51,8 @@ private:
         MediaInfo info;
         bool audioClock = false;
         uint32_t rate = 0;
-        bool eof = false;
+        // When the audio clock was first found starved with the thread unable to read on.
+        std::optional<std::chrono::steady_clock::time_point> starvedSince;
         uint64_t serial = 0;
         double dropBefore = 0;
         std::vector<float> pendingAudio;
@@ -60,8 +63,10 @@ private:
     void Loop(Decoder& decoder, Session& session);
     void ApplySeek(Decoder& decoder, Session& session, const Transport::SeekRequest& seek);
     void PushAudio(Session& session, std::span<const float> samples, double pts);
-    // The audio clock can advance no further: the ring ran dry and the thread cannot read on, because
-    // the container ended or the video ahead of the clock fills the mailbox.
+    // The audio clock is starving while video fills the mailbox, so the thread may read on and hold the
+    // video packets undecoded.
+    bool ReadAhead(const Decoder& decoder, const Session& session, bool playing) const;
+    // The audio clock has nothing to play: the ring and the pending samples are empty.
     bool AudioExhausted(const Session& session) const;
     bool Finished(const Session& session, double position) const;
 

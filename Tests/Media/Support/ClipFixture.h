@@ -13,6 +13,7 @@ extern "C" {
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -23,7 +24,9 @@ extern "C" {
 // A clip encoded with FFmpeg's own encoders: mpeg1video 64x48 at 25 fps, frame i a solid colour
 // Expected(i), muxed to AVI (with a pcm_s16le 44100 Hz stereo 440 Hz tone when asked) and written
 // after 4096 zero bytes, so the clip lives at [offset, offset + size) of `path`. A positive
-// `audioSeconds` cuts the tone short of the video; zero lasts as long as the video.
+// `audioSeconds` cuts the tone short of the video; zero lasts as long as the video. A positive
+// `audioLagFrames` writes each audio packet that many video frames later in the file than its own
+// frame, so a reader meets the video first.
 struct ClipFixture {
     std::filesystem::path path;
     uint64_t offset;
@@ -57,20 +60,48 @@ inline void Check(int result, const char* what) {
     }
 }
 
-inline void Drain(AVFormatContext* out, AVCodecContext* codec, AVStream* stream, AVPacket* packet) {
+// Audio packets held back to be written a number of video frames late, tagged with the video frame
+// they belong to.
+struct HeldPacket {
+    uint32_t frame;
+    AVPacket* packet;
+};
+
+// Writes in the muxer's interleaved order, or exactly in call order when `direct` (so held-back packets
+// stay late in the file).
+inline void Write(AVFormatContext* out, AVPacket* packet, bool direct) {
+    Check(direct ? av_write_frame(out, packet) : av_interleaved_write_frame(out, packet), "write packet");
+}
+
+inline void Drain(AVFormatContext* out, AVCodecContext* codec, AVStream* stream, AVPacket* packet, bool direct,
+                  std::deque<HeldPacket>* held = nullptr, uint32_t frame = 0) {
     for (;;) {
         const int r = avcodec_receive_packet(codec, packet);
         if (r == AVERROR(EAGAIN) || r == AVERROR_EOF) return;
         Check(r, "receive packet");
         av_packet_rescale_ts(packet, codec->time_base, stream->time_base);
         packet->stream_index = stream->index;
-        Check(av_interleaved_write_frame(out, packet), "write packet");
+        if (held) {
+            held->push_back(HeldPacket{frame, av_packet_clone(packet)});
+            av_packet_unref(packet);
+        } else {
+            Write(out, packet, direct);
+        }
+    }
+}
+
+inline void WriteHeld(AVFormatContext* out, std::deque<HeldPacket>& held, int64_t upToFrame) {
+    while (!held.empty() && static_cast<int64_t>(held.front().frame) <= upToFrame) {
+        Write(out, held.front().packet, true);
+        av_packet_free(&held.front().packet);
+        held.pop_front();
     }
 }
 
 }
 
-inline ClipFixture WriteClip(const std::string& name, bool withAudio, uint32_t frames = 50, double audioSeconds = 0) {
+inline ClipFixture WriteClip(const std::string& name, bool withAudio, uint32_t frames = 50, double audioSeconds = 0,
+                             uint32_t audioLagFrames = 0) {
     using namespace ClipDetail;
     const std::filesystem::path dir = std::filesystem::temp_directory_path();
     const std::filesystem::path raw = dir / ("onyx-media-" + name + ".raw.avi");
@@ -137,6 +168,9 @@ inline ClipFixture WriteClip(const std::string& name, bool withAudio, uint32_t f
         Check(av_frame_get_buffer(tone, 0), "tone buffer");
     }
 
+    const bool direct = audioLagFrames > 0;
+    std::deque<HeldPacket> held;
+    std::deque<HeldPacket>* hold = direct ? &held : nullptr;
     const uint32_t audioFrames =
         audioSeconds > 0 ? static_cast<uint32_t>(std::lround(audioSeconds * kFps)) : frames;
     for (uint32_t i = 0; i < frames; ++i) {
@@ -152,7 +186,7 @@ inline ClipFixture WriteClip(const std::string& name, bool withAudio, uint32_t f
         sws_scale(scale, src, srcStride, 0, kHeight, picture->data, picture->linesize);
         picture->pts = i;
         Check(avcodec_send_frame(video, picture), "send picture");
-        Drain(out, video, videoStream, packet);
+        Drain(out, video, videoStream, packet, direct);
 
         if (audio && i < audioFrames) {
             Check(av_frame_make_writable(tone), "tone writable");
@@ -165,15 +199,17 @@ inline ClipFixture WriteClip(const std::string& name, bool withAudio, uint32_t f
             }
             tone->pts = static_cast<int64_t>(i) * kSamplesPerFrame;
             Check(avcodec_send_frame(audio, tone), "send tone");
-            Drain(out, audio, audioStream, packet);
+            Drain(out, audio, audioStream, packet, direct, hold, i);
         }
+        if (direct) WriteHeld(out, held, static_cast<int64_t>(i) - audioLagFrames);
     }
     Check(avcodec_send_frame(video, nullptr), "flush video");
-    Drain(out, video, videoStream, packet);
+    Drain(out, video, videoStream, packet, direct);
     if (audio) {
         Check(avcodec_send_frame(audio, nullptr), "flush audio");
-        Drain(out, audio, audioStream, packet);
+        Drain(out, audio, audioStream, packet, direct, hold, frames);
     }
+    WriteHeld(out, held, INT64_MAX);
     Check(av_write_trailer(out), "write trailer");
     avio_closep(&out->pb);
 

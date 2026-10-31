@@ -16,6 +16,12 @@ namespace {
 // Seconds of decoded audio the ring holds ahead of the device.
 constexpr double kRingSeconds = 1.0;
 constexpr auto kPlayingPoll = std::chrono::milliseconds(5);
+// How long the audio clock may stay starved, with the thread unable to read on, before the steady
+// clock takes over.
+constexpr auto kStarvationWindow = std::chrono::milliseconds(250);
+// The compressed video the thread may hold while it reads ahead to audio that lags the video in the file.
+constexpr size_t kMaxHeldPackets = 256;
+constexpr size_t kMaxHeldBytes = 32u << 20;
 
 }
 
@@ -110,17 +116,30 @@ void MediaSource::Impl::Loop(Decoder& decoder, Session& session) {
         }
 
         const double position = transport.Position();
-        const bool videoRoom = !session.info.hasVideo || mailbox.HasRoom(position, tolerance);
-        if (!session.eof && videoRoom && session.pendingAudio.empty()) {
-            session.eof = !decoder.Feed(video, audio);
-            continue;
-        }
         const bool playing = transport.State() == PlayState::Playing;
-        if (playing && AudioExhausted(session)) {
-            transport.UseSteadyClock();
+        const bool videoRoom = !session.info.hasVideo || mailbox.HasRoom(position, tolerance);
+        if (videoRoom && decoder.DecodeHeld(video)) {
+            session.starvedSince.reset();
             continue;
         }
-        if (session.eof && playing && Finished(session, position)) {
+        if (session.pendingAudio.empty() && !decoder.ReadEnded() &&
+            (videoRoom || ReadAhead(decoder, session, playing))) {
+            decoder.Feed(video, audio, !videoRoom);
+            session.starvedSince.reset();
+            continue;
+        }
+        if (playing && AudioExhausted(session)) {
+            const auto now = std::chrono::steady_clock::now();
+            if (!session.starvedSince) session.starvedSince = now;
+            if (decoder.ReadEnded() || now - *session.starvedSince >= kStarvationWindow) {
+                transport.UseSteadyClock();
+                session.starvedSince.reset();
+                continue;
+            }
+        } else {
+            session.starvedSince.reset();
+        }
+        if (decoder.Ended() && playing && Finished(session, position)) {
             transport.End();
             continue;
         }
@@ -142,7 +161,7 @@ void MediaSource::Impl::ApplySeek(Decoder& decoder, Session& session, const Tran
     mailbox.Clear();
     ring.Clear();
     session.pendingAudio.clear();
-    session.eof = false;
+    session.starvedSince.reset();
     session.dropBefore = seek.target;
     session.serial = seek.serial;
     transport.Applied(seek.serial);
@@ -158,6 +177,11 @@ void MediaSource::Impl::PushAudio(Session& session, std::span<const float> sampl
     const size_t written = session.pendingAudio.empty() ? ring.Write(samples) : 0;
     session.pendingAudio.insert(session.pendingAudio.end(), samples.begin() + static_cast<std::ptrdiff_t>(written),
                                 samples.end());
+}
+
+bool MediaSource::Impl::ReadAhead(const Decoder& decoder, const Session& session, bool playing) const {
+    return playing && transport.UsesAudioClock() && ring.BufferedFrames() < std::max<uint32_t>(session.rate / 10, 1) &&
+           decoder.HeldCount() < kMaxHeldPackets && decoder.HeldBytes() < kMaxHeldBytes;
 }
 
 bool MediaSource::Impl::AudioExhausted(const Session& session) const {
@@ -235,6 +259,10 @@ std::optional<VideoFrame> MediaSource::TakeFrame() {
 
 void MediaSource::SetVolume(float volume) {
     m_impl->volume.store(std::clamp(volume, 0.0f, 1.0f), std::memory_order_relaxed);
+}
+
+bool MediaSource::UsesAudioClock() const {
+    return m_impl->transport.UsesAudioClock();
 }
 
 float MediaSource::Volume() const {
