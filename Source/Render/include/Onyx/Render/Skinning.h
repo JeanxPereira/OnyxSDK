@@ -24,6 +24,7 @@ std::vector<glm::mat4> RestPalette(const Domain::Skeleton& skeleton);
 std::vector<glm::vec3> JointWorldPositions(const Domain::Skeleton& skeleton,
                                            std::span<const glm::mat4> worldTransforms);
 
+// The renderer parses the "<part>:" prefix of each message (part 'name' or part N) to find the part.
 // One Error per offending part, with the first violation found: render.skinning.streams,
 // render.skinning.jointMap or render.skinning.jointIndex.
 std::vector<Services::Diag> ValidateSkinning(const Domain::Scene& scene);

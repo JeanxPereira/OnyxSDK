@@ -33,10 +33,15 @@ struct RendererOptions {
 // recreated when that ring is replaced. Must be destroyed before its Device. Not thread-safe.
 //
 // Error codes: render.target.format (the target does not match RendererOptions), render.scene.device
-// (the scene belongs to another Device), plus the gpu.* codes of the layer below.
-// Diagnostics: render.skinning.* (a skipped part), render.part.index (an index outside the vertex
-// range, part skipped), render.material.index (a material or texture index outside its pool),
-// render.texture.size (a texture the uploader rejected), render.palette.size (SetPalette ignored).
+// (the scene belongs to another Device), render.part.vertices (the scene's vertices or indices exceed
+// the buffer addressing range), plus the gpu.* codes of the layer below.
+// Diagnostic codes:
+//   render.skinning.*       a skipped part (jointMap, jointIndex, streams) or a bad joint order
+//   render.texture.size     a texture the uploader rejected; the default is bound
+//   render.material.index   a material or texture index outside its pool; the default is used
+//   render.part.index       an index outside the part's vertices; part skipped
+//   render.part.vertices    see above
+//   render.palette.size     SetPalette was given the wrong size and ignored
 class SceneRenderer {
 public:
     // Builds every pipeline once through PipelineBuilder and the device pipeline cache.

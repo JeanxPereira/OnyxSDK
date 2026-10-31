@@ -195,6 +195,7 @@ TEST_CASE("Of two parts sharing a name only the offending one is skipped") {
     auto gpu = LoadOrFail(fx, fixture.scene, &diags);
     CHECK(HasCode(diags, "render.skinning.jointIndex"));
     CHECK(gpu.Draws().size() == 2);
+    CHECK_MESSAGE(fx.device->ValidationMessageCount() == 0, fx.device->LastValidationMessage());
 }
 
 TEST_CASE("A part with an index outside its vertices is reported and skipped") {
@@ -254,6 +255,7 @@ TEST_CASE("Hidden parts are not uploaded") {
     for (const Render::DrawInfo& draw : gpu.Draws()) {
         CHECK(draw.name != fixture.scene.parts[1].name);
     }
+    CHECK_MESSAGE(fx.device->ValidationMessageCount() == 0, fx.device->LastValidationMessage());
 }
 
 TEST_CASE("Draw into a resized target under validation stays clean") {
@@ -349,5 +351,40 @@ TEST_CASE("The 200-joint chain loads and renders under validation") {
     CHECK(gpu.Draws().size() == fixture.scene.parts.size());
     const TestKit::Image8 image = RenderOrFail(fx, gpu, ViewOf(fixture));
     CHECK(CountDifferingFrom(image, ClearBytes(ViewOf(fixture)), 1) > 200);
+    CHECK_MESSAGE(fx.device->ValidationMessageCount() == 0, fx.device->LastValidationMessage());
+}
+
+TEST_CASE("The joint map is applied: a permuted map with remapped indices renders identically") {
+    auto fx = MakeRenderFixture();
+    auto fixture = TestKit::BuildSkinnedCube();
+    const Render::View view = ViewOf(fixture);
+    auto base = LoadOrFail(fx, fixture.scene);
+    const TestKit::Image8 reference = RenderOrFail(fx, base, view);
+
+    // map[slot] = joint; inverse[joint] = slot.
+    const std::array<uint16_t, 3> map{2, 0, 1};
+    std::array<uint16_t, 3> inverse{};
+    for (uint16_t slot = 0; slot < 3; ++slot) {
+        inverse[map[slot]] = slot;
+    }
+
+    Domain::Scene permuted = fixture.scene;
+    permuted.parts[0].jointMap.assign(map.begin(), map.end());
+    for (glm::u16vec4& joints : permuted.parts[0].joints) {
+        for (int k = 0; k < 4; ++k) {
+            joints[k] = inverse[joints[k]];
+        }
+    }
+    auto remapped = LoadOrFail(fx, permuted);
+    const TestKit::Image8 same = RenderOrFail(fx, remapped, view);
+    const TestKit::ImageCompareResult identical = TestKit::CompareRgba(128, 128, reference.rgba, same.rgba);
+    CHECK_MESSAGE(identical.maxChannelDelta == 0, TestKit::FormatMetrics(identical));
+
+    Domain::Scene bypassed = fixture.scene;
+    bypassed.parts[0].jointMap.assign(map.begin(), map.end());
+    auto unremapped = LoadOrFail(fx, bypassed);
+    const TestKit::Image8 different = RenderOrFail(fx, unremapped, view);
+    const TestKit::ImageCompareResult changed = TestKit::CompareRgba(128, 128, reference.rgba, different.rgba);
+    CHECK_MESSAGE(changed.differingPct > 0.5, TestKit::FormatMetrics(changed));
     CHECK_MESSAGE(fx.device->ValidationMessageCount() == 0, fx.device->LastValidationMessage());
 }

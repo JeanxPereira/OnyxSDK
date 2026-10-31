@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cassert>
 #include <cmath>
 #include <cstring>
 #include <format>
@@ -329,7 +330,7 @@ Result<void> SceneRenderer::Populate(GpuScene& out, const Domain::Scene& scene, 
         const size_t indexCount = triangleCount * 3;
         if (vertices.size() + vertexCount > static_cast<size_t>(std::numeric_limits<int32_t>::max()) ||
             indices.size() + indexCount > std::numeric_limits<uint32_t>::max()) {
-            return Result<void>::Fail({"gpu.upload.size", std::format("{} does not fit the scene buffers", PartLabel(part, p)), 0});
+            return Result<void>::Fail({"render.part.vertices", std::format("{} does not fit the scene buffers", PartLabel(part, p)), 0});
         }
         bool indicesValid = true;
         for (size_t i = 0; i < indexCount; ++i) {
@@ -346,6 +347,42 @@ Result<void> SceneRenderer::Populate(GpuScene& out, const Domain::Scene& scene, 
         }
 
         const bool skinned = scene.skeleton && !part.joints.empty() && !part.jointMap.empty();
+        if (skinned) {
+            // Backstop independent of ValidateSkinning's message format.
+            const size_t jointTotal = scene.skeleton->joints.size();
+            const char* badCode = nullptr;
+            std::string badText;
+            for (uint16_t entry : part.jointMap) {
+                if (entry >= jointTotal) {
+                    badCode = "render.skinning.jointMap";
+                    badText = std::format("{}: jointMap entry {} is outside the {} skeleton joints", PartLabel(part, p),
+                                          entry, jointTotal);
+                    break;
+                }
+            }
+            for (size_t v = 0; badCode == nullptr && v < part.joints.size() && v < part.weights.size(); ++v) {
+                for (int k = 0; k < 4; ++k) {
+                    if (part.weights[v][k] > 0.0f && part.joints[v][k] >= part.jointMap.size()) {
+                        badCode = "render.skinning.jointIndex";
+                        badText = std::format("{}: vertex {} references joint slot {} but jointMap has {} entries",
+                                              PartLabel(part, p), v, part.joints[v][k], part.jointMap.size());
+                        break;
+                    }
+                }
+            }
+            if (part.joints.size() != vertexCount || part.weights.size() != vertexCount) {
+                badCode = "render.skinning.streams";
+                badText = std::format("{}: joint or weight stream does not match {} vertices", PartLabel(part, p),
+                                      vertexCount);
+            }
+            if (badCode != nullptr) {
+                // Already reported when ValidateSkinning named the part.
+                if (!rejected[p]) {
+                    Report(diags, Severity::Error, badCode, badText);
+                }
+                continue;
+            }
+        }
 
         const bool materialValid = part.materialIndex < scene.materials.size();
         if (!materialValid) {
@@ -691,6 +728,8 @@ Result<void> SceneRenderer::Draw(Gpu::Frame& frame, Gpu::RenderTarget& target, c
     if (!paletteBuffer.ok()) {
         return Result<void>::Fail(paletteBuffer.error());
     }
+    // FrameSet binds one buffer for every allocation: a slot owns exactly one transient buffer.
+    assert(paletteBuffer.value().buffer == mainUbo.value().buffer);
     std::memcpy(paletteBuffer.value().mapped, palette.data(), palette.size_bytes());
 
     std::optional<Gpu::Transient> backgroundUbo;

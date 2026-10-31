@@ -33,7 +33,8 @@ struct DrawInfo {
 
 // A scene resident on the GPU: one vertex and one index buffer, one descriptor set per distinct
 // material and one per skinned part. Move-only; destruction retires every resource through the
-// device. Must be destroyed before the Device it was loaded on. Not thread-safe.
+// device. Must be destroyed before the Device it was loaded on, and must not be destroyed between
+// SceneRenderer::Draw and FrameRing::End of the frame that drew it. Not thread-safe.
 class GpuScene {
 public:
     GpuScene(GpuScene&&) noexcept = default;

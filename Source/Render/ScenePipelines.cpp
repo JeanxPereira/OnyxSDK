@@ -37,6 +37,8 @@ BlendState Alpha() {
     blend.enabled = true;
     blend.srcColor = VK_BLEND_FACTOR_SRC_ALPHA;
     blend.dstColor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blend.srcAlpha = blend.srcColor;
+    blend.dstAlpha = blend.dstColor;
     return blend;
 }
 
@@ -45,6 +47,8 @@ BlendState Additive() {
     blend.enabled = true;
     blend.srcColor = VK_BLEND_FACTOR_SRC_ALPHA;
     blend.dstColor = VK_BLEND_FACTOR_ONE;
+    blend.srcAlpha = blend.srcColor;
+    blend.dstAlpha = blend.dstColor;
     return blend;
 }
 
