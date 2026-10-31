@@ -17,8 +17,10 @@ class AudioRing;
 // Play state and clock shared by the calling thread, the decode thread and the audio callback.
 // Commands change the state at once; a seek is only requested here (a serial and a target) and the
 // decode thread reports it applied once the decoders, the mailbox and the ring were flushed. Until
-// then Position() reports the target. The audio clock yields to the steady clock when the decode
-// thread finds the audio exhausted while playing. Thread-safe.
+// then Position() reports the target. The audio clock counts the frames the device consumed less
+// the device's latency (never below the position the clock started from), so it follows what is
+// heard. It yields to the steady clock when the decode thread finds the audio exhausted while
+// playing. Thread-safe.
 class Transport {
 public:
     struct SeekRequest {
@@ -26,8 +28,9 @@ public:
         double target = 0;
     };
 
-    // `audio` is the ring whose consumed frames are the clock, or null for the steady clock.
-    void Configure(double duration, const AudioRing* audio, uint32_t rate);
+    // `audio` is the ring whose consumed frames are the clock, or null for the steady clock;
+    // `latency` is the seconds the device buffers ahead of what it has played.
+    void Configure(double duration, const AudioRing* audio, uint32_t rate, double latency = 0);
     // Hands the clock to the steady clock from the current audio position, so Position() stays
     // monotonic; the next applied seek returns to the audio clock.
     void UseSteadyClock();
@@ -46,7 +49,8 @@ public:
 
     std::optional<SeekRequest> Pending() const;
     void Applied(uint64_t serial);
-    // Playing becomes Ended; any other state is kept.
+    // Playing becomes Ended unless a seek is pending, which the decode thread applies first; any
+    // other state is kept.
     void End();
 
 private:
@@ -63,6 +67,7 @@ private:
     const AudioRing* m_ring = nullptr;
     const AudioRing* m_audio = nullptr;
     uint32_t m_rate = 0;
+    double m_latency = 0;
     // The position when the steady clock started, or when the ring last counted zero frames.
     double m_base = 0;
     Clock::time_point m_start = Clock::now();

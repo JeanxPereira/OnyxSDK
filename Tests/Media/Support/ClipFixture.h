@@ -22,11 +22,13 @@ extern "C" {
 #include <vector>
 
 // A clip encoded with FFmpeg's own encoders: mpeg1video 64x48 at 25 fps, frame i a solid colour
-// Expected(i), muxed to AVI (with a pcm_s16le 44100 Hz stereo 440 Hz tone when asked) and written
-// after 4096 zero bytes, so the clip lives at [offset, offset + size) of `path`. A positive
-// `audioSeconds` cuts the tone short of the video; zero lasts as long as the video. A positive
-// `audioLagFrames` writes each audio packet that many video frames later in the file than its own
-// frame, so a reader meets the video first.
+// Expected(i), muxed to AVI or to `container` (an FFmpeg muxer name), with a pcm_s16le 44100 Hz
+// stereo 440 Hz tone when asked, and written after 4096 zero bytes, so the clip lives at [offset,
+// offset + size) of `path`. A positive `audioSeconds` cuts the tone short of the video; zero lasts
+// as long as the video. A positive `audioLagFrames` writes each audio packet that many video frames
+// later in the file than its own frame, so a reader meets the video first. The AVI demuxer reads a
+// file it finds non-interleaved in timestamp order, so a lag that must survive reading needs a
+// container read in file order, such as "matroska".
 struct ClipFixture {
     std::filesystem::path path;
     uint64_t offset;
@@ -101,15 +103,15 @@ inline void WriteHeld(AVFormatContext* out, std::deque<HeldPacket>& held, int64_
 }
 
 inline ClipFixture WriteClip(const std::string& name, bool withAudio, uint32_t frames = 50, double audioSeconds = 0,
-                             uint32_t audioLagFrames = 0) {
+                             uint32_t audioLagFrames = 0, const std::string& container = "avi") {
     using namespace ClipDetail;
     const std::filesystem::path dir = std::filesystem::temp_directory_path();
-    const std::filesystem::path raw = dir / ("onyx-media-" + name + ".raw.avi");
+    const std::filesystem::path raw = dir / ("onyx-media-" + name + ".raw");
     const std::filesystem::path path = dir / ("onyx-media-" + name + ".bin");
     const std::string rawName = raw.string();
 
     AVFormatContext* out = nullptr;
-    Check(avformat_alloc_output_context2(&out, nullptr, "avi", rawName.c_str()), "output context");
+    Check(avformat_alloc_output_context2(&out, nullptr, container.c_str(), rawName.c_str()), "output context");
 
     const AVCodec* videoCodec = avcodec_find_encoder(AV_CODEC_ID_MPEG1VIDEO);
     if (!videoCodec) throw std::runtime_error("no mpeg1video encoder");

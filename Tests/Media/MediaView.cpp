@@ -18,6 +18,7 @@
 
 #include <chrono>
 #include <memory>
+#include <span>
 #include <thread>
 #include <variant>
 
@@ -56,6 +57,33 @@ struct ViewRig {
     }
 };
 
+// Draws frames until the view picked up its open result or `timeout` passed; returns Opened().
+bool DrawUntilOpened(ViewRig& rig, Media::MediaView& view, std::chrono::milliseconds timeout = 5000ms) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (!view.Opened() && std::chrono::steady_clock::now() < deadline) {
+        rig.DrawFrame(view);
+        std::this_thread::sleep_for(2ms);
+    }
+    return view.Opened();
+}
+
+// A file whose every read takes `delay`, so opening a clip over it takes many of them.
+class SlowFile final : public Vfs::IFile {
+public:
+    SlowFile(std::shared_ptr<const Vfs::IFile> inner, std::chrono::milliseconds delay)
+        : m_inner(std::move(inner)), m_delay(delay) {}
+
+    uint64_t Size() const override { return m_inner->Size(); }
+    size_t ReadAt(uint64_t offset, std::span<std::byte> dest) const override {
+        std::this_thread::sleep_for(m_delay);
+        return m_inner->ReadAt(offset, dest);
+    }
+
+private:
+    std::shared_ptr<const Vfs::IFile> m_inner;
+    std::chrono::milliseconds m_delay;
+};
+
 std::shared_ptr<const Vfs::IFile> OpenFile(const ClipFixture& clip) {
     auto file = Vfs::OsFile::Open(clip.path);
     REQUIRE_MESSAGE(file.ok(), file.error().code << ": " << file.error().message);
@@ -77,6 +105,7 @@ TEST_CASE("MediaView draws the transport without a texture pool") {
     CHECK(view.Document() == 3);
 
     CHECK(rig.DrawFrame(view) > 0.0f);
+    REQUIRE(DrawUntilOpened(rig, view));
     REQUIRE_FALSE(view.Fault().has_value());
     view.Source().SetVolume(0.0f);
     view.Source().Play();
@@ -94,7 +123,7 @@ TEST_CASE("destroying a playing MediaView stops within one second") {
     const ClipFixture clip = WriteClip("view-destroy", true);
     ViewRig rig;
     auto view = std::make_unique<Media::MediaView>(3, Modules::NodePath{}, "clip", OpenFile(clip), RangeOf(clip));
-    rig.DrawFrame(*view);
+    REQUIRE(DrawUntilOpened(rig, *view));
     view->Source().SetVolume(0.0f);
     view->Source().Play();
     for (int i = 0; i < 3; ++i) rig.DrawFrame(*view);
@@ -110,7 +139,7 @@ TEST_CASE("MediaView shows the open failure as status text") {
     const ClipFixture clip = WriteClip("view-bad", false);
     ViewRig rig;
     Media::MediaView view(3, {}, "clip", OpenFile(clip), Domain::ByteRange{0, 0, 2048});
-    rig.DrawFrame(view);
+    REQUIRE(DrawUntilOpened(rig, view));
     REQUIRE(view.Fault().has_value());
     CHECK(view.Fault()->code == "media.open");
 }
@@ -147,7 +176,7 @@ TEST_CASE("RegisterMediaViewer routes video to a MediaView over the request's fi
     CHECK(view->Id() == "onyx.media.7.movie");
     auto* media = dynamic_cast<Media::MediaView*>(view.get());
     REQUIRE(media != nullptr);
-    rig.DrawFrame(*media);
+    REQUIRE(DrawUntilOpened(rig, *media));
     CHECK_FALSE(media->Fault().has_value());
     CHECK(media->Source().Info().width == 64);
 }
@@ -156,6 +185,7 @@ TEST_CASE("MediaView asks the clock for another frame while playing and not whil
     const ClipFixture clip = WriteClip("view-clock", true);
     ViewRig rig;
     Media::MediaView view(3, {}, "clip", OpenFile(clip), RangeOf(clip));
+    REQUIRE(DrawUntilOpened(rig, view));
     rig.clock.BeginFrame(1.0);
     rig.DrawFrame(view);
     REQUIRE_FALSE(view.Fault().has_value());
@@ -177,8 +207,27 @@ TEST_CASE("MediaView over an empty range fails with media.open and opens no sour
     ViewRig rig;
     Media::MediaView view(3, {}, "clip", OpenFile(clip), Domain::ByteRange{0, clip.offset, 0});
     rig.DrawFrame(view);
+    CHECK(view.Opened());
     REQUIRE(view.Fault().has_value());
     CHECK(view.Fault()->code == "media.open");
     CHECK(view.Source().Info().videoCodec.empty());
     CHECK(view.Source().State() == Media::PlayState::Stopped);
+}
+
+TEST_CASE("Open does not block the first Draw") {
+    const ClipFixture clip = WriteClip("view-slow", true);
+    ViewRig rig;
+    auto slow = std::make_shared<SlowFile>(OpenFile(clip), 30ms);
+    Media::MediaView view(3, {}, "clip", slow, RangeOf(clip));
+
+    const auto start = std::chrono::steady_clock::now();
+    CHECK(rig.DrawFrame(view) > 0.0f);
+    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    MESSAGE("first Draw took " << seconds * 1000.0 << " ms");
+    CHECK(seconds < 0.05);
+    CHECK_FALSE(view.Opened());
+
+    REQUIRE(DrawUntilOpened(rig, view, 5000ms));
+    CHECK_FALSE(view.Fault().has_value());
+    CHECK(view.Source().Info().width == 64);
 }

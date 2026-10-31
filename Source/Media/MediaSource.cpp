@@ -73,7 +73,7 @@ void MediaSource::Impl::Run(std::shared_ptr<const Vfs::IFile> file, uint64_t off
         if (started.ok()) {
             session.audioClock = true;
             session.rate = rate;
-            transport.Configure(session.info.duration, &ring, rate);
+            transport.Configure(session.info.duration, &ring, rate, m_device.Latency());
         } else {
             ONYX_LOG_WARN("media", "{}: {}; the clip plays silent on the steady clock", started.error().code,
                           started.error().message);
@@ -140,6 +140,8 @@ void MediaSource::Impl::Loop(Decoder& decoder, Session& session) {
             session.starvedSince.reset();
         }
         if (decoder.Ended() && playing && Finished(session, position)) {
+            // A seek queued since the top of the loop is applied first: End refuses while one is
+            // pending, and the next pass applies it.
             transport.End();
             continue;
         }

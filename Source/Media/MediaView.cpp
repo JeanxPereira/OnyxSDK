@@ -1,14 +1,19 @@
 #include "Onyx/Media/MediaView.h"
 
 #include <Onyx/Core/Domain/Texture.h>
+#include <Onyx/Core/Modules/Workspace.h>
+#include <Onyx/Core/Services/Jobs.h>
 #include <Onyx/Ui/FrameClock.h>
 #include <Onyx/Ui/SfSymbols.h>
 #include <Onyx/Ui/TexturePool.h>
 #include <Onyx/Ui/UiContext.h>
+#include <Onyx/Ui/Viewers/Opening.h>
 #include <Onyx/Ui/Widgets.h>
 
 #include <algorithm>
 #include <cstdio>
+#include <mutex>
+#include <optional>
 #include <utility>
 
 namespace Onyx::Media {
@@ -27,6 +32,12 @@ const char* StateName(PlayState state) {
 
 }
 
+// The open job's result, written on the worker and read by Draw.
+struct MediaView::Opening {
+    std::mutex mutex;
+    std::optional<Result<MediaInfo>> info;
+};
+
 MediaView::MediaView(Modules::DocumentId doc, Modules::NodePath node, std::string name,
                      std::shared_ptr<const Vfs::IFile> file, Domain::ByteRange range)
     : m_doc(doc),
@@ -35,21 +46,38 @@ MediaView::MediaView(Modules::DocumentId doc, Modules::NodePath node, std::strin
       m_id("onyx.media." + std::to_string(doc) + "." + m_name),
       m_file(std::move(file)),
       m_range(range),
-      m_source(std::make_unique<MediaSource>()) {}
+      m_source(std::make_shared<MediaSource>()) {}
 
 MediaView::~MediaView() {
     m_source.reset();
     if (m_pool && m_texture != ImTextureID_Invalid) m_pool->Remove(m_texture);
 }
 
-void MediaView::Open() {
-    m_opened = true;
+void MediaView::Open(Ui::UiContext& ui) {
     if (m_range.size == 0) {
+        m_opened = true;
         m_fault = Error{"media.open", m_name + " has an empty byte range"};
         return;
     }
-    auto info = m_source->Open(m_file, m_range.offset, m_range.size);
-    if (!info.ok()) m_fault = info.error();
+    m_opening = std::make_shared<Opening>();
+    ui.workspace.Jobs().Submit(Ui::kDecodeLane, [source = m_source, opening = m_opening, file = m_file,
+                                                 range = m_range](Services::Progress&) {
+        auto info = source->Open(file, range.offset, range.size);
+        std::lock_guard lock(opening->mutex);
+        opening->info = std::move(info);
+    });
+}
+
+void MediaView::Collect() {
+    std::optional<Result<MediaInfo>> info;
+    {
+        std::lock_guard lock(m_opening->mutex);
+        info.swap(m_opening->info);
+    }
+    if (!info) return;
+    m_opened = true;
+    m_opening.reset();
+    if (!info->ok()) m_fault = info->error();
 }
 
 void MediaView::Upload(Ui::TexturePool& pool, VideoFrame frame) {
@@ -136,9 +164,15 @@ void MediaView::DrawPicture() {
 }
 
 void MediaView::Draw(Ui::UiContext& ui) {
-    if (!m_opened) Open();
+    if (!m_opened && !m_opening) Open(ui);
+    if (m_opening) Collect();
     if (m_fault) {
         Ui::Widgets::StatusText(Services::Severity::Error, (m_fault->code + ": " + m_fault->message).c_str());
+        return;
+    }
+    if (!m_opened) {
+        Ui::Widgets::Hint("Opening...");
+        ui.clock.RequestRedraw();
         return;
     }
     if (auto frame = m_source->TakeFrame(); frame && ui.textures) Upload(*ui.textures, std::move(*frame));

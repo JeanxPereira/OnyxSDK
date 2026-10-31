@@ -7,12 +7,13 @@
 
 namespace Onyx::Media {
 
-void Transport::Configure(double duration, const AudioRing* audio, uint32_t rate) {
+void Transport::Configure(double duration, const AudioRing* audio, uint32_t rate, double latency) {
     std::lock_guard lock(m_mutex);
     m_duration = std::max(duration, 0.0);
     m_ring = rate != 0 ? audio : nullptr;
     m_audio = m_ring;
     m_rate = rate;
+    m_latency = std::max(latency, 0.0);
 }
 
 void Transport::UseSteadyClock() {
@@ -35,7 +36,8 @@ double Transport::PositionLocked(Clock::time_point now) const {
         position = m_duration;
     } else if (m_serial == m_applied) {
         if (m_audio) {
-            position += static_cast<double>(m_audio->Consumed()) / static_cast<double>(m_rate);
+            const double consumed = static_cast<double>(m_audio->Consumed()) / static_cast<double>(m_rate);
+            position += std::max(consumed - m_latency, 0.0);
         } else if (m_state == PlayState::Playing) {
             position += std::chrono::duration<double>(now - m_start).count();
         }
@@ -121,7 +123,7 @@ void Transport::Applied(uint64_t serial) {
 
 void Transport::End() {
     std::lock_guard lock(m_mutex);
-    if (m_state == PlayState::Playing) SetStateLocked(PlayState::Ended);
+    if (m_state == PlayState::Playing && m_serial == m_applied) SetStateLocked(PlayState::Ended);
 }
 
 bool FrameMailbox::HasRoom(double position, double tolerance) {

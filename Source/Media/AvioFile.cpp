@@ -51,7 +51,9 @@ int AvioFile::Read(void* opaque, uint8_t* buffer, int size) {
     if (want == 0) return AVERROR_EOF;
     const size_t got = self->m_file->ReadAt(self->m_offset + self->m_position,
                                             std::span<std::byte>(reinterpret_cast<std::byte*>(buffer), want));
-    if (got == 0) return AVERROR_EOF;
+    // The range promised these bytes: a file that ends early is a read error, not the end of the
+    // clip.
+    if (got == 0) return AVERROR(EIO);
     self->m_position += got;
     return static_cast<int>(got);
 }

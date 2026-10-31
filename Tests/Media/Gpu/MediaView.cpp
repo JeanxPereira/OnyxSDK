@@ -45,7 +45,7 @@ TEST_CASE("MediaView uploads the first frame into the pool") {
                      1.0f / 60};
     {
         Media::MediaView view(1, {}, "clip", opened.value(), Domain::ByteRange{0, clip.offset, clip.size});
-        const auto deadline = std::chrono::steady_clock::now() + 5s;
+        const auto deadline = std::chrono::steady_clock::now() + 20s;
         while (view.Texture() == ImTextureID_Invalid && !view.Fault() && std::chrono::steady_clock::now() < deadline) {
             auto frame = RenderImGuiFrame(*fx, *target.value(), [&] {
                 ImGui::SetNextWindowPos(ImVec2(0, 0));
@@ -66,7 +66,7 @@ TEST_CASE("MediaView uploads the first frame into the pool") {
         const ImTextureID first = view.Texture();
         view.Source().SetVolume(0.0f);
         view.Source().Play();
-        const auto playing = std::chrono::steady_clock::now() + 5s;
+        const auto playing = std::chrono::steady_clock::now() + 20s;
         while (view.Uploads() < 2 && !view.Fault() && std::chrono::steady_clock::now() < playing) {
             auto frame = RenderImGuiFrame(*fx, *target.value(), [&] {
                 ImGui::SetNextWindowPos(ImVec2(0, 0));

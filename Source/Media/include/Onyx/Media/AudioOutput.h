@@ -12,8 +12,8 @@
 namespace Onyx::Media {
 
 // Plays decoded clips on one playback device (float32 at the clip's rate and channel count; the device
-// is opened again when a clip with another rate or channel count plays). Position() counts the frames
-// the device consumed. Thread-safe.
+// is opened again when a clip with another rate or channel count plays). Stop stops the device and
+// Play starts it again. Position() counts the frames the device consumed. Thread-safe.
 class AudioOutput final : public Ui::IAudioOutput {
 public:
     AudioOutput();
@@ -31,6 +31,11 @@ public:
     // False once the device consumed the whole clip.
     bool Playing() const override;
     double Position() const override;
+
+    // Seconds the device buffers ahead of what it has played; 0 while no device is open.
+    double Latency() const;
+    // True while the playback device runs: from Play until Stop.
+    bool DeviceRunning() const;
 
 private:
     struct Impl;
