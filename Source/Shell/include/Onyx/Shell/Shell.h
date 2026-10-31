@@ -113,6 +113,7 @@ public:
     Ui::UiContext Context(Gpu::Frame* frame = nullptr);
 
 private:
+    void Teardown();
     void ServiceDialogs();
     void SaveSettings();
     bool ConfirmClose();

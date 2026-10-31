@@ -103,6 +103,11 @@ Shell::Shell(ShellOptions options)
 }
 
 Shell::~Shell() {
+    Teardown();
+    SaveSettings();
+}
+
+void Shell::Teardown() {
     if (m_gui) {
         m_gui->WaitIdle();
         ImGui::SetCurrentContext(m_gui->imgui);
@@ -115,7 +120,6 @@ Shell::~Shell() {
         m_panels.Remove(id);
     }
     m_gui.reset();
-    SaveSettings();
 }
 
 Gpu::Device* Shell::GpuDevice() {
@@ -152,7 +156,9 @@ Result<void> Shell::Open(const std::filesystem::path& path, std::string_view mod
         return Result<void>::Fail({"shell.open", "no module opens " + ToUtf8(path), 0});
     }
     const Modules::Document* doc = m_workspace.Get(id);
-    m_recents.Add(path, doc && doc->module ? doc->module->Info().id : std::string());
+    std::error_code ec;
+    std::filesystem::path absolute = std::filesystem::absolute(path, ec);
+    m_recents.Add(ec ? path : absolute, doc && doc->module ? doc->module->Info().id : std::string());
     AddStockCommands(m_commands, *this);
     m_clock.RequestAnimation(kOpenPollSeconds);
     return Result<void>::Ok();
@@ -179,9 +185,18 @@ void Shell::SaveSettings() {
 
 void Shell::UpdateTitle() {
     std::string title = m_options.appName;
+    const Modules::Document* shown = nullptr;
+    if (auto* tabs = dynamic_cast<Ui::DocumentTabs*>(m_panels.Find("onyx.documents"))) {
+        if (const Ui::IDocumentView* active = tabs->Active()) {
+            shown = m_workspace.Get(active->Document());
+        }
+    }
     const auto documents = m_workspace.Documents();
-    if (!documents.empty()) {
-        title = ToUtf8(documents.back()->path.filename()) + kTitleSeparator + m_options.appName;
+    if (!shown && !documents.empty()) {
+        shown = documents.back().get();
+    }
+    if (shown) {
+        title = ToUtf8(shown->path.filename()) + kTitleSeparator + m_options.appName;
     }
     if (title != m_title) {
         m_title = std::move(title);
@@ -292,9 +307,11 @@ int Shell::Run(int argc, char** argv) {
             Services::Log::Default().Write(Services::LogLevel::Error, "shell.frame", "{}: {}", stepped.error().code,
                                            stepped.error().message);
             std::cerr << stepped.error().code << ": " << stepped.error().message << "\n";
+            Teardown();
             return 1;
         }
         if (!stepped.value()) {
+            Teardown();
             return 0;
         }
     }

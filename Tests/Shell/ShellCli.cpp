@@ -52,6 +52,16 @@ TEST_CASE("RunCli reports bad usage as shell.args with the usage code") {
     CHECK(err.str().find("shell.args") != std::string::npos);
 }
 
+TEST_CASE("RunCli prints the usage and succeeds for --help") {
+    TempDir dir("cli_help");
+    Shell::Shell shell(TestOptions(dir.path));
+    std::ostringstream out;
+    std::ostringstream err;
+    CHECK(Invoke(shell, {"onyx", "--help"}, out, err) == Cli::kOk);
+    CHECK(out.str().find("probe") != std::string::npos);
+    CHECK(err.str().empty());
+}
+
 TEST_CASE("Run with arguments takes the command line path") {
     TempDir dir("cli_run");
     Shell::Shell shell(TestOptions(dir.path));

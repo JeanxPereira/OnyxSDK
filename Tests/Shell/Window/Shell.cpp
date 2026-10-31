@@ -2,6 +2,9 @@
 
 #include <OnyxBox/Module.h>
 
+#include <imgui.h>
+
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -11,6 +14,7 @@
 #include "../Support/ShellSupport.h"
 #include "Onyx/Shell/Shell.h"
 #include "Onyx/Ui/Panels/DocumentBrowser.h"
+#include "Onyx/Ui/Theme.h"
 #include "Onyx/Ui/Viewers/DocumentTabs.h"
 #include "Support/WindowFixture.h"
 
@@ -94,6 +98,40 @@ TEST_CASE("The shell opens a document, shows a viewer tab and records the recent
     CHECK_MESSAGE(shell.GpuDevice()->ValidationMessageCount() == 0, shell.GpuDevice()->LastValidationMessage());
 }
 
+TEST_CASE("A theme font change rebuilds the atlas with the new font and size") {
+    TempDir dir("shell_fonts");
+    Shell::Shell shell(TestOptions(dir.path));
+    REQUIRE(StepUntil(shell, [] { return true; }));
+    RequireWindowValidationLayer(*shell.GpuDevice());
+    ImGuiIO& io = ImGui::GetIO();
+    REQUIRE(io.FontDefault != nullptr);
+    const float sizeBefore = io.FontDefault->LegacySize;
+
+    const std::filesystem::path font = std::filesystem::path(ONYX_SOURCE_DIR) / "third_party" / "fonts" / "SFMono-Regular.otf";
+    shell.Theme().Mutate([&](Ui::ThemeState& state) {
+        state.fontSizePt = 20.0f;
+        state.fontPath = font.string();
+    });
+    REQUIRE(StepUntil(shell, [] { return true; }));
+    REQUIRE(io.FontDefault != nullptr);
+    CHECK(io.FontDefault->LegacySize != sizeBefore);
+    CHECK(io.FontDefault->LegacySize == shell.Theme().Applied().atlasRefPx);
+    CHECK(shell.Theme().Applied().atlasFontPath == font.string());
+    REQUIRE(StepUntil(shell, [] { return true; }));
+    shell.GpuDevice()->GraphicsQueue().WaitIdle();
+    CHECK_MESSAGE(shell.GpuDevice()->ValidationMessageCount() == 0, shell.GpuDevice()->LastValidationMessage());
+}
+
+TEST_CASE("The ImGui ini lives under a config directory with a non-ASCII name") {
+    TempDir dir("shell_ini");
+    Shell::ShellOptions options = TestOptions(dir.path);
+    options.configDir = dir.path / std::filesystem::path(std::u8string(u8"café"));
+    Shell::Shell shell(options);
+    REQUIRE(StepUntil(shell, [] { return true; }, 2));
+    ImGui::SaveIniSettingsToDisk(ImGui::GetIO().IniFilename);
+    CHECK(std::filesystem::exists(options.configDir / "imgui.ini"));
+}
+
 TEST_CASE("A lifecycle delegate can veto the close") {
     TempDir dir("shell_veto");
     Shell::Shell shell(TestOptions(dir.path));
@@ -137,6 +175,9 @@ TEST_CASE("The open command runs its dialog between frames and opens the answer"
     REQUIRE(shell.Step().ok());
     CHECK(fake->asked == 1);
     CHECK(shell.Workspace().Documents().size() == 1);
+    RequireWindowValidationLayer(*shell.GpuDevice());
+    shell.GpuDevice()->GraphicsQueue().WaitIdle();
+    CHECK_MESSAGE(shell.GpuDevice()->ValidationMessageCount() == 0, shell.GpuDevice()->LastValidationMessage());
 }
 
 TEST_CASE("Settings are written when the shell closes") {
@@ -149,6 +190,9 @@ TEST_CASE("Settings are written when the shell closes") {
         auto stepped = shell.Step();
         REQUIRE(stepped.ok());
         CHECK_FALSE(stepped.value());
+        RequireWindowValidationLayer(*shell.GpuDevice());
+        shell.GpuDevice()->GraphicsQueue().WaitIdle();
+        CHECK_MESSAGE(shell.GpuDevice()->ValidationMessageCount() == 0, shell.GpuDevice()->LastValidationMessage());
     }
     auto reloaded = Services::Settings::Load(dir.path / "config" / "settings.toml");
     CHECK(reloaded.GetString("shell.probe") == std::optional<std::string>("kept"));

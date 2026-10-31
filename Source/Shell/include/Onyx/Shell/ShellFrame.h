@@ -26,6 +26,11 @@ public:
     // The longest an idle step waits for events when the clock has no animation pending.
     void SetIdleWaitCap(double seconds) { m_idleWaitCap = seconds; }
 
+    // Called when the theme marked the font atlas dirty, after the theme committed and before ImGui
+    // starts the frame: it rebuilds the atlas from the theme's applied font. The backend textures are
+    // rebuilt right after.
+    void SetFontBuilder(std::function<void()> builder) { m_fontBuilder = std::move(builder); }
+
     // One frame. Pacing: events are waited for (at most the clock's remaining animation, or the idle cap)
     // unless the clock wants continuous rendering, in which case they are polled. Then the theme
     // advances and commits outside the ImGui frame, the font atlas is rebuilt when the theme marked it
@@ -45,6 +50,7 @@ private:
     Ui::ImGuiVulkanBackend& m_backend;
     Ui::Theme& m_theme;
     Ui::FrameClock& m_clock;
+    std::function<void()> m_fontBuilder;
     double m_lastTime = 0.0;
     double m_idleWaitCap = 1.0;
     bool m_inStep = false;

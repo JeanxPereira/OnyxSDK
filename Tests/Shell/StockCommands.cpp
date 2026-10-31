@@ -85,6 +85,16 @@ TEST_CASE("Recent commands follow the Recents list") {
     CHECK(shell.Commands().Find("onyx.file.openRecent.0") == nullptr);
 }
 
+TEST_CASE("Toggle commands of removed panels are dropped") {
+    TempDir dir("togglestale");
+    Shell::Shell shell(TestOptions(dir.path));
+    REQUIRE(shell.Commands().Find("onyx.view.toggle.onyx.log") != nullptr);
+    shell.Panels().Remove("onyx.log");
+    Shell::AddStockCommands(shell.Commands(), shell);
+    CHECK(shell.Commands().Find("onyx.view.toggle.onyx.log") == nullptr);
+    CHECK(shell.Commands().Find("onyx.view.toggle.onyx.browser") != nullptr);
+}
+
 TEST_CASE("The open command asks for a dialog that runs between frames") {
     TempDir dir("opencmd");
     Shell::Shell shell(TestOptions(dir.path));

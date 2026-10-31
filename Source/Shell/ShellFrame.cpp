@@ -82,6 +82,9 @@ Result<bool> ShellFrame::Step(const std::function<void(Gpu::Frame&)>& drawUi) {
     m_theme.Update(dt);
     m_theme.Commit();
     if (m_theme.AtlasDirty()) {
+        if (m_fontBuilder) {
+            m_fontBuilder();
+        }
         m_backend.RebuildFonts();
         m_theme.ClearAtlasDirty();
         auto fault = m_backend.Fault();

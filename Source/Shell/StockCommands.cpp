@@ -3,6 +3,8 @@
 #include <imgui.h>
 
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include "Onyx/Core/Services/Log.h"
 #include "Onyx/Shell/Shell.h"
@@ -57,6 +59,16 @@ void SyncRecentCommands(Ui::CommandRegistry& commands, Shell& shell) {
 }
 
 void SyncPanelToggles(Ui::CommandRegistry& commands, Shell& shell) {
+    constexpr std::string_view kPrefix = "onyx.view.toggle.";
+    std::vector<std::string> stale;
+    for (const Ui::Command& command : commands.All()) {
+        if (command.id.starts_with(kPrefix) && !shell.Panels().Find(command.id.substr(kPrefix.size()))) {
+            stale.push_back(command.id);
+        }
+    }
+    for (const std::string& id : stale) {
+        commands.Remove(id);
+    }
     for (const auto& panel : shell.Panels().All()) {
         const std::string panelId(panel->Id());
         commands.Add(Make("onyx.view.toggle." + panelId, "Toggle " + std::string(panel->Title()), "", std::nullopt,

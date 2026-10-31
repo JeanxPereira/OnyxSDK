@@ -1,6 +1,7 @@
 #include "Onyx/Shell/Recents.h"
 
 #include <algorithm>
+#include <cwctype>
 
 #include "Utf8.h"
 
@@ -38,7 +39,15 @@ std::string Unescape(std::string_view text) {
 }
 
 bool SamePath(const std::filesystem::path& a, const std::filesystem::path& b) {
+#if defined(_WIN32)
+    std::wstring left = a.lexically_normal().native();
+    std::wstring right = b.lexically_normal().native();
+    for (wchar_t& c : left) c = static_cast<wchar_t>(std::towlower(c));
+    for (wchar_t& c : right) c = static_cast<wchar_t>(std::towlower(c));
+    return left == right;
+#else
     return a.lexically_normal() == b.lexically_normal();
+#endif
 }
 
 RecentEntry MakeEntry(const std::filesystem::path& path, std::string_view moduleId) {

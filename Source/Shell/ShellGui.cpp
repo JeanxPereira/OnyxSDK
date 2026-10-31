@@ -8,6 +8,7 @@
 #include "Onyx/Shell/MenuBar.h"
 #include "Onyx/Ui/AssetPaths.h"
 #include "Onyx/Ui/Fonts.h"
+#include "Utf8.h"
 
 namespace Onyx::Shell {
 
@@ -15,12 +16,18 @@ namespace {
 
 using Out = Result<std::unique_ptr<GuiStack>>;
 
-// Builds the atlas from the bundled fonts when they are installed; otherwise keeps ImGui's default font.
+// Rebuilds the atlas from the theme's applied font and size, with the bundled symbols. A missing text
+// font falls back to the bundled one; without the bundled fonts ImGui's default font stays.
 void BuildAtlas(Ui::Theme& theme) {
     ImGuiIO& io = ImGui::GetIO();
-    const std::filesystem::path text = Ui::FindAsset("fonts/SFMono-Regular.otf");
-    const std::filesystem::path icons = Ui::FindAsset("fonts/SFSymbols.ttf");
     const Ui::ThemeResolved& applied = theme.Applied();
+    const std::filesystem::path bundled = Ui::FindAsset("fonts/SFMono-Regular.otf");
+    const std::filesystem::path icons = Ui::FindAsset("fonts/SFSymbols.ttf");
+    std::filesystem::path text = FromUtf8(applied.atlasFontPath);
+    std::error_code ec;
+    if (text.empty() || !std::filesystem::is_regular_file(text, ec)) {
+        text = bundled;
+    }
     if (!text.empty() && !icons.empty() && applied.atlasRefPx > 0.0f) {
         auto fonts = Ui::BuildFonts(*io.Fonts, text, applied.atlasRefPx, icons);
         if (fonts.ok()) {
@@ -30,7 +37,9 @@ void BuildAtlas(Ui::Theme& theme) {
         Services::Log::Default().Write(Services::LogLevel::Warn, "shell.fonts", "{}: {}", fonts.error().code,
                                        fonts.error().message);
     }
+    io.Fonts->Clear();
     io.Fonts->AddFontDefault();
+    io.FontDefault = nullptr;
 }
 
 }
@@ -82,7 +91,7 @@ Result<std::unique_ptr<GuiStack>> GuiStack::Create(const ShellOptions& options, 
     gui->imgui = ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    gui->iniPath = (options.configDir / "imgui.ini").string();
+    gui->iniPath = ToUtf8(options.configDir / "imgui.ini");
     gui->freshLayout = !std::filesystem::exists(options.configDir / "imgui.ini");
     io.IniFilename = gui->iniPath.c_str();
 
@@ -114,9 +123,11 @@ Result<std::unique_ptr<GuiStack>> GuiStack::Create(const ShellOptions& options, 
     theme.SetEnvironment(environment);
     theme.Commit();
     BuildAtlas(theme);
+    theme.ClearAtlasDirty();
 
     gui->frame = std::make_unique<ShellFrame>(*gui->window, *gui->device, *gui->presenter, *gui->frames,
                                               *gui->backend, theme, clock);
+    gui->frame->SetFontBuilder([&theme] { BuildAtlas(theme); });
     return Out::Ok(std::move(gui));
 }
 
@@ -158,12 +169,13 @@ void Shell::DrawFrame(Gpu::Frame& frame) {
 
     m_gui->window->SetTitleBarRect(DrawMenuBar(ui));
     m_commands.PollShortcuts(ui);
-    const ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
+    const ImGuiID dockspace = ImGui::GetID("OnyxDockspace");
     if (m_gui->freshLayout || m_resetLayout) {
         ApplyDockLayout(dockspace, m_layout, m_panels);
         m_gui->freshLayout = false;
         m_resetLayout = false;
     }
+    ImGui::DockSpaceOverViewport(dockspace, ImGui::GetMainViewport());
     m_panels.DrawAll(ui);
 
     const Gpu::FenceValue uploaded = m_gui->textures->Flush();
