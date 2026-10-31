@@ -32,6 +32,7 @@ TEST_CASE("Animation gate: rest, set, mid-clip, stopped, resumed") {
     options.validation = true;
     auto device = Gpu::Device::Create(options);
     REQUIRE(device.ok());
+    RequireValidationLayer(*device.value());
     Gpu::Device& gpu = *device.value();
 
     Render::View view = ViewOf(fixture);
