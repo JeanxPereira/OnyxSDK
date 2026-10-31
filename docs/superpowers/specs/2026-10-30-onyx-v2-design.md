@@ -430,21 +430,26 @@ class Swapchain    { /* present path from v1 Window.cpp, with every VkResult han
 **Adopted devices.** `Adopt` validates Vulkan 1.3 with `dynamicRendering`,
 `synchronization2` and `timelineSemaphore` enabled and refuses with a
 `Result` error otherwise; there is no fallback path. Onyx records into its
-own command buffers from its `FrameRing` and submits them itself. Every
-`Draw`/`Flush` returns a timeline value on Onyx's own timeline semaphore;
-the host waits on that value (as a submit wait or a fence-equivalent) before
-it samples an Onyx `RenderTarget` in its own pass. The queue the host passes
+own command buffers from its `FrameRing` and submits them itself.
+`FrameRing::End` and `UploadContext::Flush` return a timeline value on Onyx's
+own timeline semaphore (`Device::GraphicsQueue().Timeline()`); the host waits
+on that value (as a submit wait or a fence-equivalent) before it samples an
+Onyx `RenderTarget` in its own pass. In the other direction, before Onyx
+re-renders a target the host is still reading, the host signals its own
+timeline semaphore and the next frame waits on it through `Frame::AddWait`. The queue the host passes
 in `ExternalDevice` is used only through `Device::GraphicsQueue().Submit()`,
 which holds the queue mutex; the host either hands Onyx a dedicated queue of
 the same family (preferred, and what `Examples/Embedded` does) or routes its
 own submissions through that same `Submit`. This precondition is stated in
-the header and asserted in debug builds by a submit counter the host can
-query.
+the header and observable through `Device::SubmitCount()`, which counts the
+submits that went through `Queue::Submit`; a host's direct submits cannot be
+detected.
 
 Rules enforced by this layer:
 
-- No `vkQueueWaitIdle`/`vkDeviceWaitIdle` outside `Device::~Device` and
-  `Swapchain::Recreate`.
+- No `vkQueueWaitIdle`/`vkDeviceWaitIdle` outside `Device::~Device` (owned
+  devices only; an adopted device waits on its own timeline), `Swapchain::Recreate`
+  and `Swapchain::~Swapchain`, which use `Queue::WaitIdle` under the queue mutex.
 - No synchronous submit. `UploadContext::Flush` submits once and returns a
   timeline value; callers that need the data wait on the value, and in
   practice the frame ring already orders it.
@@ -646,8 +651,8 @@ adds animation export from `AnimClip`. `PngWrite(Texture)`, `WavWrite(Audio)`.
 ## 13. TestKit and the two synthetic modules
 
 TestKit keeps goldens, decode smoke and image compare, and adds fixture
-builders for a synthetic ISO and a synthetic animated scene (today only in
-`Tools/OnyxOracle`).
+builders for a synthetic ISO and a synthetic animated scene (today only in the v1
+tree, `legacy/Tools/OnyxOracle`).
 
 Two modules live in `Examples/` and both are used by the SDK's own tests:
 
@@ -721,7 +726,7 @@ tree stays available as `v1.3.3` for reference; nothing in `v2` includes it.
 |---|---|---|
 | **W0 Skeleton** | New repo layout, component options, per-layer targets with empty sources, PCH, presets, `check.py`, CI, README/CLAUDE.md drafts. Old tree moved to `legacy/` (untracked by targets) for reference during the port, deleted in W5. | `check.py` green on both OS with empty layers |
 | **W1 Core** | Vfs stateless + ISO + lz4; TypeCatalog object; Domain model; module contract with `Any` and `Capabilities`; Workspace; jobs/events/diags moved; Settings atomic + schema; Log; OnyxBox ported; Core tests ported and extended (ISO, Slice, lz4, Capabilities, Settings corruption). | Core tests green; `Tests/Consumer/CoreOnly` configures with no GPU/UI fetch; Standalone compile test |
-| **W2 Gpu + Render** | Device own/adopt, handles, retire, frame ring, upload context, pipeline builder + cache, render target, swapchain; SceneRenderer one orchestration; AnimationPlayer over AnimClip; RenderToImage; OnyxOracle ported. | Frozen goldens pass within v1 tolerances; VkAnimation gate ports; a resize-under-validation test; a submit-count test (Load = 1, Draw = 0) |
+| **W2 Gpu + Render** | Device own/adopt, handles, retire, frame ring, upload context, pipeline builder + cache, render target, swapchain; SceneRenderer one orchestration; AnimationPlayer over AnimClip; RenderToImage; OnyxOracle ported. | Frozen goldens pass within v1 tolerances; VkAnimation gate ports; a resize-under-validation test; a submit-count test (Load = 1, Draw = 0). Oracle in `Tests/Oracle`; lavapipe uses the `[software]` profile |
 | **W3 Ui + Shell** | UiContext, IPanel, ViewerRegistry, CommandRegistry, Theme single writer, widgets, icons, TexturePool, stock panels and viewers, Viewport split; Shell composition; dialogs; MinimalViewer. | MinimalViewer opens OnyxBox files; theme and settings tests; `Embedded` example builds and draws (manual check on Windows, build-only on CI) |
 | **W4 Media + Cli + Exchange + Prism** | MediaSource/AudioOutput/MediaView; Cli verb table with Render/Exchange registration; glTF animation, PNG, WAV; Prism module + PrismUi; TestKit fixture builders. | Prism opens, decodes, renders and shows its palette viewer with zero SDK edits logged during its build; CLI goldens; Linux CI green |
 | **W5 Repo** | Delete `legacy/`; README final with SVG; CLAUDE.md; docs; CHANGELOG 2.0.0; tag. | `check.py` green on both OS; lint finds zero game names and zero forbidden includes |

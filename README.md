@@ -43,15 +43,16 @@ The parity gate (`Render.Parity`) renders the frozen corpus and compares it with
 
 ```cpp
 auto device = Onyx::Gpu::Device::Create({});
+if (!device.ok()) { return 1; }   // check ok() before value()
 Onyx::Render::View view; view.view = camera.ViewMatrix(); view.proj = camera.Proj(1.0f);
 auto image = Onyx::Render::RenderToImage(*device.value(), scene, view, {.grid = true}, {1024, 1024});
 ```
 
-Both results are `Result` values: check `ok()` before using `value()`. To render several scenes with one renderer, use the second overload with a `SceneRenderer`, `Gpu::UploadContext` and `Gpu::FrameRing` you own. `View::pose` poses the scene at a clip and time before the draw.
+Both results are `Result` values: check `image.ok()` before reading `image.value()`. To render several scenes with one renderer, use the second overload with a `SceneRenderer`, `Gpu::UploadContext` and `Gpu::FrameRing` you own. `RenderToImage` honours `View::pose`, which poses the scene at a clip and time before the draw; `SceneRenderer::Draw` does not, and reports `render.pose.ignored` when it is set. A host that draws interactively drives an `AnimationPlayer` itself and passes the result to `GpuScene::SetPalette` and `SetWorldTransforms`.
 
 ## Embedding in a host
 
-A host that already owns a Vulkan device hands it over with `Gpu::Device::Adopt(ExternalDevice)`: instance, physical device, device, queue, queue family, both proc address loaders and the features it enabled (dynamic rendering, synchronization2, timeline semaphore). Onyx never destroys those handles. The queue is used only through `Queue::Submit` and `Queue::Present` under Onyx's mutex, so the host gives Onyx a dedicated queue of the graphics family or routes its own submissions through `Queue::Submit`. Hand-off between the two sides goes through the device's timeline semaphore, and the host waits on that timeline to know when Onyx's work is done. An adopted device shuts down by waiting on its own timeline, never with `vkDeviceWaitIdle` on the host's device; `Queue::WaitIdle` exists only for swapchain teardown and recreate. Errors carry stable `gpu.*` codes, listed at the top of `Source/Gpu/include/Onyx/Gpu/Device.h`.
+A host that already owns a Vulkan device hands it over with `Gpu::Device::Adopt(ExternalDevice)`: instance, physical device, device, queue, queue family, both proc address loaders and the features it enabled (dynamic rendering, synchronization2, timeline semaphore). Onyx never destroys those handles. The queue is used only through `Queue::Submit` and `Queue::Present` under Onyx's mutex, so the host gives Onyx a dedicated queue of the graphics family or routes its own submissions through `Queue::Submit`. The host's instance and device must be created with API version 1.3 or higher: Onyx calls the core entry points, and `Adopt` refuses with `gpu.feature` naming the first one that does not resolve. Hand-off between the two sides goes through timeline semaphores, in both directions. Onyx to host: `FrameRing::End` returns a `FenceValue` on `Device::GraphicsQueue().Timeline()`; the host's submit waits on that semaphore at that value before it samples `RenderTarget::ResolveView()`, which is left in `SHADER_READ_ONLY_OPTIMAL`. Host to Onyx: before Onyx re-renders a target the host is still sampling, the host signals its own timeline semaphore after the read and passes that semaphore and value to `Frame::AddWait(timeline, value, stage)` between `Begin` and `End`. An adopted device shuts down by waiting on its own timeline, never with `vkDeviceWaitIdle` on the host's device; `Queue::WaitIdle` exists only for swapchain teardown and recreate. Errors carry stable `gpu.*` codes, listed at the top of `Source/Gpu/include/Onyx/Gpu/Device.h`.
 
 ## Build and run
 
