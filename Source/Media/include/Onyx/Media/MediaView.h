@@ -20,7 +20,7 @@ class TexturePool;
 namespace Onyx::Media {
 
 // A video clip with a transport bar: play/pause, stop, a seek slider, volume, and the codecs and frame
-// rate. The source opens on the first draw. Each new frame is uploaded through the context's texture
+// rate. The source opens on the first draw; a range of size zero fails with media.open and opens nothing. Each new frame is uploaded through the context's texture
 // pool (created once, updated afterwards); without a pool the view draws its status text alone. The
 // destructor stops the source, joining its decode thread, then removes the texture, so the pool must
 // outlive the view.
@@ -43,6 +43,8 @@ public:
     // The open or upload failure, if any.
     const std::optional<Error>& Fault() const { return m_fault; }
     ImTextureID Texture() const { return m_texture; }
+    // How many decoded frames have reached the pool, the first through Create and the rest through Update.
+    uint64_t Uploads() const { return m_uploads; }
 
 private:
     void Open();
@@ -63,6 +65,7 @@ private:
     ImTextureID m_texture = ImTextureID_Invalid;
     uint32_t m_width = 0;
     uint32_t m_height = 0;
+    uint64_t m_uploads = 0;
 };
 
 }

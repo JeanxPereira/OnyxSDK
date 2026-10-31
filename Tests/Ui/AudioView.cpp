@@ -187,3 +187,25 @@ TEST_CASE("a click on the waveform seeks") {
     CHECK(view.Position() == doctest::Approx(output.seeks[0]));
     Frame(imgui, view, ui, 240.0f, 250.0f, false);
 }
+
+TEST_CASE("AudioView asks the clock for another frame while playing and not while paused") {
+    HeadlessImGui imgui;
+    ObxUi fx;
+    UiContext ui = fx.Make();
+    FakeOutput output;
+    ui.audio = &output;
+    AudioView view(1, Modules::NodePath{{0}}, "a", Ramp(400, 1));
+
+    fx.clock.BeginFrame(1.0);
+    Frame(imgui, view, ui, -10.0f, -10.0f, false);
+    CHECK_FALSE(fx.clock.WantsContinuous());
+
+    REQUIRE(output.Play(Domain::Audio{}).ok());
+    Frame(imgui, view, ui, -10.0f, -10.0f, false);
+    CHECK(fx.clock.WantsContinuous());
+
+    fx.clock.BeginFrame(2.0);
+    output.Pause();
+    Frame(imgui, view, ui, -10.0f, -10.0f, false);
+    CHECK_FALSE(fx.clock.WantsContinuous());
+}

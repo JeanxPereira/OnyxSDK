@@ -1,6 +1,7 @@
 #include "Onyx/Media/MediaView.h"
 
 #include <Onyx/Core/Domain/Texture.h>
+#include <Onyx/Ui/FrameClock.h>
 #include <Onyx/Ui/SfSymbols.h>
 #include <Onyx/Ui/TexturePool.h>
 #include <Onyx/Ui/UiContext.h>
@@ -43,6 +44,10 @@ MediaView::~MediaView() {
 
 void MediaView::Open() {
     m_opened = true;
+    if (m_range.size == 0) {
+        m_fault = Error{"media.open", m_name + " has an empty byte range"};
+        return;
+    }
     auto info = m_source->Open(m_file, m_range.offset, m_range.size);
     if (!info.ok()) m_fault = info.error();
 }
@@ -55,7 +60,11 @@ void MediaView::Upload(Ui::TexturePool& pool, VideoFrame frame) {
     texture.format = Domain::PixelFormat::Rgba8;
     texture.pixels = std::move(frame.rgba);
     if (m_texture != ImTextureID_Invalid && frame.width == m_width && frame.height == m_height) {
-        if (auto updated = pool.Update(m_texture, texture); !updated.ok()) m_fault = updated.error();
+        if (auto updated = pool.Update(m_texture, texture); !updated.ok()) {
+            m_fault = updated.error();
+        } else {
+            ++m_uploads;
+        }
         return;
     }
     if (m_texture != ImTextureID_Invalid) pool.Remove(m_texture);
@@ -69,6 +78,7 @@ void MediaView::Upload(Ui::TexturePool& pool, VideoFrame frame) {
     m_texture = created.value();
     m_width = frame.width;
     m_height = frame.height;
+    ++m_uploads;
 }
 
 void MediaView::DrawTransport() {
@@ -132,6 +142,7 @@ void MediaView::Draw(Ui::UiContext& ui) {
         return;
     }
     if (auto frame = m_source->TakeFrame(); frame && ui.textures) Upload(*ui.textures, std::move(*frame));
+    if (m_source->State() == PlayState::Playing) ui.clock.RequestRedraw();
 
     DrawTransport();
     ImGui::Separator();

@@ -1,6 +1,7 @@
 #include "Onyx/Ui/Viewers/AudioView.h"
 
 #include <Onyx/Ui/AudioOutput.h>
+#include <Onyx/Ui/FrameClock.h>
 #include <Onyx/Ui/UiContext.h>
 #include <Onyx/Ui/Widgets.h>
 
@@ -66,6 +67,7 @@ void AudioView::Draw(UiContext& ui) {
                 }
             }
             m_position = ui.audio->Position();
+            if (!ui.audio->Paused()) ui.clock.RequestRedraw();
         }
     } else {
         Widgets::Hint("No audio output is available");
