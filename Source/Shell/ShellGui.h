@@ -15,6 +15,7 @@
 #include "Onyx/Shell/Presenter.h"
 #include "Onyx/Shell/Shell.h"
 #include "Onyx/Shell/ShellFrame.h"
+#include "Onyx/Ui/Fonts.h"
 #include "Onyx/Ui/FrameClock.h"
 #include "Onyx/Ui/ImGuiVulkanBackend.h"
 #include "Onyx/Ui/TexturePool.h"
@@ -33,6 +34,8 @@ struct GuiStack {
     std::unique_ptr<Gpu::FrameRing> frames;
     ImGuiContext* imgui = nullptr;
     std::string iniPath;
+    // The fonts of the atlas built last; all null while ImGui's default font is in use.
+    Ui::FontSet fonts;
     bool freshLayout = false;
     std::unique_ptr<GlfwPlatform> platform;
     std::unique_ptr<Ui::ImGuiVulkanBackend> backend;

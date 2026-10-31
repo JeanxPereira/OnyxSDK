@@ -32,6 +32,7 @@
 #include "Onyx/Ui/FrameClock.h"
 #include "Onyx/Ui/ImGuiVulkanBackend.h"
 #include "Onyx/Ui/PanelHost.h"
+#include "Onyx/Ui/PathText.h"
 #include "Onyx/Ui/Panels/DocumentBrowser.h"
 #include "Onyx/Ui/Panels/Viewport.h"
 #include "Onyx/Ui/TexturePool.h"
@@ -94,26 +95,16 @@ struct ImGuiScope {
     ImGuiContext* context = nullptr;
 };
 
-void BuildAtlas(Ui::Theme& theme, float contentScale) {
+// The host's side of the theme contract: rebuild the atlas the theme asks for and make its text font the
+// default. On failure the atlas holds ImGui's default font.
+void BuildAtlas(const Ui::Theme& theme, Ui::FontSet& fonts) {
     ImGuiIO& io = ImGui::GetIO();
-    Ui::ThemeEnvironment environment = theme.Env();
-    environment.nativeScale = contentScale;
-    environment.defaultFontPath = Ui::FindAsset("fonts/SFMono-Regular.otf").string();
-    theme.SetEnvironment(environment);
-    theme.Commit();
-
-    const std::filesystem::path text = Ui::FindAsset("fonts/SFMono-Regular.otf");
-    const std::filesystem::path icons = Ui::FindAsset("fonts/SFSymbols.ttf");
-    const float refPx = theme.Applied().atlasRefPx;
-    if (!text.empty() && !icons.empty() && refPx > 0.0f) {
-        auto fonts = Ui::BuildFonts(*io.Fonts, text, refPx, icons);
-        if (fonts.ok()) {
-            io.FontDefault = fonts.value().text;
-            return;
-        }
-        std::fprintf(stderr, "fonts: %s\n", fonts.error().message.c_str());
+    auto built = Ui::BuildThemeFonts(theme, *io.Fonts);
+    if (!built.ok()) {
+        std::fprintf(stderr, "fonts: %s\n", built.error().message.c_str());
     }
-    io.Fonts->AddFontDefault();
+    fonts = built.ok() ? built.value() : Ui::FontSet{};
+    io.FontDefault = fonts.text;
 }
 
 std::filesystem::path WriteSample() {
@@ -201,11 +192,18 @@ int RunHost(const Options& options) {
     Ui::ViewerRegistry viewers;
     Ui::RegisterStockViewers(viewers);
     Ui::RegisterSceneViewer(viewers);
+    Ui::FontSet fonts;
     {
         float scaleX = 1.0f;
         float scaleY = 1.0f;
         glfwGetWindowContentScale(host.Window(), &scaleX, &scaleY);
-        BuildAtlas(theme, scaleX);
+        Ui::ThemeEnvironment environment = theme.Env();
+        environment.nativeScale = scaleX;
+        environment.defaultFontPath = Ui::PathToUtf8(Ui::FindAsset("fonts/SFMono-Regular.otf"));
+        theme.SetEnvironment(environment);
+        theme.Commit();
+        BuildAtlas(theme, fonts);
+        theme.ClearAtlasDirty();
     }
 
     Ui::PanelHost panels;
@@ -249,6 +247,7 @@ int RunHost(const Options& options) {
         theme.Update(dt);
         theme.Commit();
         if (theme.AtlasDirty()) {
+            BuildAtlas(theme, fonts);
             backend->RebuildFonts();
             theme.ClearAtlasDirty();
             Require(backend->Fault());

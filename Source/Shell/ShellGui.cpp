@@ -16,29 +16,19 @@ namespace {
 
 using Out = Result<std::unique_ptr<GuiStack>>;
 
-// Rebuilds the atlas from the theme's applied font and size, with the bundled symbols. A missing text
-// font falls back to the bundled one; without the bundled fonts ImGui's default font stays.
-void BuildAtlas(Ui::Theme& theme) {
+// Rebuilds the atlas the theme asks for and makes its text font the default; without the bundled fonts
+// ImGui's default font stays.
+void BuildAtlas(const Ui::Theme& theme, Ui::FontSet& fonts) {
     ImGuiIO& io = ImGui::GetIO();
-    const Ui::ThemeResolved& applied = theme.Applied();
-    const std::filesystem::path bundled = Ui::FindAsset("fonts/SFMono-Regular.otf");
-    const std::filesystem::path icons = Ui::FindAsset("fonts/SFSymbols.ttf");
-    std::filesystem::path text = FromUtf8(applied.atlasFontPath);
-    std::error_code ec;
-    if (text.empty() || !std::filesystem::is_regular_file(text, ec)) {
-        text = bundled;
+    auto built = Ui::BuildThemeFonts(theme, *io.Fonts);
+    if (built.ok()) {
+        fonts = built.value();
+        io.FontDefault = fonts.text;
+        return;
     }
-    if (!text.empty() && !icons.empty() && applied.atlasRefPx > 0.0f) {
-        auto fonts = Ui::BuildFonts(*io.Fonts, text, applied.atlasRefPx, icons);
-        if (fonts.ok()) {
-            io.FontDefault = fonts.value().text;
-            return;
-        }
-        Services::Log::Default().Write(Services::LogLevel::Warn, "shell.fonts", "{}: {}", fonts.error().code,
-                                       fonts.error().message);
-    }
-    io.Fonts->Clear();
-    io.Fonts->AddFontDefault();
+    Services::Log::Default().Write(Services::LogLevel::Warn, "shell.fonts", "{}: {}", built.error().code,
+                                   built.error().message);
+    fonts = {};
     io.FontDefault = nullptr;
 }
 
@@ -119,15 +109,15 @@ Result<std::unique_ptr<GuiStack>> GuiStack::Create(const ShellOptions& options, 
 
     Ui::ThemeEnvironment environment = theme.Env();
     environment.nativeScale = gui->window->ContentScale();
-    environment.defaultFontPath = Ui::FindAsset("fonts/SFMono-Regular.otf").string();
+    environment.defaultFontPath = ToUtf8(Ui::FindAsset("fonts/SFMono-Regular.otf"));
     theme.SetEnvironment(environment);
     theme.Commit();
-    BuildAtlas(theme);
+    BuildAtlas(theme, gui->fonts);
     theme.ClearAtlasDirty();
 
     gui->frame = std::make_unique<ShellFrame>(*gui->window, *gui->device, *gui->presenter, *gui->frames,
                                               *gui->backend, theme, clock);
-    gui->frame->SetFontBuilder([&theme] { BuildAtlas(theme); });
+    gui->frame->SetFontBuilder([&theme, stack = gui.get()] { BuildAtlas(theme, stack->fonts); });
     return Out::Ok(std::move(gui));
 }
 
