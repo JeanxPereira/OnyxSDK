@@ -96,6 +96,7 @@ const std::vector<uint32_t>& Gallery::IconMatches(std::string_view filter) {
     }
     m_iconMatchesFor = filter;
     m_iconMatchesBuilt = true;
+    ++m_iconRebuilds;
     return m_iconMatches;
 }
 
@@ -157,6 +158,22 @@ void Gallery::DrawWidgets() {
         Widgets::Spinner("##spinner", 8.0f * scale, 2.0f);
         ImGui::EndTable();
     }
+
+    ImGui::SeparatorText("Splitter");
+    const float minimum = 60.0f * scale;
+    if (ImGui::BeginChild("##split_demo", ImVec2(0, ImGui::GetFrameHeight() * 3.0f))) {
+        const float paneHeight = ImGui::GetContentRegionAvail().y;
+        ImGui::BeginChild("##split_left", ImVec2(m_splitLeft, paneHeight), ImGuiChildFlags_Borders);
+        ImGui::TextDisabled("Left");
+        ImGui::EndChild();
+        ImGui::SameLine();
+        Widgets::SplitterH("##split", &m_splitLeft, &m_splitRight, minimum, minimum);
+        ImGui::SameLine();
+        ImGui::BeginChild("##split_right", ImVec2(m_splitRight, paneHeight), ImGuiChildFlags_Borders);
+        ImGui::TextDisabled("Right");
+        ImGui::EndChild();
+    }
+    ImGui::EndChild();
 
     ImGui::SeparatorText("ImGui controls");
     if (BeginRows("##inputs")) {

@@ -3,6 +3,8 @@
 #include <Onyx/Ui/AudioOutput.h>
 #include <Onyx/Ui/Viewers/AudioView.h>
 
+#include <imgui_internal.h>
+
 #include "Support/ObxWorkspace.h"
 
 #include <vector>
@@ -75,6 +77,26 @@ void Frame(HeadlessImGui& imgui, AudioView& view, UiContext& ui, float x, float 
     imgui.EndFrame();
 }
 
+// The centre of the button `label` in the window Frame draws, found by hovering a grid of points.
+ImVec2 FindButton(HeadlessImGui& imgui, AudioView& view, UiContext& ui, const char* label) {
+    Frame(imgui, view, ui, -10.0f, -10.0f, false);
+    const ImGuiID id = ImGui::FindWindowByName("viewer")->GetID(label);
+    for (float y = 8.0f; y < 120.0f; y += 4.0f) {
+        for (float x = 8.0f; x < 240.0f; x += 6.0f) {
+            Frame(imgui, view, ui, x, y, false);
+            if (ImGui::GetCurrentContext()->HoveredId == id) return ImVec2(x, y);
+        }
+    }
+    FAIL("no button labelled " << label);
+    return ImVec2();
+}
+
+void Click(HeadlessImGui& imgui, AudioView& view, UiContext& ui, ImVec2 at) {
+    Frame(imgui, view, ui, at.x, at.y, false);
+    Frame(imgui, view, ui, at.x, at.y, true);
+    Frame(imgui, view, ui, at.x, at.y, false);
+}
+
 }
 
 TEST_CASE("AudioView reports the duration and one peak pair per column") {
@@ -127,18 +149,20 @@ TEST_CASE("Pause keeps the position and Resume continues") {
     DrawFrames(imgui, view, ui);
     CHECK(view.Position() == doctest::Approx(1.25));
 
-    output.Pause();
-    output.pauses = 0;
-    DrawFrames(imgui, view, ui);
+    Click(imgui, view, ui, FindButton(imgui, view, ui, "Pause"));
+    CHECK(output.pauses == 1);
+    CHECK(output.resumes == 0);
     CHECK(output.Playing());
     CHECK(output.Paused());
+    DrawFrames(imgui, view, ui);
     CHECK(view.Position() == doctest::Approx(1.25));
-    CHECK(output.pauses == 0);
 
-    output.Resume();
+    Click(imgui, view, ui, FindButton(imgui, view, ui, "Resume"));
+    CHECK(output.pauses == 1);
+    CHECK(output.resumes == 1);
+    CHECK_FALSE(output.Paused());
     output.position = 2.0;
     DrawFrames(imgui, view, ui);
-    CHECK_FALSE(output.Paused());
     CHECK(view.Position() == doctest::Approx(2.0));
 }
 

@@ -56,19 +56,20 @@ TEST_CASE("the icon filter caches its matches") {
     const std::size_t total = IconTable().size();
     const std::vector<uint32_t>& matches = gallery.IconMatches("");
     CHECK(matches.size() == total);
-    const uint32_t* data = matches.data();
+    CHECK(gallery.IconRebuilds() == 1);
 
-    CHECK(gallery.IconMatches("").data() == data);
     CHECK(gallery.IconMatches("").size() == total);
+    CHECK(gallery.IconRebuilds() == 1);
 
     const std::vector<uint32_t>& gear = gallery.IconMatches("gear");
     const std::size_t count = gear.size();
     CHECK(count > 0);
     CHECK(count < total);
     for (uint32_t i : gear) CHECK(std::string_view(IconTable()[i].name).find("GEAR") != std::string_view::npos);
-    const uint32_t* gearData = gear.data();
-    CHECK(gallery.IconMatches("gear").data() == gearData);
+    CHECK(gallery.IconRebuilds() == 2);
     CHECK(gallery.IconMatches("gear").size() == count);
+    CHECK(gallery.IconMatches("gear").size() == count);
+    CHECK(gallery.IconRebuilds() == 2);
 
     CHECK(gallery.IconMatches("no such icon name").empty());
 }

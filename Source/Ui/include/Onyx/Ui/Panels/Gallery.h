@@ -30,6 +30,8 @@ public:
     // Indices into IconTable() whose define name contains `filter`, ignoring case. The list is
     // rebuilt only when the filter text differs from the previous call.
     const std::vector<uint32_t>& IconMatches(std::string_view filter);
+    // How many times the match list was rebuilt.
+    size_t IconRebuilds() const { return m_iconRebuilds; }
 
 private:
     void DrawWidgets();
@@ -41,6 +43,7 @@ private:
     std::vector<uint32_t> m_iconMatches;
     std::string m_iconMatchesFor;
     bool m_iconMatchesBuilt = false;
+    size_t m_iconRebuilds = 0;
     std::array<char, 64> m_iconFilter{};
     float m_iconScale = 1.0f;
     std::string m_copied;
@@ -50,6 +53,8 @@ private:
     int m_radio = 0;
     int m_combo = 0;
     float m_slider = 0.5f;
+    float m_splitLeft = 120.0f;
+    float m_splitRight = 120.0f;
     float m_progress = 0.0f;
     std::array<char, 64> m_text{};
 };
