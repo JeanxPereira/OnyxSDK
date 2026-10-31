@@ -69,3 +69,16 @@ TEST_CASE("WriteWav refuses audio without channels") {
     REQUIRE_FALSE(r.ok());
     CHECK(r.error().code == "exchange.wav.write");
 }
+
+TEST_CASE("WriteWav reports exchange.wav.write for an unwritable path") {
+    Tests::TempDir dir("wav_unwritable");
+    const auto blocker = dir.path / "blocker";
+    { std::ofstream(blocker) << "x"; }
+    Domain::Audio audio;
+    audio.sampleRate = 8000;
+    audio.channels = 1;
+    audio.samples = {0.0f, 0.5f};
+    const Result<void> written = Exchange::WriteWav(audio, blocker / "x.wav");
+    REQUIRE_FALSE(written.ok());
+    CHECK(written.error().code == "exchange.wav.write");
+}

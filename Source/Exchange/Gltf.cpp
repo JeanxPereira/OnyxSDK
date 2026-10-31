@@ -25,6 +25,34 @@ namespace Onyx::Exchange {
 
 namespace {
 
+void AppendU32(std::string& out, uint32_t value) {
+    for (int shift = 0; shift < 32; shift += 8) out.push_back(static_cast<char>((value >> shift) & 0xFFu));
+}
+
+// Wraps a JSON document and a binary payload into a GLB container: header, JSON chunk padded with spaces, BIN chunk
+// padded with zeros.
+std::string PackGlb(const std::string& json, const std::vector<uint8_t>& bin) {
+    const size_t jsonPad = (4 - json.size() % 4) % 4;
+    const size_t binPad = (4 - bin.size() % 4) % 4;
+    const size_t total = 12 + 8 + json.size() + jsonPad + (bin.empty() ? 0 : 8 + bin.size() + binPad);
+    std::string glb;
+    glb.reserve(total);
+    AppendU32(glb, 0x46546C67u);
+    AppendU32(glb, 2u);
+    AppendU32(glb, static_cast<uint32_t>(total));
+    AppendU32(glb, static_cast<uint32_t>(json.size() + jsonPad));
+    AppendU32(glb, 0x4E4F534Au);
+    glb += json;
+    glb.append(jsonPad, ' ');
+    if (!bin.empty()) {
+        AppendU32(glb, static_cast<uint32_t>(bin.size() + binPad));
+        AppendU32(glb, 0x004E4942u);
+        glb.append(reinterpret_cast<const char*>(bin.data()), bin.size());
+        glb.append(binPad, '\0');
+    }
+    return glb;
+}
+
 char* Mutable(const char* s) {
     return const_cast<char*>(s);
 }
@@ -164,7 +192,8 @@ Result<void> WriteGltf(const Domain::Scene& scene, const std::filesystem::path& 
     };
 
     auto addAccessor = [&](cgltf_type type, cgltf_component_type component, size_t count, const void* data,
-                           size_t elementSize, const std::vector<float>& flat, int dim) -> cgltf_accessor* {
+                           size_t elementSize, const std::vector<float>& flat, int dim,
+                           bool bounded) -> cgltf_accessor* {
         const size_t offset = blob.Append(data, elementSize * count);
         cgltf_accessor& accessor = accessors.emplace_back();
         accessor = cgltf_accessor{};
@@ -172,15 +201,17 @@ Result<void> WriteGltf(const Domain::Scene& scene, const std::filesystem::path& 
         accessor.component_type = component;
         accessor.count = count;
         accessor.buffer_view = addView(offset, elementSize * count);
-        accessor.has_min = accessor.has_max = true;
-        MinMax(flat, count, dim, accessor.min, accessor.max);
+        if (bounded) {
+            accessor.has_min = accessor.has_max = true;
+            MinMax(flat, count, dim, accessor.min, accessor.max);
+        }
         return &accessor;
     };
 
     auto addFloats = [&](cgltf_type type, int dim, const std::vector<float>& flat) {
         const size_t count = flat.size() / static_cast<size_t>(dim);
         return addAccessor(type, cgltf_component_type_r_32f, count, flat.data(), sizeof(float) * static_cast<size_t>(dim),
-                           flat, dim);
+                           flat, dim, true);
     };
 
     auto flatten2 = [](const std::vector<glm::vec2>& v) {
@@ -238,7 +269,7 @@ Result<void> WriteGltf(const Domain::Scene& scene, const std::filesystem::path& 
             }
             addAttr("JOINTS_0", cgltf_attribute_type_joints, 0,
                     addAccessor(cgltf_type_vec4, cgltf_component_type_r_16u, n, joints.data(), sizeof(uint16_t) * 4,
-                                jointsFlat, 4));
+                                jointsFlat, 4, false));
             addAttr("WEIGHTS_0", cgltf_attribute_type_weights, 0, addFloats(cgltf_type_vec4, 4, weights));
         }
 
@@ -246,7 +277,7 @@ Result<void> WriteGltf(const Domain::Scene& scene, const std::filesystem::path& 
         cgltf_accessor* indexAccessor = nullptr;
         if (!part.indices.empty()) {
             indexAccessor = addAccessor(cgltf_type_scalar, cgltf_component_type_r_32u, part.indices.size(),
-                                        part.indices.data(), sizeof(uint32_t), indexFlat, 1);
+                                        part.indices.data(), sizeof(uint32_t), indexFlat, 1, false);
         }
 
         cgltf_primitive& primitive = primitives[pi];
@@ -392,7 +423,7 @@ Result<void> WriteGltf(const Domain::Scene& scene, const std::filesystem::path& 
                         cgltf_animation_path_type path) {
             cgltf_animation_sampler sampler{};
             sampler.input = addAccessor(cgltf_type_scalar, cgltf_component_type_r_32f, times.size(), times.data(),
-                                        sizeof(float), times, 1);
+                                        sizeof(float), times, 1, true);
             sampler.output = output;
             sampler.interpolation = cgltf_interpolation_type_linear;
             samplerList.push_back(sampler);
@@ -503,15 +534,31 @@ Result<void> WriteGltf(const Domain::Scene& scene, const std::filesystem::path& 
         buffers[0].uri = Mutable(binName.c_str());
     }
 
-    if (cgltf_write_file(&writeOptions, out.string().c_str(), &data) != cgltf_result_success) {
-        return Fail("exchange.gltf.write", "cannot write " + out.string());
-    }
+    const cgltf_size needed = cgltf_write(&writeOptions, nullptr, 0, &data);
+    if (needed == 0) return Fail("exchange.gltf.write", "cannot encode " + out.string());
+    std::string document(needed, '\0');
+    cgltf_write(&writeOptions, document.data(), document.size(), &data);
+    // cgltf_write emits JSON only and counts a terminating NUL, which neither form keeps.
+    if (!document.empty() && document.back() == '\0') document.pop_back();
+    if (options.embedBuffers) document = PackGlb(document, blob.bytes);
 
+    std::filesystem::path binPath;
     if (!options.embedBuffers) {
-        const std::filesystem::path binPath = out.parent_path() / binName;
+        binPath = out.parent_path() / binName;
         std::ofstream file(binPath, std::ios::binary | std::ios::trunc);
         if (file) file.write(reinterpret_cast<const char*>(blob.bytes.data()), static_cast<std::streamsize>(blob.bytes.size()));
-        if (!file) return Fail("exchange.gltf.write", "cannot write " + binPath.string());
+        if (!file) {
+            std::filesystem::remove(binPath, ec);
+            return Fail("exchange.gltf.write", "cannot write " + binPath.string());
+        }
+    }
+
+    std::ofstream file(out, std::ios::binary | std::ios::trunc);
+    if (file) file.write(document.data(), static_cast<std::streamsize>(document.size()));
+    file.close();
+    if (!file) {
+        if (!binPath.empty()) std::filesystem::remove(binPath, ec);
+        return Fail("exchange.gltf.write", "cannot write " + out.string());
     }
     return Result<void>::Ok();
 }
