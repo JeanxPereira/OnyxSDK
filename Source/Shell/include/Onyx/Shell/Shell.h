@@ -96,7 +96,9 @@ public:
     void SetLifecycle(std::unique_ptr<LifecycleDelegate> delegate);
     void SetDialogs(std::unique_ptr<IDialogs> dialogs);
     // The output Context() hands to every audio view. The Shell owns it, stops it when the window
-    // stack goes down, and stops the one it replaces. Null removes the output.
+    // stack goes down (before any panel is destroyed), and stops the one it replaces. Outside a frame
+    // the replacement is immediate; called during a frame (from a panel's Draw) it takes effect at the
+    // next frame boundary, so the frame keeps the output it started with. Null removes the output.
     void SetAudioOutput(std::unique_ptr<Ui::IAudioOutput> output);
     // Applies on the next layout reset and, when the config directory holds no imgui.ini, at start.
     void SetDockLayout(DockLayout layout) { m_layout = std::move(layout); }
@@ -135,6 +137,9 @@ private:
     bool ConfirmClose();
     void UpdateTitle();
     void DrawFrame(Gpu::Frame& frame);
+    // Stops the current output and replaces it with `output`.
+    void ReplaceAudio(std::unique_ptr<Ui::IAudioOutput> output);
+    void ApplyPendingAudio();
 
     ShellOptions m_options;
     Modules::Workspace m_workspace;
@@ -148,6 +153,9 @@ private:
     std::unique_ptr<IDialogs> m_dialogs;
     std::unique_ptr<LifecycleDelegate> m_lifecycle;
     std::unique_ptr<Ui::IAudioOutput> m_audio;
+    // A SetAudioOutput made during a frame, applied at the next frame boundary.
+    std::optional<std::unique_ptr<Ui::IAudioOutput>> m_pendingAudio;
+    bool m_inFrame = false;
     std::vector<std::unique_ptr<IShellExtension>> m_extensions;
     DockLayout m_layout;
     std::string m_title;

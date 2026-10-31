@@ -109,6 +109,7 @@ Shell::~Shell() {
 }
 
 void Shell::Teardown() {
+    ApplyPendingAudio();
     if (m_audio) {
         m_audio->Stop();
     }
@@ -152,10 +153,28 @@ void Shell::SetLifecycle(std::unique_ptr<LifecycleDelegate> delegate) {
 }
 
 void Shell::SetAudioOutput(std::unique_ptr<Ui::IAudioOutput> output) {
+    if (m_inFrame) {
+        m_pendingAudio = std::move(output);
+        return;
+    }
+    m_pendingAudio.reset();
+    ReplaceAudio(std::move(output));
+}
+
+void Shell::ReplaceAudio(std::unique_ptr<Ui::IAudioOutput> output) {
     if (m_audio) {
         m_audio->Stop();
     }
     m_audio = std::move(output);
+}
+
+void Shell::ApplyPendingAudio() {
+    if (!m_pendingAudio) {
+        return;
+    }
+    std::unique_ptr<Ui::IAudioOutput> output = std::move(*m_pendingAudio);
+    m_pendingAudio.reset();
+    ReplaceAudio(std::move(output));
 }
 
 void Shell::SetDialogs(std::unique_ptr<IDialogs> dialogs) {

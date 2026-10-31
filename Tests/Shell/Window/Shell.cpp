@@ -25,7 +25,9 @@
 #include "Onyx/Ui/AudioOutput.h"
 #include "Onyx/Ui/Panels/DocumentBrowser.h"
 #include "Onyx/Ui/Fonts.h"
+#include "Onyx/Ui/Panel.h"
 #include "Onyx/Ui/Theme.h"
+#include "Onyx/Ui/UiContext.h"
 #include "Onyx/Ui/Viewers/DocumentTabs.h"
 #include "Onyx/Ui/Viewers/Opening.h"
 #include "Support/WindowFixture.h"
@@ -72,6 +74,58 @@ struct SpyOutput final : Ui::IAudioOutput {
     std::string_view Owner() const override { return {}; }
 
     int& stops;
+};
+
+// Writes "stop" into a shared log when stopped.
+struct RecordingOutput final : Ui::IAudioOutput {
+    explicit RecordingOutput(std::vector<std::string>& events) : log(events) {}
+    Result<void> Play(const Domain::Audio&, std::string_view) override { return Result<void>::Ok(); }
+    void Stop() override { log.emplace_back("stop"); }
+    void Pause() override {}
+    void Resume() override {}
+    void Seek(double) override {}
+    bool Paused() const override { return false; }
+    bool Playing() const override { return false; }
+    double Position() const override { return 0.0; }
+    std::string_view Owner() const override { return {}; }
+
+    std::vector<std::string>& log;
+};
+
+// Writes "destroy" into a shared log from its destructor.
+struct RecordingPanel final : Ui::IPanel {
+    explicit RecordingPanel(std::vector<std::string>& events) : log(events) {}
+    ~RecordingPanel() override { log.emplace_back("destroy"); }
+    std::string_view Id() const override { return "test.recording"; }
+    std::string_view Title() const override { return "Recording"; }
+    void Draw(Ui::UiContext&) override { ++draws; }
+
+    std::vector<std::string>& log;
+    int draws = 0;
+};
+
+// Hands the shell a new audio output from inside its first Draw and records what each frame saw.
+struct SwapPanel final : Ui::IPanel {
+    SwapPanel(Shell::Shell& owner, std::unique_ptr<Ui::IAudioOutput> replacement, const int& oldStopCount)
+        : shell(owner), next(std::move(replacement)), oldStops(oldStopCount) {}
+    std::string_view Id() const override { return "test.swap"; }
+    std::string_view Title() const override { return "Swap"; }
+    void Draw(Ui::UiContext& ui) override {
+        seen.push_back(ui.audio);
+        if (!next) return;
+        shell.SetAudioOutput(std::move(next));
+        contextAfterSwap = shell.Context().audio;
+        stopsAtSwap = oldStops;
+        swapFrame = seen.size();
+    }
+
+    Shell::Shell& shell;
+    std::unique_ptr<Ui::IAudioOutput> next;
+    const int& oldStops;
+    std::vector<Ui::IAudioOutput*> seen;
+    Ui::IAudioOutput* contextAfterSwap = nullptr;
+    int stopsAtSwap = -1;
+    size_t swapFrame = 0;
 };
 
 struct VetoClose final : Shell::LifecycleDelegate {
@@ -301,6 +355,49 @@ TEST_CASE("SetAudioOutput reaches the context") {
     char* argv[] = {program.data()};
     CHECK(shell.Run(1, argv) == 0);
     CHECK(stops == 1);
+}
+
+TEST_CASE("SetAudioOutput inside a Draw replaces the output on the next frame") {
+    TempDir dir("shell_audio_frame");
+    int oldStops = 0;
+    int newStops = 0;
+    Shell::Shell shell(TestOptions(dir.path));
+    auto old = std::make_unique<SpyOutput>(oldStops);
+    Ui::IAudioOutput* oldRaw = old.get();
+    shell.SetAudioOutput(std::move(old));
+    auto replacement = std::make_unique<SpyOutput>(newStops);
+    Ui::IAudioOutput* newRaw = replacement.get();
+    auto panel = std::make_unique<SwapPanel>(shell, std::move(replacement), oldStops);
+    SwapPanel* swap = panel.get();
+    shell.Panels().Add(std::move(panel));
+
+    REQUIRE(StepUntil(shell, [&] { return swap->swapFrame != 0 && swap->seen.size() > swap->swapFrame; }));
+    CHECK(swap->seen[swap->swapFrame - 1] == oldRaw);
+    CHECK(swap->contextAfterSwap == oldRaw);
+    CHECK(swap->stopsAtSwap == 0);
+    CHECK(swap->seen[swap->swapFrame] == newRaw);
+    CHECK(shell.Context().audio == newRaw);
+    CHECK(oldStops == 1);
+    CHECK(newStops == 0);
+    RequireValidationLayer(*shell.GpuDevice());
+    shell.GpuDevice()->GraphicsQueue().WaitIdle();
+    CHECK_MESSAGE(shell.GpuDevice()->ValidationMessageCount() == 0, shell.GpuDevice()->LastValidationMessage());
+}
+
+TEST_CASE("the shell stops audio before it destroys the views") {
+    TempDir dir("shell_audio_order");
+    std::vector<std::string> events;
+    {
+        Shell::Shell shell(TestOptions(dir.path));
+        shell.SetAudioOutput(std::make_unique<RecordingOutput>(events));
+        auto panel = std::make_unique<RecordingPanel>(events);
+        RecordingPanel* recording = panel.get();
+        shell.Panels().Add(std::move(panel));
+        REQUIRE(StepUntil(shell, [&] { return recording->draws >= 2; }));
+        RequireValidationLayer(*shell.GpuDevice());
+        CHECK(events.empty());
+    }
+    CHECK(events == std::vector<std::string>{"stop", "destroy"});
 }
 
 namespace {
