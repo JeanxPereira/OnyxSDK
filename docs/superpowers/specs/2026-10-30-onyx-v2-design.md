@@ -132,12 +132,14 @@ Onyx::Shell     The ready-made application: native window, swapchain present,
 Onyx::Media     Video and audio playback: MediaSource (FFmpeg, no UI),
                 AudioOutput (miniaudio), and a MediaView panel.
                 Deps: Ui, ffmpeg, miniaudio. Optional: ONYX_WITH_MEDIA.
+                FFmpeg is private: no public header names a libav type.
 
 Onyx::Cli       The stock verbs (probe / list / extract / decode) over the
                 VerbTable that Core defines. Deps: Core.
 
-Onyx::Exchange  glTF 2.0 export of Domain::Scene; PNG and WAV writers; its
-                CLI verbs. Deps: Core, cgltf, stb.
+Onyx::Exchange  glTF 2.0 export of Domain::Scene; PNG and WAV writers,
+                registered as `decode --to` exporters; it ships no verb.
+                Deps: Core; cgltf and stb are private.
 
 Onyx::TestKit   Tree goldens, decode smoke, PNG image compare (stb, no GPU),
                 synthetic fixture builders (ISO, scenes, Prism/OnyxBox files).
@@ -148,7 +150,7 @@ Edges only point downward in this list. The CLI verb contract
 (`Core::Cli::Verb`, `VerbTable`, `Run`) lives in **Core**, so `Render` and
 `Exchange` contribute verbs without depending on `Onyx::Cli`; the host (or
 `Shell::Run`) assembles the table: `cli.Add(Cli::StockVerbs())`,
-`cli.Add(Render::CliVerbs())`, `cli.Add(Exchange::CliVerbs())`.
+`cli.Add(Render::CliVerbs())`, `Exchange::AddExporters(cli)`.
 `ONYX_WITH_UI` implies `ONYX_WITH_GPU`; a UI without a GPU layer is not a v2
 target. `UiContext::gpu` is a pointer: null in headless tests and
 before a host created its device, and `textures` is null whenever `gpu` is.
@@ -658,28 +660,70 @@ with Windows and Linux (zenity/xdg portal) backends.
 
 ## 10. Media
 
-`MediaSource` owns the FFmpeg contexts and exactly one decode thread with a
-command queue (`Open`, `Seek`, `Play`, `Pause`, `Close`); the UI thread never
-touches an `AVCodecContext`. Packets and frames are RAII. `AudioOutput` wraps
-miniaudio. `MediaView` is an `IDocumentView` that pulls frames into the
-`TexturePool`. The v1 `AdpcmDecoder` (Sony VAG) is deleted: a module decodes
-its own audio encodings into `Domain::Audio`, and the stock `Audio` viewer
-plays PCM. Nothing in Media knows a console's codec.
+Video is an **entry** of `MediaKind::Video` inside a module's container, never
+a loose file: the viewer request carries the entry's `file` and `range`, and
+Media reads that byte range through the `Vfs::IFile`, never through a path.
+
+`MediaSource` owns the FFmpeg contexts and exactly one decode thread; the UI
+thread never touches an `AVCodecContext` and only queues commands (`Open`,
+`Play`, `Pause`, `Stop`, `Seek`) and reads snapshots (`State`, `Position`,
+`Info`, `TakeFrame`). Packets and frames are RAII, and no public header
+includes a libav or miniaudio header (an opaque `std::unique_ptr<Impl>`), so a
+consumer of `Onyx::Media` compiles without FFmpeg's headers on its include
+path. The decode thread keeps a mailbox of the newest decoded frame plus at
+most four ahead of the clock, and blocks there, so a paused source costs
+nothing. The clock is the audio clock (frames the playback device consumed)
+when the clip has audio, and a steady clock otherwise. While the audio starves
+the thread reads ahead, holding compressed packets (at most 256 packets and
+32 MiB, never more decoded frames) to reach audio stored behind the video;
+when the audio ends first, or stays starved for 250 ms with nothing more to
+read, the steady clock takes over from the audio position and the video plays
+out. Errors are `media.open`, `media.stream`, `media.seek` and `media.audio`.
+
+`AudioOutput` implements `Ui::IAudioOutput` over miniaudio (`Play`, `Stop`,
+`Pause`, `Resume`, `Seek`, `Paused`, `Playing`, `Position`). `MediaView` is an
+`IDocumentView` with id `onyx.media.<doc>.<name>` that pulls frames into the
+`TexturePool`; `RegisterMediaViewer(ViewerRegistry&)` registers `onyx.media` for
+`MediaKind::Video`. A host wires Media with
+`shell.SetAudioOutput(std::make_unique<Media::AudioOutput>())` and
+`Media::RegisterMediaViewer(shell.Viewers())`. The v1 `AdpcmDecoder` (Sony
+VAG) is deleted: a module decodes its own audio encodings into
+`Domain::Audio`, and the stock `Audio` viewer plays PCM. Nothing in Media
+knows a console's codec.
 
 ## 11. Cli
 
 `Core::Cli::Run(Workspace&, const VerbTable&, argc, argv, out, err)`. The
 `Verb` contract and `VerbTable` live in Core (§4); `Onyx::Cli` provides the
-stock verbs, `Render` provides `render`, `Exchange` provides the `--to
+stock verbs, `Render` provides `render`, and `Exchange` provides the `--to
 gltf|png|wav` exporters that `decode` consults through a `Core::Exporters`
-registry; the v1 `std::function` parameters are gone. Entries are addressed by `NodePath` or by name with an
-explicit `--first` policy. `extract` reports failures in its exit code. The
-usage string uses `argv[0]`.
+registry; the v1 `std::function` parameters are gone.
+
+Entry resolution is part of Core's Cli contract:
+`Cli::ResolveEntry(const Modules::Document&, std::string_view target, bool
+first, std::ostream& err)` in `Onyx/Core/Cli/Resolve.h`, with
+`Modules::FindAllByName`. An entry is addressed by `@<i>/<j>/...` (a
+`NodePath`) or by name. A name shared by several entries fails with
+`cli.ambiguous`, which lists their `@paths` and exits `kUsage`, unless `--first`
+selects the earliest in depth-first order. `extract` takes no entry names and
+reports failures in its exit code. The usage string uses `argv[0]`.
+
+`Render::CliVerbs()` provides `render <file> <entry|@path> --out <png> [--width
+N] [--height N] [--clip N --time S] [--grid] [--first] [--game <hint>]`. It
+writes through the table's `png` exporter; a table without one fails with
+`render.noPng` and exits `kUsage`.
 
 ## 12. Exchange
 
-`GltfExport` as v1 (it is clean), reading `Domain::Scene` streams directly;
-adds animation export from `AnimClip`. `PngWrite(Texture)`, `WavWrite(Audio)`.
+Exchange ships no verb. Its entry point is `Exchange::AddExporters(Cli::VerbTable&)`,
+which registers `gltf` (Mesh), `png` (Image) and `wav` (Audio) as `decode --to`
+exporters. `WriteGltf(Scene, path, GltfOptions)` reads `Domain::Scene` streams
+directly and writes one `.glb` or a `.gltf` with a sibling `.bin`, including
+skin and one animation per non-additive `AnimClip`; `WritePng(Texture, path)`
+takes Rgba8; `WriteWav(Audio, path)` writes 16-bit PCM. Errors are
+`exchange.gltf.empty`, `exchange.gltf.write`, `exchange.png.format`,
+`exchange.png.write` and `exchange.wav.write`. No public header includes cgltf
+or stb.
 
 ## 13. TestKit and the two synthetic modules
 
@@ -689,22 +733,29 @@ tree, `legacy/Tools/OnyxOracle`).
 
 Two modules live in `Examples/` and both are used by the SDK's own tests:
 
-- **OnyxBox** (`obx`), ported: container, pak mount, image, text, mesh.
-- **Prism** (`prm`), new: a palette-centric format — palette table, indexed
-  image, a text manifest, an audio clip, and a `Table` of entries. It ships a
-  `PrismUi` extension with a palette viewer for its own `TypeKey`
-  (`prism.palette`) and a module settings schema. Prism is the generality
+- **OnyxBox** (`obx`), ported: container, pak mount, image, text, mesh. Its
+  type keys carry the module id (`obx.*`).
+- **Prism** (`prm`), new: a palette-centric container (`PRM1`) with six
+  section kinds: palette (`prm.palette`, a `Table` that also serves the
+  `prism.palette` `Any` capability), indexed image, text manifest, audio clip,
+  a `Table` of entries and a stats record read through the declarative schema.
+  Its type keys carry the module id (`prm.*`). Its settings are
+  `prism.transparentIndexZero` (Bool) and `prism.gain` (Double, 0 to 4). It
+  ships a `PrismUi` extension (`Prism::Ui::Extension`) with a palette viewer
+  routed by that capability. Prism is the generality
   proof from the v1 design (§13 there) that was cut; the exam rule binds: a
   gap Prism hits is an SDK task, never a workaround in Prism.
 
 ## 14. Examples
 
-- `MinimalViewer`: the Shell with OnyxBox, under twenty lines. Prism joins it
-  in W4.
+- `MinimalViewer`: the Shell with OnyxBox, Prism, `Prism::Ui::Extension` and,
+  under `ONYX_WITH_MEDIA`, the Media audio output and viewer, in about thirty
+  lines.
 - `Embedded`: a host with its own GLFW window, ImGui context and Vulkan
   device that adopts them into Onyx and draws `DocumentBrowser` + `Viewport`
   inside its own frame. This is the Icon-Composer / SF-Symbols scenario.
-- `OnyxCli`: `Cli::Run` with both modules, with render and glTF verbs.
+- `OnyxCli`: `Cli::Run` over a table holding `Cli::StockVerbs()`,
+  `Render::CliVerbs()` and `Exchange::AddExporters`, with both modules.
 - `CoreOnly`: a consumer linking `Onyx::Core` only, built by the consumer
   test from outside the tree; its configure must fetch no GPU/UI dependency.
 
@@ -766,6 +817,8 @@ tree stays available as `v1.3.3` for reference; nothing in `v2` includes it.
 | **W5 Repo** | Delete `legacy/`; README final with SVG; CLAUDE.md; docs; CHANGELOG 2.0.0; tag. | `check.py` green on both OS; lint finds zero game names and zero forbidden includes |
 
 W3 location notes: Ui sources are in `Source/Ui/` (headers in `Source/Ui/include/Onyx/Ui/`), Shell in `Source/Shell/`; `MinimalViewer` and `Embedded` are in `Examples/`. The suites are `Ui.Unit`, `Ui.Gpu`, `Shell.Unit`, `Shell.Window`, `Examples.Build` and `Examples.Embedded`. The Gallery panel moves to W4, where Prism's UI is its second consumer.
+
+W4 location notes: Media sources are in `Source/Media/` (headers in `Source/Media/include/Onyx/Media/`), Exchange in `Source/Exchange/` and the `render` verb in `Source/Render/CliVerbs.cpp`; entry resolution is `Source/Core/Cli/Resolve.cpp`. Prism is `Examples/Prism/` with `PrismUi` in `Examples/Prism/Ui/`, and `OnyxCli` is `Examples/OnyxCli/`. The Gallery panel is `Source/Ui/Panels/Gallery.cpp` (id `onyx.gallery`, hidden by default, registered by the host). The suites added are `Exchange.Unit`, `Media.Unit`, `Media.Gpu`, `Prism.Unit` and `Examples.Cli`; the CLI goldens are in `Tests/Cli/Goldens`.
 
 **Lanes.** Sonnet builders, one task each, each in its own worktree with
 disjoint files; the lane that provides headers commits early and dependent

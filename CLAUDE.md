@@ -25,6 +25,8 @@ Onyx is a C++20 SDK for game-asset tools, rebuilt as v2 in nine layered static l
 - On Windows MSVC is not on `PATH`; `check.py` locates Visual Studio through `vswhere` and runs inside `vcvars64.bat` itself. Do not configure by hand from a plain shell.
 - GPU test suites (`Gpu.Device`, `Render.Gpu`, `Render.Parity`, `Render.Reproducible`) exit 77 without a Vulkan device and ctest reports them as skipped. `Render.Parity` compares against `Tests/Golden/corpus` with the profile in `Tests/Golden/tolerances.toml` (`[hardware]`, or `[software]` on a CPU device).
 - Ui and Shell suites: `Ui.Unit` and `Shell.Unit` need no device; `Ui.Gpu`, `Shell.Window` and `Examples.Embedded` exit 77 without a device (`Shell.Window` also without GLFW or a present-capable device). `Examples.Build` runs `MinimalViewer --help` and needs no device. Set `ONYX_NO_VALIDATION=1` to run the GPU suites where the Khronos validation layer is not installed.
+- Other suites: `Exchange.Unit`, `Prism.Unit` and `Examples.Cli` need no device; `Media.Unit` needs FFmpeg at build time and no device; `Media.Gpu` exits 77 without a device. The Media tests open the real audio device when one exists.
+- `ONYX_WITH_MEDIA` needs FFmpeg: Windows downloads a pinned build at configure time, Linux needs `libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev pkg-config`; `-DONYX_WITH_MEDIA=OFF` skips it (WSL, for example).
 - Component options: `ONYX_WITH_GPU/UI/SHELL/MEDIA`; turning one off turns off those above it.
 
 ## Where to look

@@ -48,6 +48,16 @@ v2 is a break-and-port: the public surface is redesigned and nothing from 1.x is
 - **Panels.** `onyx.browser`, `inspector`, `problems`, `log`, `settings`, `viewport`, `transport`, `timeline` and `documents` (`DocumentTabs`).
 - **Viewers.** `onyx.image`, `text`, `hex`, `table` and `audio` through `RegisterStockViewers`, and `onyx.scene` through `RegisterSceneViewer`; opening decodes on job lane 0 and places the view in `Pump()`.
 - **Rulings.** The Gallery panel and the Media-backed `IAudioOutput` are deferred to W4; ImPlot and ImGuiColorTextEdit are not dependencies.
+
+### W4
+- **Dependencies.** FFmpeg (a pinned Windows download, system packages on Linux), miniaudio and cgltf, fetched only with the component that links them; `-DONYX_WITH_MEDIA=OFF` skips FFmpeg.
+- **Cli.** Entry resolution in Core (`Cli::ResolveEntry`, `Modules::FindAllByName`): an ambiguous name fails with `cli.ambiguous` and lists the `@paths` unless `--first` is given; `extract` takes no entry names. CLI goldens in `Tests/Cli/Goldens`.
+- **Exchange.** `WriteGltf` (skin and animation), `WritePng` and `WriteWav`, registered as `decode --to` exporters by `Exchange::AddExporters`; cgltf and stb are private.
+- **Render verb.** `Render::CliVerbs()` provides `render`, which writes through the table's `png` exporter (`render.noPng` otherwise).
+- **Ui and Shell.** `OpenRequest` carries `file` and `range`; a `ViewerSpec` with `anyCapability` routes only to types listing it and decodes the Any slot alone; `IAudioOutput` gains `Pause`, `Resume`, `Seek` and `Paused`; the `onyx.gallery` panel; `Shell::SetAudioOutput`; the frame loop polls through hover delays.
+- **Media.** `MediaSource` (one decode thread, a bounded frame mailbox and packet read-ahead, an audio clock that yields to a steady clock), `AudioOutput` over miniaudio, `MediaView` and `RegisterMediaViewer`. Video is an entry of `MediaKind::Video`.
+- **Prism.** The second synthetic module (`prm`) with its writer, the settings `prism.transparentIndexZero` and `prism.gain`, `PrismUi` with a palette viewer, and `OnyxCli`; MinimalViewer carries OnyxBox, Prism and Media.
+- **Tests.** `Exchange.Unit`, `Media.Unit`, `Media.Gpu`, `Prism.Unit` and `Examples.Cli`.
 - **Shell.** `NativeWindow` (GLFW 3.4, Win32 borderless), `Presenter`, `GlfwPlatform`, `ShellFrame::Step` pacing, `Shell` with `Run`, `Open`, `Step()` and `hiddenWindow`, extensions, lifecycle, injectable dialogs, `Dock`, menu bar, `Recents`, stock commands and the CLI path over `Cli::StockVerbs()`.
 - **Examples.** `MinimalViewer` and `Embedded` (own GLFW, ImGui and Vulkan device adopted into Onyx), checked by `Examples.Build` (`MinimalViewer --help`) and `Examples.Embedded` (`Embedded --frames 3`, 77 without a device).
 - **Tools.** Suites `Ui.Unit`, `Ui.Gpu`, `Shell.Unit`, `Shell.Window`, `Examples.Build` and `Examples.Embedded`; a lint rule restricting writes to `ImGuiStyle` colours to `Source/Ui/Theme.cpp`; Linux CI installs the X11 and Wayland development packages.
