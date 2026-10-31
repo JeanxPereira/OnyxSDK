@@ -17,7 +17,8 @@ struct IconButtonOptions {
     bool disabled = false;
 };
 
-// A framed button whose glyph is centred on its ink, not on its advance.
+// A framed button whose glyph is centred on its ink, not on its advance. The tooltip shows on
+// hover even while the button is disabled.
 bool IconButton(const char* id, const char* glyph, const IconButtonOptions& options = {});
 
 // A tree node whose label carries a leading glyph and a base colour; the colour yields to a
@@ -32,7 +33,8 @@ void Hint(const char* text);
 void Spinner(const char* id, float radius, float thickness);
 
 // Horizontal splitter between two sizes. Dragging moves the boundary, both sides keep their
-// minimum and left + right stays constant. Returns true on the frames the boundary moves.
+// minimum and left + right stays constant. Returns true on the frames the boundary moves. Its
+// grab width follows the style's font scales, like the text around it.
 bool SplitterH(const char* id, float* left, float* right, float minLeft, float minRight);
 
 void StatusText(Services::Severity severity, const char* text);
@@ -42,7 +44,7 @@ struct Metrics {
     float iconButtonSize;
     float rowHeight;
 };
-Metrics Metrics(const Theme& theme);
+Metrics MetricsFor(const Theme& theme);
 
 // Calls draw(index) for the rows inside the visible range only.
 template <class F>

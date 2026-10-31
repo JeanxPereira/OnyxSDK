@@ -12,6 +12,8 @@ namespace Onyx::Ui::Widgets {
 
 namespace {
 
+constexpr float kSplitterWidth = 4.0f;
+
 ImVec4 ReadColor(ImGuiCol col) { return ImGui::GetStyleColorVec4(col); }
 
 ImVec4 TextOn(ImGuiCol surface) {
@@ -89,7 +91,7 @@ bool IconButton(const char* id, const char* glyph, const IconButtonOptions& opti
     }
 
     if (options.tooltip && options.tooltip[0] != '\0' &&
-        ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+        ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort | ImGuiHoveredFlags_AllowWhenDisabled)) {
         ImGui::SetTooltip("%s", options.tooltip);
     }
     return pressed;
@@ -174,8 +176,11 @@ bool SplitterH(const char* id, float* left, float* right, float minLeft, float m
     const float total = *left + *right;
     const float height = ImGui::GetContentRegionAvail().y;
 
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float width = kSplitterWidth * style.FontScaleMain * style.FontScaleDpi;
+
     ImGui::PushID(id);
-    ImGui::InvisibleButton("##split", ImVec2(4.0f, std::max(height, 1.0f)));
+    ImGui::InvisibleButton("##split", ImVec2(width, std::max(height, 1.0f)));
     const bool active = ImGui::IsItemActive();
     const bool hovered = ImGui::IsItemHovered();
     if (hovered || active) {
@@ -226,12 +231,12 @@ void StatusText(Services::Severity severity, const char* text) {
     ImGui::PopStyleColor();
 }
 
-struct Metrics Metrics(const Theme& theme) {
+Metrics MetricsFor(const Theme& theme) {
     const ThemeResolved& applied = theme.Applied();
     const float font = applied.style.FontSizeBase > 0.0f ? applied.style.FontSizeBase
                                                           : 13.0f * applied.globalScale;
     const float padY = applied.style.FramePadding.y;
-    struct Metrics m;
+    Metrics m;
     m.smallButtonInset = std::max(padY * 0.5f, 2.0f);
     m.iconButtonSize = font + padY * 2.0f;
     m.rowHeight = font + std::max(padY, 4.0f * applied.globalScale) * 2.0f;
