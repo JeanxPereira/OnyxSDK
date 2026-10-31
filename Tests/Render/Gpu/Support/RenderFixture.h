@@ -30,7 +30,7 @@ struct RenderFixture {
 // Validation checks hold vacuously on a machine without VK_LAYER_KHRONOS_validation, so a device that
 // was asked for validation must have it. ONYX_NO_VALIDATION=1 opts out (for example on WSL, where the
 // layers are not installed) and prints one message per executable.
-inline void RequireValidationLayer(const Gpu::Device& device) {
+inline void RequireRenderValidationLayer(const Gpu::Device& device) {
     bool optOut = false;
 #if defined(_WIN32)
     char* buf = nullptr;
@@ -62,7 +62,7 @@ inline RenderFixture MakeRenderFixture(const Render::RendererOptions& options = 
     auto device = Gpu::Device::Create(deviceOptions);
     REQUIRE_MESSAGE(device.ok(), device.error().code << ": " << device.error().message);
     fx.device = std::move(device.value());
-    RequireValidationLayer(*fx.device);
+    RequireRenderValidationLayer(*fx.device);
 
     auto upload = Gpu::UploadContext::Create(*fx.device);
     REQUIRE_MESSAGE(upload.ok(), upload.error().code << ": " << upload.error().message);
