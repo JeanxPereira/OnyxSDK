@@ -13,6 +13,16 @@ bool Search(const std::vector<Domain::AssetEntry>& level, std::string_view name,
     return false;
 }
 
+void Collect(const std::vector<Domain::AssetEntry>& level, std::string_view name, NodePath& path,
+             std::vector<NodePath>& found) {
+    for (uint32_t i = 0; i < level.size(); ++i) {
+        path.indices.push_back(i);
+        if (level[i].name == name) found.push_back(path);
+        Collect(level[i].children, name, path, found);
+        path.indices.pop_back();
+    }
+}
+
 }
 
 const Domain::AssetEntry* Resolve(const Document& doc, const NodePath& path) {
@@ -29,6 +39,13 @@ std::optional<NodePath> FindByName(const Document& doc, std::string_view name) {
     NodePath path;
     if (Search(doc.roots, name, path)) return path;
     return std::nullopt;
+}
+
+std::vector<NodePath> FindAllByName(const Document& doc, std::string_view name) {
+    std::vector<NodePath> found;
+    NodePath path;
+    Collect(doc.roots, name, path, found);
+    return found;
 }
 
 }

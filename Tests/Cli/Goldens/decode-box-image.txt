@@ -1,0 +1,5 @@
+exit 0
+--- stdout
+image img 8x8 rgba8
+[Error] obx.entry.range: bad: payload out of bounds
+--- stderr

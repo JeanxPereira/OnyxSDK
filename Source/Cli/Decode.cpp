@@ -4,15 +4,14 @@
 #include <Onyx/Core/Cli/Run.h>
 #include <Onyx/Core/Modules/DecodeContext.h>
 #include <Onyx/Core/Modules/DecoderRegistry.h>
-#include <Onyx/Core/Modules/Selection.h>
 #include <Onyx/Core/Schema/SchemaJson.h>
 #include <Onyx/Core/Schema/SchemaNode.h>
 
 #include <Onyx/Core/Cli/Exporters.h>
 
-#include <charconv>
 #include <format>
 #include <ostream>
+#include <sstream>
 
 namespace Onyx::Cli::Detail {
 
@@ -31,47 +30,6 @@ std::string_view FormatName(Domain::PixelFormat format) {
         case Domain::PixelFormat::RgbaF16: return "rgbaf16";
     }
     return "unknown";
-}
-
-std::optional<Modules::NodePath> ParseNodePath(std::string_view text) {
-    Modules::NodePath path;
-    while (true) {
-        const size_t slash = text.find('/');
-        const std::string_view part = text.substr(0, slash);
-        uint32_t index = 0;
-        const auto [end, ec] = std::from_chars(part.data(), part.data() + part.size(), index);
-        if (part.empty() || ec != std::errc() || end != part.data() + part.size()) return std::nullopt;
-        path.indices.push_back(index);
-        if (slash == std::string_view::npos) return path;
-        text.remove_prefix(slash + 1);
-    }
-}
-
-size_t CountNamed(const std::vector<Domain::AssetEntry>& entries, std::string_view name) {
-    size_t count = 0;
-    for (const Domain::AssetEntry& e : entries) {
-        if (e.name == name) ++count;
-        count += CountNamed(e.children, name);
-    }
-    return count;
-}
-
-const Domain::AssetEntry* ResolveTarget(const Modules::Document& doc, std::string_view target, std::ostream& err) {
-    if (target.starts_with('@')) {
-        const auto path = ParseNodePath(target.substr(1));
-        if (!path) {
-            err << "invalid node path: " << target << "\n";
-            return nullptr;
-        }
-        return Modules::Resolve(doc, *path);
-    }
-
-    const auto path = Modules::FindByName(doc, target);
-    if (!path) return nullptr;
-    if (const size_t matches = CountNamed(doc.roots, target); matches > 1) {
-        err << "note: " << matches << " entries are named '" << target << "'; using the first\n";
-    }
-    return Modules::Resolve(doc, *path);
 }
 
 struct Decoding {
@@ -202,7 +160,7 @@ bool KindMatches(Domain::MediaKind kind, const Modules::Capabilities& caps) {
 
 Verb DecodeVerb() {
     constexpr std::string_view kUsageText =
-        "<file> <entry|@path> [--strict] [--game <hint>] [--to <format> --out <path>]";
+        "<file> <entry|@path> [--first] [--strict] [--game <hint>] [--to <format> --out <path>]";
     return Verb{
         "decode", std::string(kUsageText),
         [kUsageText](Modules::Workspace& ws, const VerbTable& table, std::span<const std::string_view> argv,
@@ -219,9 +177,12 @@ Verb DecodeVerb() {
             if (!OpenOrReport(opened, path, out)) return kNoModule;
             Modules::Document& doc = opened.doc();
 
-            const Domain::AssetEntry* entry = ResolveTarget(doc, target, err);
+            std::ostringstream why;
+            const Domain::AssetEntry* entry = ResolveEntry(doc, target, args.first, why);
             if (!entry) {
-                out << "unknown entry: " << target << '\n';
+                const std::string reason = why.str();
+                err << reason;
+                if (!reason.starts_with("cli.ambiguous")) out << "unknown entry: " << target << "\n";
                 PrintDiags(doc.diags, out);
                 return kUsage;
             }

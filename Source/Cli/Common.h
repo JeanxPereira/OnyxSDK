@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Onyx/Cli/StockVerbs.h>
+#include <Onyx/Core/Cli/Resolve.h>
 #include <Onyx/Core/Domain/AssetEntry.h>
 #include <Onyx/Core/Modules/Document.h>
 #include <Onyx/Core/Modules/Workspace.h>
@@ -20,6 +21,7 @@ struct Args {
     std::vector<std::string_view> positional;
     bool json = false;
     bool strict = false;
+    bool first = false;
     std::string_view game;
     std::string_view to;
     std::string_view out;

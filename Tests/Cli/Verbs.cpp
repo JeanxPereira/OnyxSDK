@@ -362,17 +362,58 @@ TEST_CASE("Cli.DecodeResolvesNodePathSyntax") {
     CHECK(h.Invoke({"decode", path, "@"}).rc == Cli::kUsage);
 }
 
-TEST_CASE("Cli.DecodeByNameUsesTheFirstMatchAndNotesDuplicates") {
+TEST_CASE("Cli.DecodeWithADuplicatedNameAndNoFirstExitsKUsageNamingThePaths") {
     StubOptions options;
-    options.script = {Entry("dup", "text", 0, 5), Entry("dup", "text", 5, 4)};
+    options.script = {Entry("txt", "text", 0, 9), Entry("img", "image", 9, 8), Entry("img", "image", 9, 8)};
     Harness h;
     h.ws.AddModule(std::make_unique<StubModule>(options));
     TempFile file("decode_dup.bin");
 
-    const auto r = h.Invoke({"decode", file.path.string(), "dup"});
+    const auto r = h.Invoke({"decode", file.path.string(), "img"});
+    CHECK(r.rc == Cli::kUsage);
+    CHECK(Contains(r.err, "cli.ambiguous: 2 entries are named 'img': @1, @2"));
+    CHECK_FALSE(Contains(r.out, "image img"));
+}
+
+TEST_CASE("Cli.DecodeFirstTakesTheEarliestMatch") {
+    StubOptions options;
+    options.script = {Entry("dup", "text", 0, 5), Entry("dup", "text", 5, 4)};
+    Harness h;
+    h.ws.AddModule(std::make_unique<StubModule>(options));
+    TempFile file("decode_first.bin");
+
+    const auto r = h.Invoke({"decode", file.path.string(), "dup", "--first"});
     CHECK(r.rc == Cli::kOk);
     CHECK(Contains(r.out, "text dup: hello"));
-    CHECK(Contains(r.err, "2 entries are named 'dup'"));
+    CHECK(r.err.empty());
+}
+
+TEST_CASE("Cli.DecodeAmbiguousNamesInsideDirectoriesListEveryPath") {
+    StubOptions options;
+    StubEntry dir = Entry("dir", "blob", 0, 0);
+    dir.children = {Entry("dup", "text", 0, 5), Entry("other", "blob", 0, 0)};
+    options.script = {dir, Entry("dup", "text", 5, 4)};
+    Harness h;
+    h.ws.AddModule(std::make_unique<StubModule>(options));
+    TempFile file("decode_dup_nested.bin");
+
+    const auto r = h.Invoke({"decode", file.path.string(), "dup"});
+    CHECK(r.rc == Cli::kUsage);
+    CHECK(Contains(r.err, "@0/0, @1"));
+    CHECK(h.Invoke({"decode", file.path.string(), "@1"}).rc == Cli::kOk);
+}
+
+TEST_CASE("Cli.ExtractAcceptsFirstAndStillReportsDuplicateLeafNames") {
+    StubOptions options;
+    options.script = {Entry("dup", "text", 0, 5), Entry("dup", "text", 5, 4)};
+    Harness h;
+    h.ws.AddModule(std::make_unique<StubModule>(options));
+    TempFile file("extract_first.bin");
+    TempPath dir("extract_first_out");
+
+    const auto r = h.Invoke({"extract", file.path.string(), dir.path.string(), "--first"});
+    CHECK(r.rc == Cli::kPartial);
+    CHECK(ReadFile(dir.path / "dup") == "hello");
 }
 
 TEST_CASE("Cli.DecodeToExportsTheSceneThroughTheRegisteredExporter") {
