@@ -11,10 +11,11 @@
 
 namespace Onyx::Ui {
 
-// A tab bar of document views. A closed tab is destroyed at the start of the next Draw, one frame after
-// it was retired, so closing from inside a view's own Draw is safe and GPU resources that a panel
-// recorded into the current frame survive that frame's submit. Tabs of a document close when the workspace pumps DocumentClosed;
-// the workspace must outlive this panel.
+// A tab bar of document views. A closed tab is destroyed at the second Draw after it was retired, so
+// closing from inside a view's own Draw is safe, and GPU resources that a panel recorded into the
+// frame of the retirement survive that frame's submit however early in the frame the tab was closed.
+// Tabs of a document close when the workspace pumps DocumentClosed; the workspace must outlive this
+// panel.
 class DocumentTabs : public IPanel {
 public:
     explicit DocumentTabs(Modules::Workspace& workspace);
@@ -40,6 +41,7 @@ private:
 
     std::vector<std::unique_ptr<IDocumentView>> m_tabs;
     std::vector<std::unique_ptr<IDocumentView>> m_retired;
+    std::vector<std::unique_ptr<IDocumentView>> m_dying;
     size_t m_active = 0;
     bool m_select = false;
     Services::Subscription m_closed;

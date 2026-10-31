@@ -70,7 +70,8 @@ IDocumentView* DocumentTabs::Active() {
 }
 
 void DocumentTabs::Draw(UiContext& ui) {
-    m_retired.clear();
+    m_dying.clear();
+    m_dying.swap(m_retired);
 
     if (m_tabs.empty()) {
         Widgets::Hint("Open an asset to view it");

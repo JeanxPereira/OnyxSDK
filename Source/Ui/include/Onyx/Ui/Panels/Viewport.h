@@ -28,8 +28,11 @@ class TexturePool;
 // on the first draw that has a device) and a render target sized to the panel, shown through one
 // texture of the UI's pool. The scene is recorded into UiContext::frame, so the host must have begun
 // the frame before drawing panels and must record the ImGui pass into the same frame's command buffer
-// after the panels drew, so the target is rendered before the UI samples it. Orbit with the right button, pan with the middle one, zoom with
-// the wheel; F frames the scene, Z flips the shading, G the grid, keypad 5 resets the camera.
+// after the panels drew, so the target is rendered before the UI samples it.
+//
+// Orbit with the right button, pan with the middle one, zoom with the wheel; a click on an axis cap
+// snaps the camera to that view. F frames the scene, Z flips the shading, G the grid, keypad 5
+// resets the camera.
 //
 // Without a device or a frame it draws a placeholder. It removes its texture from the pool on
 // destruction, so the pool must outlive it; the device must outlive both.

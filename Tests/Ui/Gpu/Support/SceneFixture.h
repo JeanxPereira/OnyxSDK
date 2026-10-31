@@ -57,6 +57,37 @@ inline Result<TestKit::Image8> RenderHostFrame(UiGpuFixture& fx, Gpu::RenderTarg
     return Out::Ok(std::move(image));
 }
 
+// The same frame without the readback: it returns once the frame is submitted, so the next call
+// begins while this one may still be executing.
+inline Result<void> SubmitHostFrame(UiGpuFixture& fx, Gpu::RenderTarget& target,
+                                    const std::function<void(Gpu::Frame&)>& draw) {
+    const VkExtent2D extent = target.Extent();
+    ImGui::GetIO().DisplaySize = ImVec2(static_cast<float>(extent.width), static_cast<float>(extent.height));
+
+    auto frame = fx.frames->Begin();
+    if (!frame.ok()) {
+        return Result<void>::Fail(frame.error());
+    }
+    fx.backend->NewFrame();
+    fx.imgui.NewFrame();
+    draw(*frame.value());
+    ImGui::Render();
+
+    frame.value()->AddWait(fx.textures->Flush());
+    target.Begin(frame.value()->Cmd(), {0.0f, 0.0f, 0.0f, 1.0f});
+    fx.backend->Record(frame.value()->Cmd(), ImGui::GetDrawData());
+    target.End(frame.value()->Cmd());
+    auto fault = fx.backend->Fault();
+    if (!fault.ok()) {
+        return Result<void>::Fail(fault.error());
+    }
+    auto ended = fx.frames->End(*frame.value());
+    if (!ended.ok()) {
+        return Result<void>::Fail(ended.error());
+    }
+    return Result<void>::Ok();
+}
+
 inline std::unique_ptr<Gpu::RenderTarget> MakeHostTarget(Gpu::Device& device, uint32_t size = 256) {
     Gpu::RenderTargetDesc desc;
     desc.extent = {size, size};
