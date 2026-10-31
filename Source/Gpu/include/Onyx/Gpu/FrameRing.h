@@ -31,14 +31,20 @@ public:
 
     VkCommandBuffer Cmd() const { return m_cmd; }
     uint32_t Index() const { return m_index; }
+    // The id of the FrameRing that owns this frame; see FrameRing::Id.
+    uint64_t RingId() const { return m_ringId; }
 
     // Bump allocation from this frame's host-visible buffer (usage UNIFORM | STORAGE | VERTEX | INDEX |
     // TRANSFER_SRC). The caller owns any alignment the use needs beyond `alignment`. A zero alignment
     // means one. Calling it outside Begin..End is a precondition violation reported as gpu.frame. Fails with gpu.transientFull when the remaining space cannot hold the request.
     Result<Transient> Allocate(VkDeviceSize size, VkDeviceSize alignment);
 
-    // Timeline wait on the device queue before this frame's commands run.
+    // Timeline wait on Onyx's own queue timeline (Queue::Timeline()) before this frame's commands run.
     void AddWait(FenceValue value);
+    // Timeline wait on a semaphore the host owns, for host -> Onyx handoff: before Onyx re-renders a
+    // target the host is still sampling, pass the value the host's sampling submit signals. The
+    // semaphore must be a timeline semaphore of the same VkDevice and must outlive this frame's submit.
+    void AddWait(VkSemaphore timeline, uint64_t value, VkPipelineStageFlags2 stage);
     // Binary semaphore wait, for example the swapchain acquire semaphore.
     void AddWait(VkSemaphore binary, VkPipelineStageFlags2 stage);
     // Binary semaphore signalled when this frame's commands finish, for example the present semaphore.
@@ -46,10 +52,11 @@ public:
 
 private:
     friend class FrameRing;
-    Frame(Device& device, uint32_t index) : m_device(&device), m_index(index) {}
+    Frame(Device& device, uint32_t index, uint64_t ringId) : m_device(&device), m_index(index), m_ringId(ringId) {}
 
     Device* m_device;
     uint32_t m_index;
+    uint64_t m_ringId;
     Unique<VkCommandPool> m_pool;
     VkCommandBuffer m_cmd = VK_NULL_HANDLE;
     Buffer m_transient;
@@ -66,6 +73,14 @@ struct FrameRingOptions {
 };
 
 // Must be destroyed before its Device. Not thread-safe: one thread drives Begin and End.
+//
+// Handoff to a host that samples a render target on another queue:
+//   Onyx -> host: End returns a FenceValue on Device::GraphicsQueue().Timeline(). The host's submit
+//     waits on that timeline semaphore at that value before sampling the target's ResolveView() in
+//     SHADER_READ_ONLY_OPTIMAL.
+//   host -> Onyx: before Onyx re-renders a target the host is still reading, the host signals its own
+//     timeline semaphore after the read and the next frame calls Frame::AddWait(timeline, value, stage)
+//     with that value between Begin and End.
 class FrameRing {
 public:
     static Result<std::unique_ptr<FrameRing>> Create(Device& device, const FrameRingOptions& options = {});
@@ -80,13 +95,17 @@ public:
     // recorded on the slot and is what the slot's next Begin waits for.
     Result<FenceValue> End(Frame& frame);
 
+    // Process-unique and never reused, so a cache keyed on handles of this ring's buffers can tell
+    // when it is paired with a different ring.
+    uint64_t Id() const { return m_id; }
     uint32_t FramesInFlight() const { return static_cast<uint32_t>(m_frames.size()); }
     FenceValue LastValue() const { return m_lastValue; }
 
 private:
-    explicit FrameRing(Device& device) : m_device(device) {}
+    FrameRing(Device& device, uint64_t id) : m_device(device), m_id(id) {}
 
     Device& m_device;
+    uint64_t m_id;
     std::vector<std::unique_ptr<Frame>> m_frames;
     uint64_t m_cursor = 0;
     Frame* m_open = nullptr;

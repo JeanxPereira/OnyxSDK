@@ -1,8 +1,12 @@
 #include <doctest/doctest.h>
 
+#include <cstring>
 #include <filesystem>
+#include <span>
+#include <string>
 
 #include "Onyx/Gpu/Device.h"
+#include "Onyx/Gpu/FrameRing.h"
 #include "Onyx/Gpu/Handles.h"
 #include "Support/TestDevice.h"
 
@@ -114,19 +118,89 @@ TEST_CASE("Pipeline cache file is written on destruction and loaded on the next 
     {
         Gpu::DeviceOptions o;
         o.pipelineCachePath = path;
-        auto d = Gpu::Device::Create(o);
-        REQUIRE(d.ok());
-        CHECK(d.value()->PipelineCache() != VK_NULL_HANDLE);
-        CHECK(d.value()->ValidationMessageCount() == 0);
+        auto d = CreateTestDevice(o);
+        CHECK(d->PipelineCache() != VK_NULL_HANDLE);
+        CHECK(d->ValidationMessageCount() == 0);
     }
     CHECK(std::filesystem::exists(path));
     {
         Gpu::DeviceOptions o;
         o.pipelineCachePath = path;
-        auto d = Gpu::Device::Create(o);
-        REQUIRE(d.ok());
-        CHECK(d.value()->PipelineCache() != VK_NULL_HANDLE);
-        CHECK(d.value()->ValidationMessageCount() == 0);
+        auto d = CreateTestDevice(o);
+        CHECK(d->PipelineCache() != VK_NULL_HANDLE);
+        CHECK(d->ValidationMessageCount() == 0);
     }
     std::filesystem::remove(path);
+}
+
+namespace {
+
+// Stands in for a host loader that resolves no Vulkan 1.3 core entry points above the instance's API
+// version: vkQueueSubmit2 is withheld, everything else is forwarded.
+PFN_vkGetDeviceProcAddr g_realGetDeviceProcAddr = nullptr;
+
+PFN_vkVoidFunction VKAPI_CALL WithholdSubmit2(VkDevice device, const char* name) {
+    if (std::strcmp(name, "vkQueueSubmit2") == 0) {
+        return nullptr;
+    }
+    return g_realGetDeviceProcAddr(device, name);
+}
+
+}
+
+TEST_CASE("Device::Adopt refuses a host that does not resolve the 1.3 core entry points") {
+    auto own = CreateTestDevice();
+    g_realGetDeviceProcAddr = vkGetDeviceProcAddr;
+    Gpu::ExternalDevice ext{own->Instance(),
+                            own->PhysicalDevice(),
+                            own->Handle(),
+                            own->GraphicsQueue().Handle(),
+                            own->GraphicsQueue().Family(),
+                            vkGetInstanceProcAddr,
+                            WithholdSubmit2,
+                            {true, true, true},
+                            {}};
+    auto refused = Gpu::Device::Adopt(ext);
+    REQUIRE_FALSE(refused.ok());
+    CHECK(refused.error().code == "gpu.feature");
+    CHECK(refused.error().message.find("vkQueueSubmit2") != std::string::npos);
+    CHECK(own->ValidationMessageCount() == 0);
+}
+
+TEST_CASE("A frame waits on a host timeline semaphore at a value") {
+    auto device = CreateTestDevice();
+    const auto& fn = device->Fn();
+
+    VkSemaphoreTypeCreateInfo typeInfo{};
+    typeInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+    typeInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    VkSemaphoreCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    info.pNext = &typeInfo;
+    VkSemaphore hostTimeline = VK_NULL_HANDLE;
+    REQUIRE(fn.vkCreateSemaphore(device->Handle(), &info, nullptr, &hostTimeline) == VK_SUCCESS);
+
+    Gpu::SemaphoreSignal signal;
+    signal.semaphore = hostTimeline;
+    signal.value = 5;
+    Gpu::SubmitDesc hostSubmit;
+    hostSubmit.signals = std::span<const Gpu::SemaphoreSignal>(&signal, 1);
+    auto signalled = device->GraphicsQueue().Submit(hostSubmit);
+    REQUIRE(signalled.ok());
+
+    auto ring = Gpu::FrameRing::Create(*device);
+    REQUIRE(ring.ok());
+    auto frame = ring.value()->Begin();
+    REQUIRE(frame.ok());
+    frame.value()->AddWait(hostTimeline, 5, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT);
+    auto ended = ring.value()->End(*frame.value());
+    REQUIRE(ended.ok());
+    CHECK(device->GraphicsQueue().Wait(ended.value()).ok());
+
+    uint64_t value = 0;
+    REQUIRE(fn.vkGetSemaphoreCounterValue(device->Handle(), hostTimeline, &value) == VK_SUCCESS);
+    CHECK(value == 5);
+    CHECK_FALSE(device->GraphicsQueue().Fault().has_value());
+    CHECK_MESSAGE(device->ValidationMessageCount() == 0, device->LastValidationMessage());
+    fn.vkDestroySemaphore(device->Handle(), hostTimeline, nullptr);
 }

@@ -1,10 +1,15 @@
 #include "Onyx/Gpu/FrameRing.h"
 
+#include <atomic>
 #include <format>
 
 #include "VkError.h"
 
 namespace Onyx::Gpu {
+
+namespace {
+std::atomic<uint64_t> g_nextRingId{1};
+}
 
 Result<Transient> Frame::Allocate(VkDeviceSize size, VkDeviceSize alignment) {
     if (!m_isOpen) {
@@ -41,6 +46,14 @@ void Frame::AddWait(FenceValue value) {
     m_waits.push_back(wait);
 }
 
+void Frame::AddWait(VkSemaphore timeline, uint64_t value, VkPipelineStageFlags2 stage) {
+    SemaphoreWait wait;
+    wait.semaphore = timeline;
+    wait.value = value;
+    wait.stage = stage;
+    m_waits.push_back(wait);
+}
+
 void Frame::AddWait(VkSemaphore binary, VkPipelineStageFlags2 stage) {
     SemaphoreWait wait;
     wait.semaphore = binary;
@@ -62,10 +75,10 @@ Result<std::unique_ptr<FrameRing>> FrameRing::Create(Device& device, const Frame
         return Result<std::unique_ptr<FrameRing>>::Fail(
             {"gpu.frame", "framesInFlight and transientBytes must be greater than zero", 0});
     }
-    std::unique_ptr<FrameRing> ring(new FrameRing(device));
+    std::unique_ptr<FrameRing> ring(new FrameRing(device, g_nextRingId.fetch_add(1)));
     const auto& fn = device.Fn();
     for (uint32_t i = 0; i < options.framesInFlight; ++i) {
-        std::unique_ptr<Frame> frame(new Frame(device, i));
+        std::unique_ptr<Frame> frame(new Frame(device, i, ring->m_id));
 
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
