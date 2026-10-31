@@ -24,7 +24,8 @@ Result<FontSet> BuildFonts(ImFontAtlas& atlas, const std::filesystem::path& text
                            const std::filesystem::path& iconFont,
                            const std::filesystem::path& monoFontOverride = {});
 
-// Pushes `font` at the current size for the scope; a null font pushes nothing. Inside an ImGui frame only.
+// Pushes `font` at the current size for the scope; a null font pushes nothing. Inside an ImGui
+// frame only.
 class ScopedFont {
 public:
     explicit ScopedFont(ImFont* font) : m_pushed(font != nullptr) {

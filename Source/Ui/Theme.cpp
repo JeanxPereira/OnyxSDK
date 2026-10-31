@@ -184,9 +184,9 @@ void Theme::Commit() {
         !m_hasApplied || std::memcmp(&resolved.style, &m_applied.style, sizeof(ImGuiStyle)) != 0;
     if (changed) {
         live = resolved.style;
-        // ImGui 1.92 rewrites FontSizeBase from its current font size whenever the current window
-        // changes, which happens in NewFrame before the style's value is read; the size takes effect
-        // only through the next-frame field NewFrame consumes first.
+        // Rebuilding the atlas after a commit makes ImGui 1.92 set the new font at the context's
+        // previous size, which lands back in FontSizeBase; the next-frame field NewFrame consumes
+        // first carries the committed size over it.
         live._NextFrameFontSizeBase = resolved.style.FontSizeBase;
     }
 

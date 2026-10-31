@@ -1,6 +1,5 @@
 #include <doctest/doctest.h>
 
-// The Core headers come first: the Vulkan headers pull in windows.h, whose max macro breaks Reader.h.
 #include "../Support/ObxWorkspace.h"
 
 #include <Onyx/Gpu/RenderTarget.h>

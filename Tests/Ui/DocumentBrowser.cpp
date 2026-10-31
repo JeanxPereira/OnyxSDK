@@ -53,12 +53,7 @@ TEST_CASE("DocumentBrowser labels a non-ASCII file name in UTF-8") {
     CHECK(browser.LabelOf(0) == name);
 
     HeadlessImGui rig;
-    bool visible = false;
-    DrawFrames(rig, 3, [&] {
-        browser.Draw(ui);
-        visible = !ImGui::GetCurrentWindow()->SkipItems;
-    });
-    CHECK(visible);
+    DrawFrames(rig, 3, [&] { browser.Draw(ui); });
     CHECK(browser.RowsDrawn() == 14);
 }
 

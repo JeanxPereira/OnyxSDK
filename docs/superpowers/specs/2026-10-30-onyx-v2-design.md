@@ -150,7 +150,7 @@ Edges only point downward in this list. The CLI verb contract
 `Shell::Run`) assembles the table: `cli.Add(Cli::StockVerbs())`,
 `cli.Add(Render::CliVerbs())`, `cli.Add(Exchange::CliVerbs())`.
 `ONYX_WITH_UI` implies `ONYX_WITH_GPU`; a UI without a GPU layer is not a v2
-target. `UiContext::gpu` is still a pointer: null in headless tests and
+target. `UiContext::gpu` is a pointer: null in headless tests and
 before a host created its device, and `textures` is null whenever `gpu` is.
 
 **Dependency fetch is per component.** `FetchContent` for volk, Vulkan

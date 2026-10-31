@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include "Onyx/Ui/Fonts.h"
 #include "Onyx/Ui/Theme.h"
 #include "Onyx/Ui/ThemeState.h"
 #include "HeadlessImGui.h"
@@ -214,6 +215,9 @@ TEST_CASE("A committed font size survives the next frame") {
 
     theme.Mutate([](ThemeState& s) { s.fontSizePt = 22.0f; });
     theme.Commit();
+    // Setting a font through a rebuilt atlas hands ImGui the previous size; the committed one
+    // must still win in the next frame.
+    REQUIRE(BuildThemeFonts(theme, *ImGui::GetIO().Fonts).ok());
     float inFrame = 0.0f;
     rig.NewFrame();
     ImGui::Begin("probe");
