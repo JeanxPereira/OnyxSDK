@@ -43,7 +43,7 @@ TEST_CASE("DocumentBrowser draws one row per visible node") {
 }
 
 TEST_CASE("DocumentBrowser labels a non-ASCII file name in UTF-8") {
-    const std::string name = "cafÃ©-Ã¼.obx";
+    const std::string name = "caf\xC3\xA9-\xC3\xBC.obx";
     ObxUi fx("browser_utf8", 8, name);
     UiContext ui = fx.Make();
     DocumentBrowser browser;
