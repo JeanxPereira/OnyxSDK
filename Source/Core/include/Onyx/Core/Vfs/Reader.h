@@ -14,14 +14,14 @@
 
 namespace Onyx::Vfs {
 
-inline constexpr uint64_t npos = std::numeric_limits<uint64_t>::max();
+inline constexpr uint64_t npos = (std::numeric_limits<uint64_t>::max)();
 
 class Reader {
 public:
     explicit Reader(std::shared_ptr<const IFile> file, uint64_t base = 0, uint64_t size = npos);
 
     uint64_t Tell() const { return m_pos; }
-    void Seek(uint64_t position) { m_pos = std::min(position, m_size); }
+    void Seek(uint64_t position) { m_pos = (std::min)(position, m_size); }
     uint64_t Size() const { return m_size; }
     uint64_t Remaining() const { return m_size - m_pos; }
     bool Eof() const { return m_pos >= m_size; }
