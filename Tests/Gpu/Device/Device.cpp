@@ -80,6 +80,10 @@ TEST_CASE("Device::Adopt wraps a host device and refuses a missing feature") {
     REQUIRE(v.ok());
     CHECK(adopted.value()->GraphicsQueue().Wait(v.value()).ok());
     adopted.value().reset();
+    auto hostSubmit = own->GraphicsQueue().Submit({});
+    REQUIRE(hostSubmit.ok());
+    CHECK(own->GraphicsQueue().Wait(hostSubmit.value()).ok());
+    CHECK_FALSE(own->GraphicsQueue().Fault().has_value());
     CHECK(own->ValidationMessageCount() == 0);
 
     ext.enabled.timelineSemaphore = false;
@@ -98,6 +102,7 @@ TEST_CASE("Two owned devices coexist and dispatch through their own tables") {
     CHECK(a->GraphicsQueue().Wait(va.value()).ok());
     CHECK(b->GraphicsQueue().Wait(vb.value()).ok());
     CHECK(a->Handle() != b->Handle());
+    CHECK(b->ValidationMessageCount() == 0);
     b.reset();
     CHECK(a->ValidationMessageCount() == 0);
     a.reset();
@@ -112,6 +117,7 @@ TEST_CASE("Pipeline cache file is written on destruction and loaded on the next 
         auto d = Gpu::Device::Create(o);
         REQUIRE(d.ok());
         CHECK(d.value()->PipelineCache() != VK_NULL_HANDLE);
+        CHECK(d.value()->ValidationMessageCount() == 0);
     }
     CHECK(std::filesystem::exists(path));
     {

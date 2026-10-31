@@ -12,6 +12,10 @@ namespace Onyx::Gpu {
 
 class Device;
 
+// Lifetime rule for Unique, Buffer and Image: each must be destroyed (or released) before the
+// Device it was created from, because destruction queues work on that Device. A Unique built
+// with a null Device and a non-null handle is a precondition violation.
+//
 // Owns one Vulkan handle. Destruction does not destroy immediately: the matching
 // destroy call is queued on Device::Retire() at the last submitted fence value.
 template <class T>

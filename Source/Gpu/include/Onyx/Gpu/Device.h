@@ -16,6 +16,21 @@
 #include "Onyx/Gpu/Queue.h"
 #include "Onyx/Gpu/Retire.h"
 
+// Error codes used by the Gpu layer (Result<T>::error().code; Error::native carries the VkResult
+// when one applies):
+//   gpu.noDevice      no Vulkan loader, incompatible driver, or no physical device qualifies
+//   gpu.feature       the device lacks dynamicRendering, synchronization2, timelineSemaphore or Vulkan 1.3
+//   gpu.adopt         the ExternalDevice is missing a handle or a proc address loader
+//   gpu.instance      vkCreateInstance or the debug messenger failed for a reason other than gpu.noDevice
+//   gpu.device        vkCreateDevice failed
+//   gpu.alloc         a VMA allocator, buffer, image or image view could not be created
+//   gpu.timeline      the timeline semaphore could not be created
+//   gpu.submit        vkQueueSubmit2 failed
+//   gpu.present       the swapchain entry points are not enabled on this device
+//   gpu.wait          vkWaitSemaphores failed
+//   gpu.timeout       vkWaitSemaphores timed out
+//   gpu.pipelineCache vkCreatePipelineCache failed
+//   gpu.vk            any other failing VkResult (enumerations, counter reads)
 namespace Onyx::Gpu {
 
 #ifndef NDEBUG
@@ -39,6 +54,10 @@ struct ExternalFeatures {
     bool timelineSemaphore = false;
 };
 
+// The host's handles are never destroyed by Onyx. The queue is used only through Queue::Submit and
+// Queue::Present under Onyx's mutex, so the host either hands Onyx a dedicated queue of that family
+// or routes its own submissions through the same Queue::Submit. An adopted Device does not call
+// vkDeviceWaitIdle on shutdown; it waits on its own timeline instead.
 struct ExternalDevice {
     VkInstance instance = VK_NULL_HANDLE;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
@@ -78,6 +97,9 @@ struct InstanceFns {
 
 class Device {
 public:
+    // The first Create or Adopt in a process initialises volk's loader once (std::call_once): after an
+    // Adopt, every later Create resolves through the host's getInstanceProcAddr. Concurrent calls are
+    // serialised around volk's process-wide function pointers.
     static Result<std::unique_ptr<Device>> Create(const DeviceOptions& options);
     static Result<std::unique_ptr<Device>> Adopt(const ExternalDevice& external);
 

@@ -1,8 +1,12 @@
 #include "Onyx/Gpu/Handles.h"
 
-#include <format>
+#include <cassert>
 
 #include "Onyx/Gpu/Device.h"
+#include "VkError.h"
+
+// Non-dispatchable handles collapse to uint64_t on 32-bit targets, which makes the Unique<T> instantiations ambiguous.
+static_assert(sizeof(void*) == 8, "Onyx::Gpu requires a 64-bit target");
 
 namespace Onyx::Gpu {
 
@@ -20,10 +24,6 @@ void Destroy(Device& d, VkCommandPool h) { d.Fn().vkDestroyCommandPool(d.Handle(
 void Destroy(Device& d, VkSemaphore h) { d.Fn().vkDestroySemaphore(d.Handle(), h, nullptr); }
 void Destroy(Device& d, VkShaderModule h) { d.Fn().vkDestroyShaderModule(d.Handle(), h, nullptr); }
 
-Error VkFail(const char* code, const char* what, VkResult result) {
-    return {code, std::format("{} failed (VkResult {})", what, static_cast<int>(result)), static_cast<int32_t>(result)};
-}
-
 }
 
 template <class T>
@@ -31,6 +31,7 @@ void Unique<T>::Reset() {
     if (m_handle == VK_NULL_HANDLE) {
         return;
     }
+    assert(m_device != nullptr && "Unique holds a handle but no Device");
     Device* device = m_device;
     T handle = m_handle;
     m_handle = VK_NULL_HANDLE;
@@ -75,6 +76,7 @@ Buffer::~Buffer() {
 void Buffer::Reset() {
     if (handle) {
         Device* device = handle.GetDevice();
+        assert(device != nullptr);
         VkBuffer buffer = handle.Release();
         VmaAllocation owned = allocation;
         device->Retire().Enqueue([device, buffer, owned] { vmaDestroyBuffer(device->Allocator(), buffer, owned); },
@@ -119,6 +121,7 @@ void Image::Reset() {
     view.Reset();
     if (handle) {
         Device* device = handle.GetDevice();
+        assert(device != nullptr);
         VkImage image = handle.Release();
         VmaAllocation owned = allocation;
         device->Retire().Enqueue([device, image, owned] { vmaDestroyImage(device->Allocator(), image, owned); },

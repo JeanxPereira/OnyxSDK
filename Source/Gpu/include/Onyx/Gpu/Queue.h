@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 #include <span>
 
 #include <volk.h>
@@ -42,8 +43,14 @@ public:
     Result<VkResult> Present(const VkPresentInfoKHR& info);
 
     FenceValue LastSubmitted() const;
+    // On a vkGetSemaphoreCounterValue error this returns the last value read successfully
+    // and records the failure in Fault().
     FenceValue Completed() const;
     Result<void> Wait(FenceValue value, uint64_t timeoutNs = UINT64_MAX);
+
+    // Sticky: the most recent failure from Submit, Wait (a timeout is not a fault), Present
+    // (missing swapchain entry point) or Completed. Never cleared.
+    std::optional<Error> Fault() const;
 
     VkSemaphore Timeline() const { return m_timeline; }
     VkQueue Handle() const { return m_queue; }
@@ -53,6 +60,7 @@ private:
     friend class Device;
     Queue(Device& device, VkQueue queue, uint32_t family);
     Result<void> Init();
+    void SetFault(Error error) const;
 
     Device& m_device;
     VkQueue m_queue;
@@ -60,6 +68,9 @@ private:
     VkSemaphore m_timeline = VK_NULL_HANDLE;
     std::mutex m_mutex;
     std::atomic<FenceValue> m_next{0};
+    mutable std::atomic<FenceValue> m_lastCompleted{0};
+    mutable std::mutex m_faultMutex;
+    mutable std::optional<Error> m_fault;
 };
 
 }

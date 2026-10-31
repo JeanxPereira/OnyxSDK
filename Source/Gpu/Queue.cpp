@@ -4,14 +4,11 @@
 #include <vector>
 
 #include "Onyx/Gpu/Device.h"
+#include "VkError.h"
 
 namespace Onyx::Gpu {
 
 namespace {
-
-Error VkFail(const char* code, const char* what, VkResult result) {
-    return {code, std::format("{} failed (VkResult {})", what, static_cast<int>(result)), static_cast<int32_t>(result)};
-}
 
 VkSemaphoreSubmitInfo SemaphoreInfo(VkSemaphore semaphore, uint64_t value, VkPipelineStageFlags2 stage) {
     VkSemaphoreSubmitInfo info{};
@@ -84,7 +81,9 @@ Result<FenceValue> Queue::Submit(const SubmitDesc& desc) {
 
     VkResult r = m_device.Fn().vkQueueSubmit2(m_queue, 1, &submit, VK_NULL_HANDLE);
     if (r != VK_SUCCESS) {
-        return Result<FenceValue>::Fail(VkFail("gpu.submit", "vkQueueSubmit2", r));
+        Error error = VkFail("gpu.submit", "vkQueueSubmit2", r);
+        SetFault(error);
+        return Result<FenceValue>::Fail(std::move(error));
     }
     m_next.store(value);
     m_device.CountSubmit();
@@ -93,7 +92,9 @@ Result<FenceValue> Queue::Submit(const SubmitDesc& desc) {
 
 Result<VkResult> Queue::Present(const VkPresentInfoKHR& info) {
     if (m_device.Fn().vkQueuePresentKHR == nullptr) {
-        return Result<VkResult>::Fail({"gpu.present", "VK_KHR_swapchain is not enabled on this device", 0});
+        Error error{"gpu.present", "VK_KHR_swapchain is not enabled on this device", 0};
+        SetFault(error);
+        return Result<VkResult>::Fail(std::move(error));
     }
     std::lock_guard lock(m_mutex);
     return Result<VkResult>::Ok(m_device.Fn().vkQueuePresentKHR(m_queue, &info));
@@ -106,7 +107,24 @@ FenceValue Queue::LastSubmitted() const {
 FenceValue Queue::Completed() const {
     uint64_t value = 0;
     VkResult r = m_device.Fn().vkGetSemaphoreCounterValue(m_device.Handle(), m_timeline, &value);
-    return r == VK_SUCCESS ? value : 0;
+    if (r != VK_SUCCESS) {
+        SetFault(VkFail("gpu.vk", "vkGetSemaphoreCounterValue", r));
+        return m_lastCompleted.load();
+    }
+    FenceValue seen = m_lastCompleted.load();
+    while (seen < value && !m_lastCompleted.compare_exchange_weak(seen, value)) {
+    }
+    return value;
+}
+
+std::optional<Error> Queue::Fault() const {
+    std::lock_guard lock(m_faultMutex);
+    return m_fault;
+}
+
+void Queue::SetFault(Error error) const {
+    std::lock_guard lock(m_faultMutex);
+    m_fault = std::move(error);
 }
 
 Result<void> Queue::Wait(FenceValue value, uint64_t timeoutNs) {
@@ -119,7 +137,11 @@ Result<void> Queue::Wait(FenceValue value, uint64_t timeoutNs) {
     if (r == VK_SUCCESS) {
         return Result<void>::Ok();
     }
-    return Result<void>::Fail(VkFail(r == VK_TIMEOUT ? "gpu.timeout" : "gpu.wait", "vkWaitSemaphores", r));
+    Error error = VkFail(r == VK_TIMEOUT ? "gpu.timeout" : "gpu.wait", "vkWaitSemaphores", r);
+    if (r != VK_TIMEOUT) {
+        SetFault(error);
+    }
+    return Result<void>::Fail(std::move(error));
 }
 
 }

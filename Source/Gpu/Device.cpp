@@ -5,6 +5,8 @@
 #include <fstream>
 #include <type_traits>
 
+#include "VkError.h"
+
 namespace Onyx::Gpu {
 
 namespace {
@@ -13,7 +15,8 @@ constexpr const char* kValidationLayer = "VK_LAYER_KHRONOS_validation";
 
 std::once_flag g_volkOnce;
 VkResult g_volkResult = VK_ERROR_INITIALIZATION_FAILED;
-std::mutex g_tableMutex;
+// Guards every use of the process-wide volk function pointers.
+std::mutex g_volkMutex;
 
 VkResult EnsureVolk(PFN_vkGetInstanceProcAddr custom) {
     std::call_once(g_volkOnce, [custom] {
@@ -27,42 +30,59 @@ VkResult EnsureVolk(PFN_vkGetInstanceProcAddr custom) {
     return g_volkResult;
 }
 
-Error VkFail(const char* code, const char* what, VkResult result) {
-    return {code, std::format("{} failed (VkResult {})", what, static_cast<int>(result)), static_cast<int32_t>(result)};
-}
-
 // volkLoadDeviceTable resolves through the global vkGetDeviceProcAddr, so the
-// pointer the caller owns is swapped in for the duration of the load.
+// pointer the caller owns is swapped in for the duration of the load. The caller holds g_volkMutex.
 void LoadTable(VolkDeviceTable& table, VkDevice device, PFN_vkGetDeviceProcAddr getDeviceProcAddr) {
-    std::lock_guard lock(g_tableMutex);
     PFN_vkGetDeviceProcAddr previous = ::vkGetDeviceProcAddr;
     ::vkGetDeviceProcAddr = getDeviceProcAddr;
     volkLoadDeviceTable(&table, device);
     ::vkGetDeviceProcAddr = previous;
 }
 
-bool LayerAvailable(const char* name) {
+// Runs a two-call enumeration, repeating while the driver reports VK_INCOMPLETE.
+template <class T, class Fn>
+Result<std::vector<T>> Enumerate(const char* what, Fn&& call) {
+    std::vector<T> items;
     uint32_t count = 0;
-    vkEnumerateInstanceLayerProperties(&count, nullptr);
-    std::vector<VkLayerProperties> layers(count);
-    if (count != 0) {
-        vkEnumerateInstanceLayerProperties(&count, layers.data());
+    VkResult r = VK_SUCCESS;
+    do {
+        r = call(&count, nullptr);
+        if (r != VK_SUCCESS) {
+            break;
+        }
+        items.resize(count);
+        r = count == 0 ? VK_SUCCESS : call(&count, items.data());
+    } while (r == VK_INCOMPLETE);
+    if (r != VK_SUCCESS) {
+        return Result<std::vector<T>>::Fail(VkFail("gpu.vk", what, r));
     }
-    for (const VkLayerProperties& layer : layers) {
+    items.resize(count);
+    return Result<std::vector<T>>::Ok(std::move(items));
+}
+
+Result<bool> LayerAvailable(const char* name) {
+    auto layers = Enumerate<VkLayerProperties>("vkEnumerateInstanceLayerProperties", [](uint32_t* n, VkLayerProperties* p) {
+        return vkEnumerateInstanceLayerProperties(n, p);
+    });
+    if (!layers.ok()) {
+        return Result<bool>::Fail(layers.error());
+    }
+    for (const VkLayerProperties& layer : layers.value()) {
         if (std::strcmp(layer.layerName, name) == 0) {
-            return true;
+            return Result<bool>::Ok(true);
         }
     }
-    return false;
+    return Result<bool>::Ok(false);
 }
 
-bool InstanceExtensionAvailable(const char* name) {
-    uint32_t count = 0;
-    vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr);
-    std::vector<VkExtensionProperties> extensions(count);
-    if (count != 0) {
-        vkEnumerateInstanceExtensionProperties(nullptr, &count, extensions.data());
-    }
+Result<std::vector<VkExtensionProperties>> InstanceExtensions() {
+    return Enumerate<VkExtensionProperties>("vkEnumerateInstanceExtensionProperties",
+                                            [](uint32_t* n, VkExtensionProperties* p) {
+                                                return vkEnumerateInstanceExtensionProperties(nullptr, n, p);
+                                            });
+}
+
+bool HasExtension(const std::vector<VkExtensionProperties>& extensions, const char* name) {
     for (const VkExtensionProperties& e : extensions) {
         if (std::strcmp(e.extensionName, name) == 0) {
             return true;
@@ -71,19 +91,15 @@ bool InstanceExtensionAvailable(const char* name) {
     return false;
 }
 
-bool DeviceExtensionAvailable(VkPhysicalDevice physical, const char* name) {
-    uint32_t count = 0;
-    vkEnumerateDeviceExtensionProperties(physical, nullptr, &count, nullptr);
-    std::vector<VkExtensionProperties> extensions(count);
-    if (count != 0) {
-        vkEnumerateDeviceExtensionProperties(physical, nullptr, &count, extensions.data());
+Result<bool> DeviceExtensionAvailable(VkPhysicalDevice physical, const char* name) {
+    auto extensions = Enumerate<VkExtensionProperties>("vkEnumerateDeviceExtensionProperties",
+                                                       [physical](uint32_t* n, VkExtensionProperties* p) {
+                                                           return vkEnumerateDeviceExtensionProperties(physical, nullptr, n, p);
+                                                       });
+    if (!extensions.ok()) {
+        return Result<bool>::Fail(extensions.error());
     }
-    for (const VkExtensionProperties& e : extensions) {
-        if (std::strcmp(e.extensionName, name) == 0) {
-            return true;
-        }
-    }
-    return false;
+    return Result<bool>::Ok(HasExtension(extensions.value(), name));
 }
 
 struct FeatureQuery {
@@ -115,11 +131,6 @@ struct Candidate {
 }
 
 Result<std::unique_ptr<Device>> Device::Create(const DeviceOptions& options) {
-    VkResult loaded = EnsureVolk(nullptr);
-    if (loaded != VK_SUCCESS) {
-        return Result<std::unique_ptr<Device>>::Fail(
-            {"gpu.noDevice", "no Vulkan loader found (vulkan-1.dll / libvulkan.so.1)", static_cast<int32_t>(loaded)});
-    }
     std::unique_ptr<Device> device(new Device());
     Result<void> created = device->CreateOwned(options);
     if (!created.ok()) {
@@ -158,6 +169,14 @@ void Device::LoadInstanceFns(PFN_vkGetInstanceProcAddr getInstanceProcAddr) {
 
 Result<void> Device::CreateOwned(const DeviceOptions& options) {
     m_owned = true;
+    // Held from the first volk call until the device table is loaded: every global volk pointer
+    // (instance level and vkGetDeviceProcAddr) is process-wide state.
+    std::unique_lock volkLock(g_volkMutex);
+    VkResult loaded = EnsureVolk(nullptr);
+    if (loaded != VK_SUCCESS) {
+        return Result<void>::Fail(
+            {"gpu.noDevice", "no Vulkan loader found (vulkan-1.dll / libvulkan.so.1)", static_cast<int32_t>(loaded)});
+    }
     m_getInstanceProcAddr = ::vkGetInstanceProcAddr;
 
     std::vector<const char*> extensions;
@@ -182,16 +201,26 @@ Result<void> Device::CreateOwned(const DeviceOptions& options) {
     std::vector<const char*> layers;
     bool debugUtils = false;
     bool validationFeatures = false;
-    if (options.validation && LayerAvailable(kValidationLayer)) {
-        layers.push_back(kValidationLayer);
-        m_info.validation = true;
-        if (InstanceExtensionAvailable(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
-            addExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-            debugUtils = true;
+    if (options.validation) {
+        auto layerFound = LayerAvailable(kValidationLayer);
+        if (!layerFound.ok()) {
+            return Result<void>::Fail(layerFound.error());
         }
-        if (InstanceExtensionAvailable(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME)) {
-            addExtension(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
-            validationFeatures = true;
+        if (layerFound.value()) {
+            auto available = InstanceExtensions();
+            if (!available.ok()) {
+                return Result<void>::Fail(available.error());
+            }
+            layers.push_back(kValidationLayer);
+            m_info.validation = true;
+            if (HasExtension(available.value(), VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
+                addExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+                debugUtils = true;
+            }
+            if (HasExtension(available.value(), VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME)) {
+                addExtension(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
+                validationFeatures = true;
+            }
         }
     }
 
@@ -246,16 +275,25 @@ Result<void> Device::CreateOwned(const DeviceOptions& options) {
         }
     }
 
-    uint32_t physicalCount = 0;
-    vkEnumeratePhysicalDevices(m_instance, &physicalCount, nullptr);
-    std::vector<VkPhysicalDevice> physicals(physicalCount);
-    if (physicalCount != 0) {
-        vkEnumeratePhysicalDevices(m_instance, &physicalCount, physicals.data());
+    auto enumerated = Enumerate<VkPhysicalDevice>("vkEnumeratePhysicalDevices", [this](uint32_t* n, VkPhysicalDevice* p) {
+        return vkEnumeratePhysicalDevices(m_instance, n, p);
+    });
+    if (!enumerated.ok()) {
+        return Result<void>::Fail(enumerated.error());
     }
+    const std::vector<VkPhysicalDevice>& physicals = enumerated.value();
 
+    std::optional<Error> enumerationError;
     auto qualify = [&](VkPhysicalDevice physical, Candidate& out) {
-        if (options.presentSupport && !DeviceExtensionAvailable(physical, VK_KHR_SWAPCHAIN_EXTENSION_NAME)) {
-            return false;
+        if (options.presentSupport) {
+            auto swapchain = DeviceExtensionAvailable(physical, VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+            if (!swapchain.ok()) {
+                enumerationError = swapchain.error();
+                return false;
+            }
+            if (!swapchain.value()) {
+                return false;
+            }
         }
         uint32_t familyCount = 0;
         m_instanceFn.getPhysicalDeviceQueueFamilyProperties(physical, &familyCount, nullptr);
@@ -306,6 +344,9 @@ Result<void> Device::CreateOwned(const DeviceOptions& options) {
             chosen = first;
             found = true;
         }
+    }
+    if (enumerationError.has_value()) {
+        return Result<void>::Fail(*enumerationError);
     }
     if (!found) {
         return Result<void>::Fail({"gpu.noDevice", "no physical device offers a graphics queue family for these options", 0});
@@ -361,6 +402,7 @@ Result<void> Device::CreateOwned(const DeviceOptions& options) {
     }
     m_getDeviceProcAddr = ::vkGetDeviceProcAddr;
     LoadTable(m_fn, m_device, m_getDeviceProcAddr);
+    volkLock.unlock();
 
     VkQueue queue = VK_NULL_HANDLE;
     m_fn.vkGetDeviceQueue(m_device, chosen.family, 0, &queue);
@@ -378,7 +420,10 @@ Result<void> Device::AdoptExternal(const ExternalDevice& external) {
         return Result<void>::Fail({"gpu.feature",
                                    "the host must enable dynamicRendering, synchronization2 and timelineSemaphore", 0});
     }
-    EnsureVolk(external.getInstanceProcAddr);
+    {
+        std::lock_guard volkLock(g_volkMutex);
+        EnsureVolk(external.getInstanceProcAddr);
+    }
 
     m_owned = false;
     m_instance = external.instance;
@@ -409,7 +454,10 @@ Result<void> Device::AdoptExternal(const ExternalDevice& external) {
                                    0});
     }
 
-    LoadTable(m_fn, m_device, m_getDeviceProcAddr);
+    {
+        std::lock_guard volkLock(g_volkMutex);
+        LoadTable(m_fn, m_device, m_getDeviceProcAddr);
+    }
     m_queue.reset(new Queue(*this, external.queue, external.queueFamily));
     return FinishInit(external.pipelineCachePath);
 }
@@ -505,8 +553,10 @@ void Device::SavePipelineCache() const {
 }
 
 Device::~Device() {
-    if (m_device != VK_NULL_HANDLE) {
+    if (m_owned && m_device != VK_NULL_HANDLE) {
         m_fn.vkDeviceWaitIdle(m_device);
+    } else if (!m_owned && m_queue && m_queue->Timeline() != VK_NULL_HANDLE) {
+        m_queue->Wait(m_queue->LastSubmitted());
     }
     m_retire.Drain();
     if (m_device != VK_NULL_HANDLE) {
