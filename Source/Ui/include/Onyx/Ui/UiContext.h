@@ -20,7 +20,7 @@ struct UiContext {
     Modules::Workspace& workspace;
     Gpu::Device* gpu;
     Gpu::Frame* frame;
-    TexturePool& textures;
+    TexturePool* textures;  // null when gpu is null
     Theme& theme;
     CommandRegistry& commands;
     ViewerRegistry& viewers;

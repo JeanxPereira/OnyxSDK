@@ -50,8 +50,8 @@ TEST_CASE("PanelHost draws visible panels only") {
     host.Add(std::make_unique<TestPanel>("hidden", hidden));
     host.Find("hidden")->visible = false;
 
-    Frames(rig, host, ui, 3);
-    CHECK(shown >= 1);
+    Frames(rig, host, ui, 1);
+    CHECK(shown == 1);
     CHECK(hidden == 0);
 }
 
@@ -87,11 +87,52 @@ TEST_CASE("A throwing panel is hidden after one frame and logged once") {
     Frames(rig, host, ui, 3);
     CHECK_FALSE(host.Find("bad")->visible);
     CHECK(bad == 1);
-    CHECK(good >= 1);
+    CHECK(good == 3);
     CHECK(reports == 1);
 
     host.Find("bad")->visible = true;
     Frames(rig, host, ui, 3);
-    log.RemoveSink(sink);
     CHECK(reports == 1);
+
+    host.Add(std::make_unique<TestPanel>("bad", bad, true));
+    Frames(rig, host, ui, 1);
+    log.RemoveSink(sink);
+    CHECK(reports == 2);
+}
+
+namespace {
+
+class SelfRemovingPanel : public IPanel {
+public:
+    SelfRemovingPanel(PanelHost& host, int& draws) : m_host(host), m_draws(draws) {}
+
+    std::string_view Id() const override { return "self"; }
+    std::string_view Title() const override { return "Self"; }
+    void Draw(UiContext&) override {
+        ++m_draws;
+        m_host.Remove("self");
+        m_host.Add(std::make_unique<SelfRemovingPanel>(m_host, m_draws));
+        m_host.Remove("self");
+    }
+
+private:
+    PanelHost& m_host;
+    int& m_draws;
+};
+
+}
+
+TEST_CASE("A panel may remove itself while drawing") {
+    HeadlessImGui rig;
+    BareContext bare;
+    UiContext ui = bare.Make();
+    PanelHost host;
+    int draws = 0;
+    host.Add(std::make_unique<SelfRemovingPanel>(host, draws));
+
+    Frames(rig, host, ui, 1);
+    CHECK(draws == 1);
+    CHECK(host.Find("self") == nullptr);
+    Frames(rig, host, ui, 1);
+    CHECK(draws == 1);
 }

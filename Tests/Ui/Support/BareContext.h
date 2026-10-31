@@ -1,28 +1,35 @@
 #pragma once
 
+#include <Onyx/Ui/Command.h>
+#include <Onyx/Ui/FrameClock.h>
+#include <Onyx/Ui/PanelHost.h>
 #include <Onyx/Ui/UiContext.h>
+#include <Onyx/Ui/ViewerRegistry.h>
 
 #include <cstddef>
 
-// A UiContext whose members are never dereferenced: the tests that use it exercise registries that
-// only forward the context to callbacks.
+// A UiContext for tests that only forward the context to callbacks. Theme has no definition yet, so
+// its reference points into raw storage and is never dereferenced; replace it with a real member
+// once Theme exists. Every other member is real.
 struct BareContext {
     Onyx::Modules::Workspace workspace;
-    alignas(std::max_align_t) std::byte storage[64]{};
-
-    template <class T>
-    T& Fake() { return *reinterpret_cast<T*>(storage); }
+    Onyx::Ui::CommandRegistry commands;
+    Onyx::Ui::ViewerRegistry viewers;
+    Onyx::Ui::PanelHost panels;
+    Onyx::Ui::FrameClock clock;
+    alignas(std::max_align_t) std::byte themeStorage[64]{};
+    static_assert(sizeof(themeStorage) >= 64);
 
     Onyx::Ui::UiContext Make() {
         return Onyx::Ui::UiContext{workspace,
                                    nullptr,
                                    nullptr,
-                                   Fake<Onyx::Ui::TexturePool>(),
-                                   Fake<Onyx::Ui::Theme>(),
-                                   Fake<Onyx::Ui::CommandRegistry>(),
-                                   Fake<Onyx::Ui::ViewerRegistry>(),
-                                   Fake<Onyx::Ui::PanelHost>(),
-                                   Fake<Onyx::Ui::FrameClock>(),
+                                   nullptr,
+                                   *reinterpret_cast<Onyx::Ui::Theme*>(themeStorage),
+                                   commands,
+                                   viewers,
+                                   panels,
+                                   clock,
                                    0.0f};
     }
 };

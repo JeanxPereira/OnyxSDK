@@ -98,6 +98,17 @@ TEST_CASE("Route ignores viewers for other media and invalid types") {
     ViewerRegistry reg;
     reg.Register(Spec("image", MediaKind::Image));
     CHECK(reg.Route(catalog, decoders, txt) == nullptr);
-    CHECK(reg.Route(catalog, decoders, Types::TypeId{}) == nullptr);
+    CHECK(reg.Route(catalog, decoders, Types::TypeId{static_cast<uint32_t>(catalog.Count())}) == nullptr);
     CHECK(reg.All().size() == 1);
+}
+
+TEST_CASE("The default type id routes to a Raw viewer") {
+    Types::TypeCatalog catalog;
+    Modules::DecoderRegistry decoders;
+
+    ViewerRegistry reg;
+    reg.Register(Spec("hex", MediaKind::Raw));
+    const ViewerSpec* routed = reg.Route(catalog, decoders, Types::TypeId{});
+    REQUIRE(routed != nullptr);
+    CHECK(routed->id == "hex");
 }

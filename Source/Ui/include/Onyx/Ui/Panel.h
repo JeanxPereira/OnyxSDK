@@ -15,6 +15,8 @@ public:
 
     virtual std::string_view Id() const = 0;
     virtual std::string_view Title() const = 0;
+    // An exception thrown from Draw must leave ImGui's stacks balanced, because the host calls
+    // End() afterwards; use RAII scopes for Push/Begin pairs.
     virtual void Draw(UiContext& ui) = 0;
 
     bool visible = true;

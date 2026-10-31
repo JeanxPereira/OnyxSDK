@@ -45,7 +45,7 @@ void ViewerRegistry::Unregister(std::string_view id) {
 
 const ViewerSpec* ViewerRegistry::Route(const Types::TypeCatalog& catalog, const Modules::DecoderRegistry& decoders,
                                         Types::TypeId type) const {
-    if (!type.Valid()) return nullptr;
+    if (type.value >= catalog.Count()) return nullptr;
     const std::string_view key = catalog.Key(type);
     const Domain::MediaKind media = catalog.Media(type);
     const Modules::Capabilities caps = decoders.Of(type);

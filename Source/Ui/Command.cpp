@@ -11,6 +11,7 @@ Error Unknown(std::string_view id) {
 }
 
 void CommandRegistry::Add(Command command) {
+    if (command.id.empty()) return;
     for (Command& existing : m_commands) {
         if (existing.id == command.id) {
             existing = std::move(command);

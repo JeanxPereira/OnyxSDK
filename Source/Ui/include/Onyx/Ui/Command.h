@@ -24,14 +24,15 @@ struct Command {
 
 class CommandRegistry {
 public:
-    // Replaces a command with the same id, keeping its position.
+    // Replaces a command with the same id, keeping its position. A command with an empty id is ignored.
     void Add(Command command);
     void Remove(std::string_view id);
 
     // Replaces every field except the id. Fails with "ui.command.unknown" when the id is absent.
     Result<void> Override(std::string_view id, Command command);
 
-    // Fails with "ui.command.unknown" for an unknown id; does nothing when `enabled` says no.
+    // Fails with "ui.command.unknown" for an unknown id; does nothing, successfully, when `enabled`
+    // says no or `run` is empty.
     Result<void> Run(std::string_view id, UiContext& ui);
 
     const std::vector<Command>& All() const { return m_commands; }
