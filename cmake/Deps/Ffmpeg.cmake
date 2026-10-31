@@ -34,16 +34,23 @@ function(onyx_dep_ffmpeg)
             target_link_libraries(onyx_ffmpeg INTERFACE "${ffmpeg_root}/lib/${lib}.lib")
         endforeach()
         file(GLOB ffmpeg_dlls "${ffmpeg_root}/bin/*.dll")
+        if(NOT ffmpeg_dlls)
+            message(FATAL_ERROR
+                "no FFmpeg DLLs under ${ffmpeg_root}/bin. The archive is not a shared build or the "
+                "extraction failed. Delete the ffmpeg_prebuilt directories under _deps and "
+                "reconfigure, or configure with -DONYX_WITH_MEDIA=OFF.")
+        endif()
         set(ONYX_FFMPEG_DLLS "${ffmpeg_dlls}" CACHE INTERNAL "FFmpeg runtime DLLs for Onyx executables")
     else()
         find_package(PkgConfig QUIET)
         if(PkgConfig_FOUND)
             pkg_check_modules(FFMPEG IMPORTED_TARGET
-                libavformat libavcodec libavutil libswscale libswresample)
+                libavformat>=60 libavcodec>=60 libavutil>=58 libswscale>=7 libswresample>=4)
         endif()
         if(NOT TARGET PkgConfig::FFMPEG)
             message(FATAL_ERROR
-                "Onyx::Media needs FFmpeg 6 or newer with pkg-config. Install "
+                "Onyx::Media needs FFmpeg 6.0 or newer (libavformat 60, libavcodec 60, libavutil 58, "
+                "libswscale 7, libswresample 4) found through pkg-config. Install "
                 "libavformat-dev libavcodec-dev libavutil-dev libswscale-dev "
                 "libswresample-dev pkg-config, or configure with -DONYX_WITH_MEDIA=OFF.")
         endif()

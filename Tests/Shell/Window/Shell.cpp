@@ -18,7 +18,7 @@
 #include "../../Prism/Support/PrismFixture.h"
 #include "../Support/ShellSupport.h"
 #include "Onyx/Shell/Shell.h"
-#if ONYX_WITH_MEDIA
+#ifdef ONYX_WITH_MEDIA
 #include "Onyx/Media/AudioOutput.h"
 #endif
 #include "Onyx/Ui/AudioOutput.h"
@@ -354,7 +354,7 @@ TEST_CASE("Without the extension the palette opens in the stock table viewer") {
     CHECK(OpenPaletteAndReadActiveId(shell, file).starts_with("onyx.table."));
 }
 
-#if ONYX_WITH_MEDIA
+#ifdef ONYX_WITH_MEDIA
 TEST_CASE("SetAudioOutput with Media's AudioOutput survives a Run teardown") {
     TempDir dir("shell_media_audio");
     Shell::Shell shell(TestOptions(dir.path));

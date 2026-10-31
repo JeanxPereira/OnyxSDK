@@ -8,7 +8,7 @@
 
 #include "Onyx/Core/Services/Paths.h"
 #include "Onyx/Shell/Shell.h"
-#if ONYX_WITH_MEDIA
+#ifdef ONYX_WITH_MEDIA
 #include "Onyx/Media/AudioOutput.h"
 #include "Onyx/Media/Viewers.h"
 #endif
@@ -21,7 +21,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     shell.AddExtension(std::make_unique<Prism::Ui::Extension>());
-#if ONYX_WITH_MEDIA
+#ifdef ONYX_WITH_MEDIA
     shell.SetAudioOutput(std::make_unique<Onyx::Media::AudioOutput>());
     Onyx::Media::RegisterMediaViewer(shell.Viewers());
 #endif
