@@ -34,6 +34,8 @@
 //   gpu.frame         FrameRing misuse: bad options, Begin while a frame is open, End of a stale frame
 //   gpu.upload.size   UploadContext was given empty data, a short texture pixel vector or a bad copy range
 //   gpu.upload.format the device cannot sample or blit the texture's format
+//   gpu.extent        a render target or swapchain was asked for a zero extent
+//   gpu.surface       the graphics queue family cannot present to the surface
 //   gpu.vk            any other failing VkResult (enumerations, counter reads)
 namespace Onyx::Gpu {
 
@@ -81,6 +83,9 @@ struct DeviceInfo {
     bool validation = false;
     bool adopted = false;
     bool robustBufferAccess = false;
+    // The sampler anisotropy limit when Create enabled samplerAnisotropy, otherwise 0. Adopt always
+    // reports 0 because the host's enablement is unknown.
+    float maxAnisotropy = 0.0f;
 };
 
 struct InstanceFns {

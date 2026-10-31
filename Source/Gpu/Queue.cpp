@@ -127,6 +127,20 @@ void Queue::SetFault(Error error) const {
     m_fault = std::move(error);
 }
 
+Result<void> Queue::WaitIdle() {
+    VkResult r = VK_SUCCESS;
+    {
+        std::lock_guard lock(m_mutex);
+        r = m_device.Fn().vkQueueWaitIdle(m_queue);
+    }
+    if (r != VK_SUCCESS) {
+        Error error = VkFail("gpu.wait", "vkQueueWaitIdle", r);
+        SetFault(error);
+        return Result<void>::Fail(std::move(error));
+    }
+    return Result<void>::Ok();
+}
+
 Result<void> Queue::Wait(FenceValue value, uint64_t timeoutNs) {
     VkSemaphoreWaitInfo info{};
     info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
