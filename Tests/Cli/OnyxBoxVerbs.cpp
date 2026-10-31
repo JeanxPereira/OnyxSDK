@@ -10,6 +10,7 @@
 #include <Onyx/Core/Cli/Verb.h>
 #include <Onyx/Core/Domain/ByteRange.h>
 #include <Onyx/Core/Modules/Workspace.h>
+#include <Onyx/Core/Services/Paths.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -377,4 +378,27 @@ TEST_CASE("Cli.ObxPakIsProvenEndToEndThroughTheVerbs") {
 
     CHECK(h.Invoke({"decode", file.path.string(), "shared.txt", "--strict"}).rc == Cli::kUsage);
     CHECK(h.Invoke({"decode", file.path.string(), "shared.txt", "--strict", "--first"}).rc == Cli::kStrictErrors);
+}
+
+TEST_CASE("decode opens a file whose name is non-ASCII when argv is UTF-8") {
+    TempPath root("utf8_argv");
+    const std::filesystem::path dir = root.path / std::filesystem::path(u8"caf\u00e9-\u00fc");
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    REQUIRE_FALSE(ec);
+    const std::filesystem::path file = dir / std::filesystem::path(u8"b\u00f6x.obx");
+    {
+        const std::vector<std::byte> bytes = SampleBox();
+        std::ofstream f(file, std::ios::binary);
+        f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+        REQUIRE(f.good());
+    }
+
+    Harness h;
+    const auto r = h.Invoke({"decode", Services::Paths::ToUtf8(file), "txt"});
+    CHECK(r.rc == Cli::kOk);
+    CHECK(Contains(r.out, "text txt: hello box"));
+
+    const auto listed = h.Invoke({"list", Services::Paths::ToUtf8(file)});
+    CHECK(listed.rc == Cli::kOk);
 }

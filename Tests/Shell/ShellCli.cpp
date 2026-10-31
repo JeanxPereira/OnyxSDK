@@ -3,6 +3,7 @@
 #include <OnyxBox/Module.h>
 
 #include <Onyx/Core/Cli/Run.h>
+#include <Onyx/Core/Services/Paths.h>
 
 #include <memory>
 #include <span>
@@ -102,4 +103,20 @@ TEST_CASE("RouteArgs sends a lone existing file to the GUI and everything else t
     std::filesystem::current_path(dir.path);
     CHECK(route({"onyx", "probe"}).kind == Shell::ArgsRoute::Kind::Cli);
     std::filesystem::current_path(previous);
+}
+
+TEST_CASE("RouteArgs opens a non-ASCII path given in UTF-8") {
+    TempDir dir("cli_route_utf8");
+    const std::filesystem::path folder = dir.path / std::filesystem::path(u8"caf\u00e9-\u00fc");
+    std::filesystem::create_directories(folder);
+    const auto obx = WriteObx(folder / std::filesystem::path(u8"b\u00f6x.obx"));
+    Shell::Shell shell(TestOptions(dir.path));
+
+    // The bytes arrive as a host would pass them: UTF-8 narrow strings that are not the process's own command line.
+    std::string program = "onyx";
+    std::string file = Services::Paths::ToUtf8(obx);
+    std::vector<char*> argv{program.data(), file.data()};
+    const Shell::ArgsRoute route = Shell::RouteArgs(static_cast<int>(argv.size()), argv.data(), shell.Verbs());
+    CHECK(route.kind == Shell::ArgsRoute::Kind::GuiOpen);
+    CHECK(std::filesystem::equivalent(route.file, obx));
 }
