@@ -25,6 +25,7 @@ layout(std140, set = 1, binding = 0) uniform MaterialUBO {
     float uMetallic;
     uint  uFlags;
     vec4  uNormalDecode; // scale, bias, XY strength, Y sign
+    float uVertexColorScale;
 };
 
 const uint FLAG_USE_TEXTURE = 1u << 0;

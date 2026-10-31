@@ -1,19 +1,27 @@
 #version 450
 
+// Interleaved vertex, 72 bytes: position R32G32B32 @0, normal R16G16B16A16_SNORM @12, tangent
+// R16G16B16A16_SNORM @20 (w = handedness), uv0 @28, uv1 @36, colour R8G8B8A8_UNORM @44,
+// joints R16G16B16A16_UINT @48, weights R32G32B32A32 @56.
 layout(location = 0) in vec3  aPos;
 layout(location = 1) in vec3  aNormal;
-layout(location = 2) in vec2  aUV;
-layout(location = 3) in vec4  aColor;
+layout(location = 2) in vec4  aTangent;
+layout(location = 3) in vec2  aUV;
 layout(location = 4) in vec2  aUV1;
-layout(location = 5) in vec4  aBoneWeights;
+layout(location = 5) in vec4  aColor;
 layout(location = 6) in uvec4 aBoneIndices;
-layout(location = 7) in vec4  aTangent;
+layout(location = 7) in vec4  aBoneWeights;
 
 layout(std140, set = 0, binding = 0) uniform FrameUBO {
     mat4 uView;
     mat4 uProjection;
     vec3 uCameraPos;
     int  uShadingMode;
+};
+
+// Global skinning palette of the frame: one matrix per skeleton joint, never empty.
+layout(std430, set = 0, binding = 1) readonly buffer JointPalette {
+    mat4 uJoints[];
 };
 
 // Flags bit layout: 0 texture, 1 normal map, 2 AO, 3 gloss, 4 scatter,
@@ -25,14 +33,15 @@ layout(std140, set = 1, binding = 0) uniform MaterialUBO {
     float uMetallic;
     uint  uFlags;
     vec4  uNormalDecode;
+    float uVertexColorScale;
 };
 
 const uint FLAG_USE_JOINTS = 1u << 5;
 
-// Skinning palette: unbounded, and bound even for unskinned draws with an
-// identity entry; FLAG_USE_JOINTS decides whether it is read.
-layout(std430, set = 1, binding = 2) readonly buffer JointPalette {
-    mat4 uJoints[];
+// Per part: the slot of each local joint index in the global palette. Bound for every part;
+// FLAG_USE_JOINTS decides whether it is read.
+layout(std430, set = 2, binding = 0) readonly buffer JointMap {
+    uint uJointMap[];
 };
 
 layout(push_constant) uniform PushConstants {
@@ -56,14 +65,14 @@ void main() {
     vec3 localTangent;
 
     if ((uFlags & FLAG_USE_JOINTS) != 0u) {
-        mat4 skin = uJoints[aBoneIndices.x] * aBoneWeights.x
-                  + uJoints[aBoneIndices.y] * aBoneWeights.y
-                  + uJoints[aBoneIndices.z] * aBoneWeights.z
-                  + uJoints[aBoneIndices.w] * aBoneWeights.w;
+        mat4 skin = uJoints[uJointMap[aBoneIndices.x]] * aBoneWeights.x
+                  + uJoints[uJointMap[aBoneIndices.y]] * aBoneWeights.y
+                  + uJoints[uJointMap[aBoneIndices.z]] * aBoneWeights.z
+                  + uJoints[uJointMap[aBoneIndices.w]] * aBoneWeights.w;
 
         float wsum = aBoneWeights.x + aBoneWeights.y + aBoneWeights.z + aBoneWeights.w;
         // A vertex whose weights are all zero would collapse to the origin.
-        if (wsum < 0.001) skin = uJoints[aBoneIndices.x];
+        if (wsum < 0.001) skin = uJoints[uJointMap[aBoneIndices.x]];
 
         localPos     = skin * vec4(aPos, 1.0);
         localNormal  = mat3(skin) * aNormal;
@@ -89,10 +98,9 @@ void main() {
     vUV  = aUV + uUvOffset;
     vUV1 = aUV1;
 
-    // Vertex colour convention of the data: 128 is full brightness, so the
-    // value is doubled and overbright is allowed.
-    vColor   = aColor * 2.0;
-    vColor.a = clamp(aColor.a, 0.0, 1.0);
+    // The material states how its vertex colours are scaled: a format that stores colours at
+    // half brightness sets 2, and overbright is allowed.
+    vColor = vec4(aColor.rgb * uVertexColorScale, aColor.a);
 
     gl_Position = uProjection * uView * worldPos;
 }
