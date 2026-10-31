@@ -178,10 +178,14 @@ bool Shell::ConfirmClose() {
 }
 
 void Shell::SyncTheme() {
-    if (m_theme.State() != m_savedTheme) {
-        m_theme.Save();
-        m_savedTheme = m_theme.State();
+    if (m_theme.State() == m_savedTheme) {
+        return;
     }
+    // Apply in the settings panel writes the state itself; a second write would dirty the file again.
+    if (Ui::Theme::ReadState(Settings()) != m_theme.State()) {
+        m_theme.Save();
+    }
+    m_savedTheme = m_theme.State();
 }
 
 void Shell::SaveSettings() {
