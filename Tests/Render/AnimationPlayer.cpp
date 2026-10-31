@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include <glm/gtc/matrix_transform.hpp>
+
 using namespace Onyx;
 using Render::AnimationPlayer;
 using Render::LoopMode;
@@ -181,4 +183,51 @@ TEST_CASE("Additive clips add to the bind pose") {
     CHECK(player.WorldTransforms()[0][3].y == doctest::Approx(rest[0][3].y + 2.0f));
     player.SetTime(0.5f);
     CHECK(player.WorldTransforms()[0][3].y == doctest::Approx(rest[0][3].y + 1.0f).epsilon(1e-3));
+}
+
+TEST_CASE("Off-frame times interpolate between baked frames") {
+    Chain chain;
+    const Domain::Skeleton& skeleton = *chain.fixture.scene.skeleton;
+    const Domain::AnimChannel& channel = chain.fixture.scene.animations->clips[0].channels[0];
+    REQUIRE(channel.joint == 1);
+
+    // 0.51 s lies between the 0.5 s key and the 1 s key, at fraction 0.02.
+    const glm::quat expected = glm::slerp(channel.rotation[1].value, channel.rotation[2].value, 0.02f);
+    glm::mat4 local = glm::mat4_cast(expected);
+    local[3] = skeleton.joints[1].localBind[3];
+    const std::vector<glm::mat4> rest = Render::RestWorldTransforms(skeleton);
+    const glm::mat4 world = rest[0] * local;
+
+    chain.player.SetTime(0.51f);
+    CHECK(MaxDiff(chain.player.WorldTransforms()[1], world) < 1e-4f);
+}
+
+TEST_CASE("A translation-only channel keeps the bind rotation and interpolates") {
+    auto skeleton = std::make_shared<Domain::Skeleton>();
+    skeleton->joints.resize(2);
+    skeleton->joints[1].parent = 0;
+    skeleton->joints[1].localBind = glm::rotate(glm::mat4(1.0f), 0.8f, glm::vec3(0.0f, 1.0f, 0.0f));
+    skeleton->joints[1].inverseBind = glm::inverse(skeleton->joints[1].localBind);
+
+    auto set = std::make_shared<Domain::AnimationSet>();
+    Domain::AnimClip clip;
+    clip.duration = 1.0f;
+    Domain::AnimChannel channel;
+    channel.joint = 1;
+    channel.translation = {{0.0f, glm::vec3(0.0f)}, {1.0f, glm::vec3(2.0f, 0.0f, 0.0f)}};
+    clip.channels.push_back(channel);
+    set->clips.push_back(clip);
+
+    AnimationPlayer player;
+    player.Set(skeleton, set, 0);
+    player.SetTime(0.25f);
+    const glm::mat4 world = player.WorldTransforms()[1];
+    CHECK(world[3].x == doctest::Approx(0.5f).epsilon(1e-5));
+    CHECK(world[3].y == doctest::Approx(0.0f).scale(1.0).epsilon(1e-5));
+    CHECK(world[3].z == doctest::Approx(0.0f).scale(1.0).epsilon(1e-5));
+    glm::mat4 bindRotation = skeleton->joints[1].localBind;
+    bindRotation[3] = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    glm::mat4 gotRotation = world;
+    gotRotation[3] = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    CHECK(MaxDiff(gotRotation, bindRotation) < 1e-5f);
 }

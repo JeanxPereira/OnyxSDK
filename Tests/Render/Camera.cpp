@@ -4,6 +4,8 @@
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <algorithm>
+
 using namespace Onyx;
 
 namespace {
@@ -71,4 +73,45 @@ TEST_CASE("ViewRotation is the rotational part of ViewMatrix") {
             CHECK(rot[c][r] == doctest::Approx(view[c][r]));
         }
     }
+}
+
+TEST_CASE("Camera defaults match the tuning knobs of the original viewer") {
+    const Render::Camera camera;
+    CHECK(camera.fov == 55.0f);
+    CHECK(camera.nearPlane == 0.01f);
+    CHECK(camera.farPlane == 50000.0f);
+    CHECK(camera.autoNear);
+    CHECK(camera.autoFar);
+    CHECK(camera.manualNear == 0.1f);
+    CHECK(camera.manualFar == 10000.0f);
+    CHECK(camera.nearDistanceScale == 0.002f);
+    CHECK(camera.farMargin == 1.1f);
+    CHECK(camera.nearFarRatioMax == 50000.0f);
+    CHECK(camera.GetDistance() == 5.0f);
+}
+
+TEST_CASE("GetEffectivePlanes follows the adaptive formula") {
+    Render::Camera camera;
+    camera.FocusOn(UnitCube());
+    const float distance = camera.GetDistance();
+    const glm::vec3 position = camera.GetPosition();
+    float farDist = 0.0f;
+    for (int i = 0; i < 8; ++i) {
+        const glm::vec3 corner((i & 1) ? 0.5f : -0.5f, (i & 2) ? 0.5f : -0.5f, (i & 4) ? 0.5f : -0.5f);
+        farDist = std::max(farDist, glm::length(corner - position));
+    }
+    const float expectedFar = std::max(farDist * 1.1f, distance * 2.0f);
+    const float expectedNear = std::max(distance * 0.002f, expectedFar / 50000.0f);
+
+    float n = 0.0f;
+    float f = 0.0f;
+    camera.GetEffectivePlanes(1.0f, n, f);
+    CHECK(f == doctest::Approx(expectedFar));
+    CHECK(n == doctest::Approx(std::max(expectedNear, 0.01f)));
+
+    camera.autoNear = false;
+    camera.autoFar = false;
+    camera.GetEffectivePlanes(1.0f, n, f);
+    CHECK(n == 0.1f);
+    CHECK(f == 10000.0f);
 }

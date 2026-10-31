@@ -100,3 +100,33 @@ TEST_CASE("ValidateSkinning rejects a skinned part in a scene without a skeleton
     REQUIRE(diags.size() == 1);
     CHECK(diags[0].code == "render.skinning.jointMap");
 }
+
+TEST_CASE("ValidateSkinning rejects a jointMap with empty vertex streams") {
+    Domain::Scene scene;
+    auto skeleton = std::make_shared<Domain::Skeleton>();
+    skeleton->joints.resize(2);
+    scene.skeleton = skeleton;
+    Domain::MeshPart part;
+    part.name = "mapOnly";
+    part.positions.assign(3, glm::vec3(0.0f));
+    part.jointMap = {0, 1};
+    scene.parts = {part};
+
+    const std::vector<Services::Diag> diags = Render::ValidateSkinning(scene);
+    REQUIRE(diags.size() == 1);
+    CHECK(diags[0].code == "render.skinning.streams");
+    CHECK(diags[0].message.find("mapOnly") != std::string::npos);
+}
+
+TEST_CASE("ValidateSkinning reports a joint whose parent does not precede it") {
+    Domain::Scene scene;
+    auto skeleton = std::make_shared<Domain::Skeleton>();
+    skeleton->joints.resize(3);
+    skeleton->joints[1].parent = 2;
+    skeleton->joints[2].parent = 0;
+    scene.skeleton = skeleton;
+    const std::vector<Services::Diag> diags = Render::ValidateSkinning(scene);
+    REQUIRE(diags.size() == 1);
+    CHECK(diags[0].code == "render.skinning.order");
+    CHECK(diags[0].severity == Services::Severity::Error);
+}

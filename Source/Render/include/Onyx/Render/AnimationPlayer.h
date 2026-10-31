@@ -19,7 +19,8 @@ enum class LoopMode : uint8_t { None, Loop, PingPong };
 
 // Samples an AnimClip into a joint palette. A clip is baked once into 60 Hz local poses; Advance
 // interpolates between baked frames. Up to eight baked clips are kept, least recently used first
-// out.
+// out. Joints must be ordered so that a parent precedes its children; a parent index outside
+// [0, joint) makes the joint a root. The bake cache keeps its set and skeleton alive until eviction.
 class AnimationPlayer {
 public:
     // Selects a clip and rewinds to time 0. A clip index past the set leaves HasClip() false.
@@ -74,7 +75,6 @@ private:
     std::shared_ptr<const Domain::AnimationSet> m_set;
     std::list<std::shared_ptr<const Baked>> m_cache;  // most recently used first
     std::shared_ptr<const Baked> m_baked;
-    std::vector<Pose> m_scratch;
     std::vector<glm::mat4> m_restWorld;
     std::vector<glm::mat4> m_restPalette;
     std::vector<glm::mat4> m_world;

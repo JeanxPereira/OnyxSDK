@@ -63,13 +63,11 @@ void AnimationPlayer::Set(std::shared_ptr<const Domain::Skeleton> skeleton,
     if (m_skeleton) {
         m_restWorld = RestWorldTransforms(*m_skeleton);
         m_restPalette = RestPalette(*m_skeleton);
-        m_scratch.resize(m_skeleton->joints.size());
         m_world.resize(m_skeleton->joints.size());
         m_palette.resize(m_skeleton->joints.size());
     } else {
         m_restWorld.clear();
         m_restPalette.clear();
-        m_scratch.clear();
         m_world.clear();
         m_palette.clear();
     }

@@ -1,5 +1,7 @@
 #include "Onyx/Render/Skinning.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <format>
 
 namespace Onyx::Render {
@@ -53,6 +55,14 @@ std::vector<Services::Diag> ValidateSkinning(const Domain::Scene& scene) {
     std::vector<Services::Diag> diags;
     const size_t jointCount = scene.skeleton ? scene.skeleton->joints.size() : 0;
 
+    for (size_t j = 0; j < jointCount; ++j) {
+        const Domain::Joint& joint = scene.skeleton->joints[j];
+        if (joint.parent >= 0 && static_cast<size_t>(joint.parent) >= j) {
+            diags.push_back(MakeError("render.skinning.order",
+                std::format("joint {} has parent {}, which does not precede it", j, joint.parent)));
+        }
+    }
+
     for (size_t p = 0; p < scene.parts.size(); ++p) {
         const Domain::MeshPart& part = scene.parts[p];
         if (part.joints.empty() && part.weights.empty() && part.jointMap.empty()) {
@@ -63,7 +73,8 @@ std::vector<Services::Diag> ValidateSkinning(const Domain::Scene& scene) {
 
         const bool streamsMismatch = (!part.joints.empty() && part.joints.size() != vertices) ||
                                      (!part.weights.empty() && part.weights.size() != vertices) ||
-                                     part.joints.empty() != part.weights.empty();
+                                     part.joints.empty() != part.weights.empty() ||
+                                     (part.joints.empty() && !part.jointMap.empty());
         if (streamsMismatch) {
             diags.push_back(MakeError("render.skinning.streams",
                 std::format("{}: {} positions, {} joint entries, {} weight entries", label, vertices,
@@ -88,7 +99,7 @@ std::vector<Services::Diag> ValidateSkinning(const Domain::Scene& scene) {
             continue;
         }
 
-        for (size_t v = 0; v < vertices; ++v) {
+        for (size_t v = 0; !part.joints.empty() && v < vertices; ++v) {
             bool bad = false;
             for (int k = 0; k < 4; ++k) {
                 if (part.weights[v][k] > 0.0f && part.joints[v][k] >= part.jointMap.size()) {
