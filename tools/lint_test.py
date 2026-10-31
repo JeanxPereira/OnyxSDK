@@ -30,6 +30,9 @@ def main():
         write(root, "Source/Core/include/Onyx/Core/NoGuard.h", "int Value();\n")
         # (e) history comment
         write(root, "Source/Core/Hist.cpp", "// Task 4 added this\nint Value() { return 1; }\n")
+        # (f) style colors written outside the theme
+        write(root, "Source/Ui/Widget.cpp", "void F() { ImGui::GetStyle().Colors[0] = {}; }\n")
+        write(root, "Source/Ui/Theme.cpp", "void G() { ImGui::GetStyle().Colors[0] = {}; }\n")
         # skipped trees and non-violations
         write(root, "legacy/Old.cpp", "#include <imgui.h>\n// wad Task 1\n")
         write(root, "Tests/Golden/data.txt", "wad\n")
@@ -43,13 +46,14 @@ def main():
         "game-name": 1,
         "pragma-once": 1,
         "comment-history": 1,
+        "style-writer": 1,
     }
     if dict(rules) != expected:
         print("unexpected result:", dict(rules))
         for line in found:
             print("  " + line)
         return 1
-    print("ok 5")
+    print("ok 6")
     return 0
 
 

@@ -31,6 +31,10 @@ PRAGMA_ONCE = re.compile(r"^\s*#\s*pragma\s+once\b", re.MULTILINE)
 HISTORY_CASE = re.compile(r"Task \d|\bT\d{1,2}:|\bM\d ")
 HISTORY_ICASE = re.compile(r"fix-round|milestone", re.IGNORECASE)
 
+STYLE_WRITE = re.compile(r"GetStyle\(\)\.Colors\[|style\.Colors\[")
+STYLE_WRITER_FILE = "Source/Ui/Theme.cpp"
+STYLE_LAYERS = {"Ui", "Shell"}
+
 HEADER_EXT = {".h", ".hpp", ".hh", ".inl"}
 SOURCE_EXT = {".cpp", ".cc", ".cxx", ".c"}
 
@@ -126,6 +130,22 @@ def lint(root):
                     m = HISTORY_CASE.search(c) or HISTORY_ICASE.search(c)
                     if m:
                         report(p, n, "comment-history", f"'{m.group(0).strip()}' in comment")
+
+    # (f) style colors are written only by the theme
+    if source.is_dir():
+        for layer in sorted(STYLE_LAYERS):
+            for p in walk(source / layer):
+                if p.suffix.lower() not in HEADER_EXT | SOURCE_EXT:
+                    continue
+                if p.relative_to(root).as_posix() == STYLE_WRITER_FILE:
+                    continue
+                text = read_text(p)
+                if text is None:
+                    continue
+                for n, line in enumerate(text.splitlines(), 1):
+                    m = STYLE_WRITE.search(line)
+                    if m:
+                        report(p, n, "style-writer", f"'{m.group(0)}' outside Source/Ui/Theme.cpp")
 
     # (c) game names
     for sub, skip_golden in (("Source", False), ("Examples", False), ("Tests", True)):

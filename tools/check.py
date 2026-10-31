@@ -66,7 +66,7 @@ def run(args, vcvars):
 
 
 def lint_with_selftest():
-    """Run the lint rules, then the lint self-test, which must print 'ok 5'."""
+    """Run the lint rules, then the lint self-test, which must print 'ok 6'."""
     lint = subprocess.run([sys.executable, str(ROOT / "tools" / "lint.py")],
                           cwd=ROOT, capture_output=True, text=True, errors="replace")
     if lint.returncode != 0:
@@ -74,8 +74,8 @@ def lint_with_selftest():
     selftest = subprocess.run([sys.executable, str(ROOT / "tools" / "lint_test.py")],
                               cwd=ROOT, capture_output=True, text=True, errors="replace")
     text = (selftest.stdout or "") + (selftest.stderr or "")
-    if selftest.returncode != 0 or "ok 5" not in text:
-        return selftest.returncode or 1, "lint_test.py did not print 'ok 5':\n" + text
+    if selftest.returncode != 0 or "ok 6" not in text:
+        return selftest.returncode or 1, "lint_test.py did not print 'ok 6':\n" + text
     return 0, ""
 
 
