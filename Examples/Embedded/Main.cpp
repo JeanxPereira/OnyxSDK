@@ -50,7 +50,7 @@ using namespace Onyx;
 
 constexpr int kExitNoDevice = 77;
 constexpr int kExitUsage = 2;
-// With --frames, the most frames the host draws while waiting for the sample.
+// With --frames, the most loop iterations the host runs before giving up, ready or not.
 constexpr long kMaxFrames = 600;
 
 struct Options {
@@ -235,6 +235,7 @@ int RunHost(const Options& options) {
     // With --frames N: frames drawn since the sample became ready (parsed and, for the built-in sample,
     // both tabs placed), so the views have drawn and uploaded before the host stops.
     long drawnReady = 0;
+    long iterations = 0;
     const auto sampleReady = [&] {
         const Modules::Document* document = workspace.Get(sampleId);
         return shown && document && document->ready.load() && (!options.open.empty() || tabsView->Count() == 2);
@@ -255,8 +256,12 @@ int RunHost(const Options& options) {
     } idleOnExit{host};
 
     while (!glfwWindowShouldClose(host.Window()) && (options.frames < 0 || drawnReady < options.frames)) {
-        if (options.frames >= 0 && drawn >= kMaxFrames) {
-            throw std::runtime_error("the sample was not ready after " + std::to_string(kMaxFrames) + " frames");
+        if (options.frames >= 0 && ++iterations > kMaxFrames) {
+            throw std::runtime_error(sampleReady() ? "the sample was ready but " + std::to_string(options.frames) +
+                                                       " frames did not fit in " + std::to_string(kMaxFrames) +
+                                                       " iterations"
+                                                 : "the sample was not ready after " +
+                                                       std::to_string(kMaxFrames) + " iterations");
         }
         glfwPollEvents();
         if (host.Minimised()) {
