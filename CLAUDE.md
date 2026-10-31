@@ -23,6 +23,7 @@ Onyx is a C++20 SDK for game-asset tools, rebuilt as v2 in nine layered static l
 - `py -3 tools/check.py [--preset P]` runs the full verdict. Presets: `windows-debug`, `windows-release`, `linux-debug`, `linux-release` (build dir `build/<preset>`).
 - `py -3 tools/lint.py` checks layer hygiene alone.
 - On Windows MSVC is not on `PATH`; `check.py` locates Visual Studio through `vswhere` and runs inside `vcvars64.bat` itself. Do not configure by hand from a plain shell.
+- GPU test suites (`Gpu.Device`, `Render.Gpu`, `Render.Parity`, `Render.Reproducible`) exit 77 without a Vulkan device and ctest reports them as skipped. `Render.Parity` compares against `Tests/Golden/corpus` with the profile in `Tests/Golden/tolerances.toml` (`[hardware]`, or `[software]` on a CPU device).
 - Component options: `ONYX_WITH_GPU/UI/SHELL/MEDIA`; turning one off turns off those above it.
 
 ## Where to look

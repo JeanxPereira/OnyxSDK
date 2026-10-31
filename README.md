@@ -24,14 +24,34 @@ Onyx is nine static libraries, each with its own `Source/<Layer>/` directory and
 
 ## Status
 
-v2 is in progress on branch `v2`. W0 (the skeleton) and W1 (Core) are done. What works today:
+v2 is in progress on branch `v2`. W0 (the skeleton), W1 (Core) and W2 (Gpu and Render) are done. What works today:
 
 - **Core.** The virtual filesystem (OS, memory and slice files, ISO 9660 mounts, lz4), the type catalog, the game-agnostic domain model, the module contract with capability-aware decoders, the workspace that opens documents synchronously or on the job queue, jobs, events and diagnostics, atomic settings with a declared schema, and the declarative schema reader.
 - **Cli.** The stock verbs `probe`, `list`, `extract` and `decode`; the verb table itself lives in Core (`Onyx/Core/Cli/Verb.h`).
-- **TestKit.** Tree goldens, the decode smoke check and the synthetic ISO builder.
+- **Gpu.** `Onyx::Gpu::Device` either creates its own Vulkan 1.3 device or adopts the host's, with a timeline semaphore and a retire queue that destroys resources once the GPU is past them. Buffers, images and views are RAII handles. `FrameRing` gives each frame in flight a transient ring for per-frame data, `UploadContext` batches uploads into one submit, `PipelineBuilder` builds pipelines over a cached `VkPipelineCache`, and `DescriptorPool`, the MSAA `RenderTarget` and `Swapchain` complete the layer.
+- **Render.** `Projection` bakes in the Vulkan flip, `Camera` orbits a bounding box, and `AnimationPlayer` poses a scene from a `Domain::AnimClip`. `SceneRenderer` loads a scene with one upload flush, deduplicates materials, validates skinning, and draws it with optional grid and skeleton overlays; `RenderToImage` does that headlessly into a texture. `Overlays::gizmo` is deferred to W3 with the Ui layer.
+- **TestKit.** Tree goldens, the decode smoke check, the synthetic ISO builder, PNG read and write, image comparison with tolerance profiles, and the corpus scene fixtures.
 - **OnyxBox.** A synthetic example module (`Onyx::ExampleBox`) with its container writer, used by the tests and by the consumer gate.
 
-`Onyx::Gpu`, `Onyx::Render`, `Onyx::Ui`, `Onyx::Shell`, `Onyx::Media` and `Onyx::Exchange` still expose only `LayerName()`. W2 (Gpu and Render) is next. `legacy/` is the v1 tree and is not built. CI is defined for both OSes but has not yet run on a hosted runner.
+The parity gate (`Render.Parity`) renders the frozen corpus and compares it with the goldens; it passed on an AMD Radeon RX 6750 XT within the v1 `[hardware]` tolerances, with no tolerance change. A `[software]` profile is recorded for lavapipe (Mesa 25.2.8 / LLVM 20.1.2); the cause is documented in `Tests/Golden/tolerances.toml`: the AMD GPU exports fp16 colour rounded toward zero where llvmpipe rounds fp32 to nearest, and llvmpipe filters UNORM8 textures in 8-bit fixed point. `Render.Reproducible` checks that two runs are byte-identical, and the Linux `check.py` run is green on WSL with all eleven suites. The oracle tool lives in `Tests/Oracle` (not `Tools/`, because `Tools/` and `tools/` cannot coexist on a case-insensitive filesystem). GPU test suites exit 77 and are reported as skipped when no Vulkan device exists.
+
+`Onyx::Ui`, `Onyx::Shell`, `Onyx::Media` and `Onyx::Exchange` still expose only `LayerName()`. `legacy/` is the v1 tree and is not built. CI is defined for both OSes but has not yet run on a hosted runner.
+
+## Rendering headless
+
+`RenderToImage` creates its own upload context, scene renderer and one-frame ring, renders a scene once and returns the pixels as a `Domain::Texture`, top row first. Given a `Domain::Scene` named `scene` and a `Camera` named `camera`:
+
+```cpp
+auto device = Onyx::Gpu::Device::Create({});
+Onyx::Render::View view; view.view = camera.ViewMatrix(); view.proj = camera.Proj(1.0f);
+auto image = Onyx::Render::RenderToImage(*device.value(), scene, view, {.grid = true}, {1024, 1024});
+```
+
+Both results are `Result` values: check `ok()` before using `value()`. To render several scenes with one renderer, use the second overload with a `SceneRenderer`, `Gpu::UploadContext` and `Gpu::FrameRing` you own. `View::pose` poses the scene at a clip and time before the draw.
+
+## Embedding in a host
+
+A host that already owns a Vulkan device hands it over with `Gpu::Device::Adopt(ExternalDevice)`: instance, physical device, device, queue, queue family, both proc address loaders and the features it enabled (dynamic rendering, synchronization2, timeline semaphore). Onyx never destroys those handles. The queue is used only through `Queue::Submit` and `Queue::Present` under Onyx's mutex, so the host gives Onyx a dedicated queue of the graphics family or routes its own submissions through `Queue::Submit`. Hand-off between the two sides goes through the device's timeline semaphore, and the host waits on that timeline to know when Onyx's work is done. An adopted device shuts down by waiting on its own timeline, never with `vkDeviceWaitIdle` on the host's device; `Queue::WaitIdle` exists only for swapchain teardown and recreate. Errors carry stable `gpu.*` codes, listed at the top of `Source/Gpu/include/Onyx/Gpu/Device.h`.
 
 ## Build and run
 
@@ -72,7 +92,7 @@ On Clang with CMake 3.28 or newer, a consumer without `clang-scan-deps` installe
 
 The ctest entry `Consumer.CoreOnly` is the gate for this: it configures `Tests/Consumer/CoreOnly` as a separate top-level project against this checkout with `ONYX_WITH_GPU=OFF`, builds it, runs it, and fails if the consumer's `_deps` holds any volk, Vulkan, VMA, glslang, ImGui, GLFW, ffmpeg or ImPlot directory.
 
-Component options: `ONYX_WITH_GPU` (Gpu and Render), `ONYX_WITH_UI`, `ONYX_WITH_SHELL`, `ONYX_WITH_MEDIA`. Turning a component off turns off those above it. Core, Cli, Exchange and TestKit always build; `-DONYX_WITH_GPU=OFF` drops Gpu, Render, Ui, Shell and Media, leaving only the non-graphical layers (Core, Cli, Exchange, TestKit), and a consumer that links `Onyx::Core` builds and links nothing GPU- or UI-related, and the configure fetches no GPU or UI third-party dependency. `ONYX_BUILD_TESTS`, `ONYX_BUILD_EXAMPLES` and `ONYX_BUILD_TOOLS` default to ON only when Onyx is the top-level project (`ONYX_BUILD_TOOLS` has no consumer yet).
+Component options: `ONYX_WITH_GPU` (Gpu and Render), `ONYX_WITH_UI`, `ONYX_WITH_SHELL`, `ONYX_WITH_MEDIA`. Turning a component off turns off those above it. Core, Cli, Exchange and TestKit always build; the shader compiler is `glslang` from the Vulkan SDK when found on the machine, and is fetched otherwise; `-DONYX_WITH_GPU=OFF` drops Gpu, Render, Ui, Shell and Media, leaving only the non-graphical layers (Core, Cli, Exchange, TestKit), and a consumer that links `Onyx::Core` builds and links nothing GPU- or UI-related, and the configure fetches no GPU or UI third-party dependency. `ONYX_BUILD_TESTS`, `ONYX_BUILD_EXAMPLES` and `ONYX_BUILD_TOOLS` default to ON only when Onyx is the top-level project (`ONYX_BUILD_TOOLS` has no consumer yet).
 
 ## Where to look
 

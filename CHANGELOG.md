@@ -26,6 +26,20 @@ v2 is a break-and-port: the public surface is redesigned and nothing from 1.x is
 - **OnyxBox and goldens.** The OnyxBox example module and writer, tree goldens and the decode smoke check.
 - **Consumer gate and tools.** `Consumer.CoreOnly` builds Core from outside the tree and asserts no GPU or UI dependency is fetched; `check.py` gains `--jobs` and quotes its ctest regex on Windows.
 
+### W2
+- **Device.** `Gpu::Device` creates its own Vulkan 1.3 device or adopts the host's through `ExternalDevice`, with a timeline semaphore, a retire queue and a cached `VkPipelineCache`. Error codes are the `gpu.*` table in `Device.h`.
+- **Handles and queue.** RAII buffers, images and views, and `Queue::Submit` and `Queue::Present` under one mutex. `Queue::WaitIdle` exists for swapchain teardown and recreate only; an adopted device waits on its own timeline at shutdown, never `vkDeviceWaitIdle` on the host's device.
+- **Frames and uploads.** `FrameRing` with a per-frame transient ring, and a batched `UploadContext` that flushes once per scene.
+- **Pipelines and targets.** `PipelineBuilder` over the pipeline cache, `DescriptorPool`, the MSAA `RenderTarget` and `Swapchain`.
+- **Projection and camera.** `Projection` with the Vulkan flip baked in, and `Camera`.
+- **Animation.** `AnimationPlayer` over `Domain::AnimClip`.
+- **SceneRenderer.** One upload flush per `Load`, deduplicated materials, skinning validation, and grid and skeleton overlays. `Overlays::gizmo` is deferred to W3 (Ui).
+- **RenderToImage.** Headless render of a scene into a `Domain::Texture`, either on its own objects or on a renderer, upload context and ring the caller owns.
+- **TestKit.** PNG read and write, image comparison, tolerance profiles and the corpus scene fixtures.
+- **Oracle and parity gate.** The oracle tool in `Tests/Oracle` (not `Tools/`, since `Tools/` and `tools/` cannot coexist on a case-insensitive filesystem), the `Render.Parity` gate against the frozen goldens and `Render.Reproducible`. Parity passed on an AMD Radeon RX 6750 XT within the v1 `[hardware]` tolerances with no tolerance change.
+- **Software profile.** A `[software]` tolerance profile for lavapipe (Mesa 25.2.8 / LLVM 20.1.2). The cause is in `Tests/Golden/tolerances.toml`: fp16 round-toward-zero colour export on AMD against fp32 round-to-nearest on llvmpipe, plus 8-bit fixed-point UNORM8 texture filtering.
+- **Build and tests.** glslang is looked up on the machine (Vulkan SDK) before it is fetched; GPU test suites exit 77 (skip) without a device; the Linux `check.py` run is green on WSL with all eleven suites.
+
 ## v1.3.3 — 2026-10-16
 
 ### Fixed

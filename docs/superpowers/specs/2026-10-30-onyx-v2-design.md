@@ -680,7 +680,8 @@ Examples/{MinimalViewer,Embedded,OnyxCli,OnyxBox,Prism}
 Tests/<Layer>/              one executable per layer + Standalone.cpp compile test
 Tests/Golden/               frozen corpus
 Tests/Consumer/             external consumption gate (Core-only and full)
-Tools/{OnyxOracle,ColdStart}
+Tests/Oracle                the OnyxOracle tool (Tools/ and tools/ cannot coexist on a case-insensitive filesystem)
+Tools/ColdStart
 tools/check.py              configure + build + ctest + lint; verdict is the exit code
 docs/                       architecture.md, consuming.md, modules.md, design/, superpowers/
 third_party/                fonts, stb, miniaudio (vendored as today)
