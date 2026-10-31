@@ -26,7 +26,8 @@ function(onyx_add_tests layer)
     add_executable(${exe} ${ARG_SOURCES})
     target_link_libraries(${exe} PRIVATE Onyx::${layer} doctest::doctest ${ARG_LINK})
     target_compile_definitions(${exe} PRIVATE
-        ONYX_GOLDEN_DIR="${PROJECT_SOURCE_DIR}/Tests/Golden")
+        ONYX_GOLDEN_DIR="${PROJECT_SOURCE_DIR}/Tests/Golden"
+        ONYX_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
     onyx_warnings(${exe})
     set_target_properties(${exe} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
     add_test(NAME ${layer}.${ARG_SUITE} COMMAND ${exe})
