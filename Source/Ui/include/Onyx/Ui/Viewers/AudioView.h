@@ -16,8 +16,8 @@ struct WavePeak {
     float max = 0.0f;
 };
 
-// A waveform and the format of a decoded clip. Play and Stop drive the context's audio output when
-// it has one.
+// A waveform and the format of a decoded clip. Play, Stop, Pause and Resume drive the context's audio
+// output when it has one, and a click on the waveform seeks.
 class AudioView : public IDocumentView {
 public:
     AudioView(Modules::DocumentId doc, Modules::NodePath node, std::string name, Domain::Audio audio);
@@ -32,6 +32,8 @@ public:
     double Duration() const;
     // One min/max pair per pixel column over every channel, cached for the last width asked.
     const std::vector<WavePeak>& Peaks(size_t width);
+    // Seconds into the clip: the output's position at the last draw while it played, or the last seek.
+    double Position() const { return m_position; }
 
 private:
     Modules::DocumentId m_doc;
@@ -42,6 +44,7 @@ private:
     std::vector<WavePeak> m_peaks;
     size_t m_peaksWidth = 0;
     std::optional<std::string> m_playError;
+    double m_position = 0.0;
 };
 
 }

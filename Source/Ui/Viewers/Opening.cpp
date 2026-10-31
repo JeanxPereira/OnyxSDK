@@ -21,6 +21,10 @@ Result<void> Fail(std::string code, std::string message) {
     return Result<void>::Fail(Error{std::move(code), std::move(message), 0});
 }
 
+std::shared_ptr<const Vfs::IFile> FileOf(const Modules::Document& doc, const Domain::ByteRange& range) {
+    return range.fileIndex < doc.files.size() ? doc.files[range.fileIndex] : nullptr;
+}
+
 bool NeedsDecode(MediaKind kind) {
     switch (kind) {
     case MediaKind::Image:
@@ -42,13 +46,21 @@ struct Decoded {
     std::unique_ptr<Domain::Scene> scene;
     std::optional<Domain::Audio> audio;
     std::optional<Domain::Table> table;
+    std::shared_ptr<void> any;
+    std::shared_ptr<const Vfs::IFile> file;
     std::shared_ptr<Modules::Document> owner;
     bool ok = false;
 
     Decoded(const Domain::AssetEntry& e, Services::Settings s) : entry(e), settings(std::move(s)) {}
 };
 
-void Decode(Decoded& out, const Modules::DecoderRegistry& decoders, MediaKind kind, Modules::DecodeContext& ctx) {
+void Decode(Decoded& out, const Modules::DecoderRegistry& decoders, MediaKind kind, const std::string& capability,
+            Modules::DecodeContext& ctx) {
+    if (!capability.empty()) {
+        out.any = decoders.DecodeAny(ctx, capability);
+        out.ok = out.any != nullptr;
+        return;
+    }
     switch (kind) {
     case MediaKind::Image:
         out.image = decoders.DecodeImage(ctx);
@@ -98,9 +110,12 @@ Result<void> OpenEntry(UiContext& ui, const Selection& selection, std::function<
     const MediaKind kind = workspace.Catalog().Media(entry->type);
     Create create = spec->create;
 
-    if (!NeedsDecode(kind)) {
+    const std::string capability = spec->anyCapability;
+
+    if (!NeedsDecode(kind) && capability.empty()) {
         OpenRequest request{workspace, selection.doc, selection.node, entry->type, kind, entry->name,
-                            std::nullopt, std::nullopt, nullptr, std::nullopt, std::nullopt, {}};
+                            std::nullopt, std::nullopt, nullptr, std::nullopt, std::nullopt, {},
+                            FileOf(*doc, entry->source), entry->source, nullptr, {}};
         Finish(request, create, place);
         return Result<void>::Ok();
     }
@@ -117,6 +132,7 @@ Result<void> OpenEntry(UiContext& ui, const Selection& selection, std::function<
     if (!owner) return Fail("ui.open.entry", "the document is not open");
 
     auto decoded = std::make_shared<Decoded>(*entry, workspace.Settings().Clone());
+    decoded->file = FileOf(*doc, entry->source);
     Modules::Workspace* const ws = &workspace;
     const Selection where = selection;
 
@@ -127,7 +143,7 @@ Result<void> OpenEntry(UiContext& ui, const Selection& selection, std::function<
 
     workspace.Jobs().Submit(
         kDecodeLane,
-        [decoded, weak, ws, kind](Services::Progress& progress) {
+        [decoded, weak, ws, kind, capability](Services::Progress& progress) {
             decoded->owner = weak.lock();
             Modules::Document* doc = decoded->owner.get();
             if (!doc) return;
@@ -139,21 +155,25 @@ Result<void> OpenEntry(UiContext& ui, const Selection& selection, std::function<
                                        progress,
                                        decoded->settings,
                                        doc->moduleState};
-            Decode(*decoded, ws->Decoders(), kind, ctx);
+            Decode(*decoded, ws->Decoders(), kind, capability, ctx);
         },
-        [decoded, ws, where, kind, create, place = std::move(place)]() {
+        [decoded, ws, where, kind, capability, create, place = std::move(place)]() {
             const std::shared_ptr<Modules::Document> owner = std::move(decoded->owner);
             if (!owner) return;
             for (Services::Diag& d : decoded->diags.Drain()) owner->diags.Report(std::move(d));
             if (ws->Get(where.doc) != owner.get()) return;
             if (!decoded->ok) {
-                owner->diags.Report({Services::Severity::Error, "ui.open.decode",
-                                     decoded->entry.name + " could not be decoded for viewing", std::nullopt});
+                const bool any = !capability.empty();
+                owner->diags.Report({Services::Severity::Error, any ? "ui.open.any" : "ui.open.decode",
+                                     decoded->entry.name + (any ? " has no result for the " + capability + " capability"
+                                                                : std::string(" could not be decoded for viewing")),
+                                     std::nullopt});
                 return;
             }
             OpenRequest request{*ws, where.doc, where.node, decoded->entry.type, kind, decoded->entry.name,
                                 std::move(decoded->image), std::move(decoded->text), std::move(decoded->scene),
-                                std::move(decoded->audio), std::move(decoded->table), {}};
+                                std::move(decoded->audio), std::move(decoded->table), {}, std::move(decoded->file),
+                                decoded->entry.source, std::move(decoded->any), capability};
             Finish(request, create, place);
         });
     return Result<void>::Ok();
