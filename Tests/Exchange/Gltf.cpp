@@ -9,6 +9,8 @@
 #include "Support.h"
 
 #include <cstddef>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
@@ -79,8 +81,10 @@ TEST_CASE("WriteGltf round-trips the animated chain through cgltf") {
     CHECK(d.animations[0].channels_count > 0);
     CHECK(d.meshes[0].primitives_count == fixture.scene.parts.size());
     for (cgltf_size i = 0; i < d.accessors_count; ++i) {
-        CHECK(d.accessors[i].has_min);
-        CHECK(d.accessors[i].has_max);
+        const bool integral = d.accessors[i].component_type == cgltf_component_type_r_32u ||
+                              d.accessors[i].component_type == cgltf_component_type_r_16u;
+        CHECK(static_cast<bool>(d.accessors[i].has_min) == !integral);
+        CHECK(static_cast<bool>(d.accessors[i].has_max) == !integral);
     }
 }
 
@@ -327,4 +331,82 @@ TEST_CASE("WriteGltf keeps the first of two channels on the same joint and path"
     CHECK(animation.channels[0].target_path == cgltf_animation_path_type_translation);
     CHECK(animation.channels[0].sampler->input->count == 2);
     CHECK(animation.channels[1].target_path == cgltf_animation_path_type_scale);
+}
+
+TEST_CASE("index and joint accessors carry no min or max") {
+    Tests::TempDir dir("gltf_bounds");
+    const TestKit::SceneFixture fixture = TestKit::BuildAnimatedChain();
+    const auto path = dir.path / "bounds.glb";
+    REQUIRE(Exchange::WriteGltf(fixture.scene, path).ok());
+
+    std::ifstream in(path, std::ios::binary);
+    const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    cgltf_options options{};
+    cgltf_data* data = nullptr;
+    REQUIRE(cgltf_parse(&options, bytes.data(), bytes.size(), &data) == cgltf_result_success);
+    bool sawIndex = false;
+    bool sawJoints = false;
+    bool sawPosition = false;
+    for (cgltf_size m = 0; m < data->meshes_count; ++m) {
+        for (cgltf_size p = 0; p < data->meshes[m].primitives_count; ++p) {
+            const cgltf_primitive& primitive = data->meshes[m].primitives[p];
+            if (primitive.indices) {
+                sawIndex = true;
+                CHECK_FALSE(primitive.indices->has_min);
+                CHECK_FALSE(primitive.indices->has_max);
+            }
+            for (cgltf_size a = 0; a < primitive.attributes_count; ++a) {
+                const cgltf_attribute& attribute = primitive.attributes[a];
+                if (attribute.type == cgltf_attribute_type_joints) {
+                    sawJoints = true;
+                    CHECK_FALSE(attribute.data->has_min);
+                    CHECK_FALSE(attribute.data->has_max);
+                } else if (attribute.type == cgltf_attribute_type_position) {
+                    sawPosition = true;
+                    CHECK(attribute.data->has_min);
+                    CHECK(attribute.data->has_max);
+                }
+            }
+        }
+    }
+    cgltf_free(data);
+    CHECK(sawIndex);
+    CHECK(sawJoints);
+    CHECK(sawPosition);
+}
+
+TEST_CASE("a .gltf whose directory is a file leaves no .bin behind") {
+    Tests::TempDir dir("gltf_blocked");
+    const auto blocker = dir.path / "blocker";
+    { std::ofstream(blocker) << "x"; }
+    const TestKit::SceneFixture fixture = TestKit::BuildAnimatedChain();
+    Exchange::GltfOptions options;
+    options.embedBuffers = false;
+
+    const Result<void> written = Exchange::WriteGltf(fixture.scene, blocker / "x.gltf", options);
+    REQUIRE_FALSE(written.ok());
+    CHECK(written.error().code == "exchange.gltf.write");
+    CHECK_FALSE(std::filesystem::exists(blocker / "x.bin"));
+    CHECK_FALSE(std::filesystem::exists(dir.path / "x.bin"));
+}
+
+TEST_CASE("a .gltf under a non-ASCII directory is written") {
+    Tests::TempDir dir("gltf_unicode");
+    const auto folder = dir.path / std::filesystem::path(u8"café");
+    const auto path = folder / "x.gltf";
+    const TestKit::SceneFixture fixture = TestKit::BuildAnimatedChain();
+    Exchange::GltfOptions options;
+    options.embedBuffers = false;
+
+    REQUIRE(Exchange::WriteGltf(fixture.scene, path, options).ok());
+    CHECK(std::filesystem::exists(folder / "x.bin"));
+
+    std::ifstream in(path, std::ios::binary);
+    REQUIRE(in);
+    const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    cgltf_options parseOptions{};
+    cgltf_data* data = nullptr;
+    REQUIRE(cgltf_parse(&parseOptions, bytes.data(), bytes.size(), &data) == cgltf_result_success);
+    CHECK(data->meshes_count > 0);
+    cgltf_free(data);
 }

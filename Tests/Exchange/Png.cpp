@@ -8,6 +8,7 @@
 #include "Support.h"
 
 #include <cstring>
+#include <fstream>
 
 using namespace Onyx;
 
@@ -38,4 +39,14 @@ TEST_CASE("WritePng refuses a Bc1 texture") {
     const Result<void> written = Exchange::WritePng(texture, dir.path / "bc1.png");
     REQUIRE_FALSE(written.ok());
     CHECK(written.error().code == "exchange.png.format");
+}
+
+TEST_CASE("WritePng reports exchange.png.write for an unwritable path") {
+    Tests::TempDir dir("png_unwritable");
+    const auto blocker = dir.path / "blocker";
+    { std::ofstream(blocker) << "x"; }
+    const Domain::Texture checker = TestKit::MakeChecker(8, {255, 0, 0, 255}, {0, 0, 255, 128}, "checker");
+    const Result<void> written = Exchange::WritePng(checker, blocker / "x.png");
+    REQUIRE_FALSE(written.ok());
+    CHECK(written.error().code == "exchange.png.write");
 }

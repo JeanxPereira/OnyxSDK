@@ -20,7 +20,9 @@ struct GltfOptions {
 // One material per Domain::Material: baseColorFactor, metallicFactor, and the Diffuse, Normal and Occlusion textures
 // (re-encoded as PNG inside the buffer; a texture that is not Rgba8 leaves its slot unset). One node per Joint with
 // its localBind decomposed to translation, rotation and scale, inverse bind matrices from Joint::inverseBind, and one
-// animation per non-additive clip with LINEAR samplers. Every accessor carries min and max.
+// animation per non-additive clip with LINEAR samplers. POSITION and the other float accessors carry min and max; the
+// index and JOINTS_0 accessors carry none (a float bound cannot hold an index above 2^24 exactly).
+// A `.gltf` output writes `<stem>.bin` beside it and replaces any file of that name.
 // Errors: exchange.gltf.empty (no part has vertices), exchange.gltf.write (encoding or the filesystem refused).
 Result<void> WriteGltf(const Domain::Scene& scene, const std::filesystem::path& out, const GltfOptions& options = {});
 
