@@ -15,6 +15,7 @@ class CommandRegistry;
 class ViewerRegistry;
 class PanelHost;
 class FrameClock;
+class IAudioOutput;
 
 struct UiContext {
     Modules::Workspace& workspace;
@@ -27,6 +28,7 @@ struct UiContext {
     PanelHost& panels;
     FrameClock& clock;
     float dt;
+    IAudioOutput* audio = nullptr;
 };
 
 }
