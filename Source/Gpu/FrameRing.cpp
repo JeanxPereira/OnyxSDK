@@ -7,6 +7,9 @@
 namespace Onyx::Gpu {
 
 Result<Transient> Frame::Allocate(VkDeviceSize size, VkDeviceSize alignment) {
+    if (!m_isOpen) {
+        return Result<Transient>::Fail({"gpu.frame", "Allocate was called on a frame that is not open", 0});
+    }
     if (alignment == 0) {
         alignment = 1;
     }
@@ -132,6 +135,7 @@ Result<Frame*> FrameRing::Begin() {
     frame.m_waits.clear();
     frame.m_signals.clear();
     ++m_cursor;
+    frame.m_isOpen = true;
     m_open = &frame;
     return Result<Frame*>::Ok(&frame);
 }
@@ -141,6 +145,7 @@ Result<FenceValue> FrameRing::End(Frame& frame) {
         return Result<FenceValue>::Fail({"gpu.frame", "End was called on a frame that is not the open one", 0});
     }
     m_open = nullptr;
+    frame.m_isOpen = false;
     const auto& fn = m_device.Fn();
     VkResult r = fn.vkEndCommandBuffer(frame.m_cmd);
     if (r != VK_SUCCESS) {

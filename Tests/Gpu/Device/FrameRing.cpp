@@ -56,7 +56,9 @@ TEST_CASE("Frame waits on an upload value before its commands") {
     REQUIRE(up.ok());
     auto buf = up.value()->Upload(std::vector<std::byte>(256), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     REQUIRE(buf.ok());
-    auto value = up.value()->Flush();
+    auto flushed = up.value()->Flush();
+    REQUIRE(flushed.ok());
+    const auto value = flushed.value();
     auto ring = Gpu::FrameRing::Create(*device);
     REQUIRE(ring.ok());
     auto f = ring.value()->Begin();
@@ -79,4 +81,17 @@ TEST_CASE("FrameRing refuses a second Begin while a frame is open") {
     REQUIRE_FALSE(g.ok());
     CHECK(g.error().code == "gpu.frame");
     CHECK(ring.value()->End(*f.value()).ok());
+}
+
+TEST_CASE("Frame::Allocate outside Begin and End is refused") {
+    auto device = CreateTestDevice();
+    auto ring = Gpu::FrameRing::Create(*device);
+    REQUIRE(ring.ok());
+    auto f = ring.value()->Begin();
+    REQUIRE(f.ok());
+    Gpu::Frame* frame = f.value();
+    REQUIRE(ring.value()->End(*frame).ok());
+    auto t = frame->Allocate(16, 16);
+    REQUIRE_FALSE(t.ok());
+    CHECK(t.error().code == "gpu.frame");
 }

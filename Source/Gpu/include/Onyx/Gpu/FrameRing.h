@@ -13,6 +13,8 @@
 
 namespace Onyx::Gpu {
 
+// Host writes through `mapped` are made visible to the device when FrameRing::End runs; the region is
+// valid until the same slot is returned by a later Begin.
 struct Transient {
     VkBuffer buffer = VK_NULL_HANDLE;
     VkDeviceSize offset = 0;
@@ -32,7 +34,7 @@ public:
 
     // Bump allocation from this frame's host-visible buffer (usage UNIFORM | STORAGE | VERTEX | INDEX |
     // TRANSFER_SRC). The caller owns any alignment the use needs beyond `alignment`. A zero alignment
-    // means one. Fails with gpu.transientFull when the remaining space cannot hold the request.
+    // means one. Calling it outside Begin..End is a precondition violation reported as gpu.frame. Fails with gpu.transientFull when the remaining space cannot hold the request.
     Result<Transient> Allocate(VkDeviceSize size, VkDeviceSize alignment);
 
     // Timeline wait on the device queue before this frame's commands run.
@@ -52,6 +54,7 @@ private:
     VkCommandBuffer m_cmd = VK_NULL_HANDLE;
     Buffer m_transient;
     VkDeviceSize m_offset = 0;
+    bool m_isOpen = false;
     FenceValue m_lastValue = 0;
     std::vector<SemaphoreWait> m_waits;
     std::vector<SemaphoreSignal> m_signals;

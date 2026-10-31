@@ -47,9 +47,10 @@ public:
     // SHADER_READ_ONLY_OPTIMAL.
     Result<Image> Upload(const Domain::Texture& texture);
 
-    // One Queue::Submit if anything is pending, otherwise the last flushed value. On a failed submit the
-    // previous value is returned and Queue::Fault() carries the reason.
-    FenceValue Flush();
+    // One Queue::Submit if anything is pending, otherwise the last flushed value. A failure (the
+    // vkEndCommandBuffer error, or the Submit error unchanged) drops the pending batch and is returned;
+    // LastFlushed() keeps its previous value.
+    Result<FenceValue> Flush();
     // Synchronous: flushes, copies `size` bytes of the buffer (which needs TRANSFER_SRC, as every
     // buffer from Upload has) into a host buffer, submits and waits. For tests and headless tools.
     Result<std::vector<std::byte>> Download(const Buffer& buffer, VkDeviceSize size);

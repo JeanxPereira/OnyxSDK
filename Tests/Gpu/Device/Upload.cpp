@@ -40,9 +40,13 @@ TEST_CASE("UploadContext uploads bytes and Download returns them after one flush
     auto buf = up.value()->Upload(src, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     REQUIRE(buf.ok());
     auto before = device->SubmitCount();
-    auto v = up.value()->Flush();
+    auto flushed = up.value()->Flush();
+    REQUIRE(flushed.ok());
+    const auto v = flushed.value();
     CHECK(device->SubmitCount() == before + 1);
-    CHECK(up.value()->Flush() == v);
+    auto again = up.value()->Flush();
+    REQUIRE(again.ok());
+    CHECK(again.value() == v);
     CHECK(up.value()->LastFlushed() == v);
     auto back = up.value()->Download(buf.value(), 4096);
     REQUIRE(back.ok());
@@ -69,7 +73,7 @@ TEST_CASE("Ten buffers and three textures flush in exactly one submit") {
         images.push_back(std::move(img.value()));
     }
     CHECK(device->SubmitCount() == 0);
-    up.value()->Flush();
+    REQUIRE(up.value()->Flush().ok());
     CHECK(device->SubmitCount() == 1);
     CHECK(images[2].mipLevels == 7);
     auto back = up.value()->Download(buffers[3], buffers[3].size);
@@ -111,7 +115,7 @@ TEST_CASE("A block-compressed texture uploads with one mip") {
     REQUIRE(img.ok());
     CHECK(img.value().mipLevels == 1);
     CHECK(img.value().format == VK_FORMAT_BC1_RGBA_UNORM_BLOCK);
-    up.value()->Flush();
+    REQUIRE(up.value()->Flush().ok());
     CHECK(device->ValidationMessageCount() == 0);
 }
 
@@ -128,7 +132,7 @@ TEST_CASE("A half-float texture uploads with one mip") {
     REQUIRE(img.ok());
     CHECK(img.value().mipLevels == 1);
     CHECK(img.value().format == VK_FORMAT_R16G16B16A16_SFLOAT);
-    up.value()->Flush();
+    REQUIRE(up.value()->Flush().ok());
     CHECK(device->ValidationMessageCount() == 0);
 }
 
@@ -166,4 +170,50 @@ TEST_CASE("A request larger than the staging ring still uploads") {
     REQUIRE(back.ok());
     CHECK(back.value() == src);
     CHECK(device->ValidationMessageCount() == 0);
+}
+
+TEST_CASE("Every block-compressed format maps to its BC VkFormat with one mip") {
+    struct Case {
+        Domain::PixelFormat format;
+        VkFormat expected;
+        size_t bytes;
+    };
+    const Case cases[] = {
+        {Domain::PixelFormat::Bc1, VK_FORMAT_BC1_RGBA_UNORM_BLOCK, 32},
+        {Domain::PixelFormat::Bc3, VK_FORMAT_BC3_UNORM_BLOCK, 64},
+        {Domain::PixelFormat::Bc4, VK_FORMAT_BC4_UNORM_BLOCK, 32},
+        {Domain::PixelFormat::Bc5, VK_FORMAT_BC5_UNORM_BLOCK, 64},
+        {Domain::PixelFormat::Bc7, VK_FORMAT_BC7_UNORM_BLOCK, 64},
+    };
+    auto device = CreateTestDevice();
+    auto up = Gpu::UploadContext::Create(*device);
+    REQUIRE(up.ok());
+    for (const Case& c : cases) {
+        Domain::Texture t;
+        t.width = 8;
+        t.height = 8;
+        t.format = c.format;
+        t.pixels = Pattern(c.bytes);
+        auto img = up.value()->Upload(t);
+        if (!img.ok()) {
+            CHECK(img.error().code == "gpu.upload.format");
+            continue;
+        }
+        CHECK(img.value().format == c.expected);
+        CHECK(img.value().mipLevels == 1);
+        REQUIRE(up.value()->Flush().ok());
+    }
+    CHECK(device->ValidationMessageCount() == 0);
+}
+
+TEST_CASE("A texture with a zero dimension is refused before its size is computed") {
+    auto device = CreateTestDevice();
+    auto up = Gpu::UploadContext::Create(*device);
+    REQUIRE(up.ok());
+    Domain::Texture t;
+    t.width = 0;
+    t.height = 4;
+    auto img = up.value()->Upload(t);
+    REQUIRE_FALSE(img.ok());
+    CHECK(img.error().code == "gpu.upload.size");
 }

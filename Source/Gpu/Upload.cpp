@@ -165,9 +165,12 @@ Result<UploadContext::Staged> UploadContext::Stage(VkDeviceSize size) {
     VkDeviceSize offset = AlignUp(m_stagingOffset, m_copyAlignment);
     if (offset + size > m_staging.size) {
         // The copies recorded so far still read the ring: submit them and wait before reusing it.
-        const FenceValue value = Flush();
-        if (value != 0) {
-            auto waited = m_device.GraphicsQueue().Wait(value);
+        auto flushed = Flush();
+        if (!flushed.ok()) {
+            return R::Fail(flushed.error());
+        }
+        if (flushed.value() != 0) {
+            auto waited = m_device.GraphicsQueue().Wait(flushed.value());
             if (!waited.ok()) {
                 return R::Fail(waited.error());
             }
@@ -212,10 +215,10 @@ Result<Buffer> UploadContext::Upload(std::span<const std::byte> bytes, VkBufferU
 }
 
 Result<Image> UploadContext::Upload(const Domain::Texture& texture) {
-    const size_t expected = Domain::ExpectedByteSize(texture.format, texture.width, texture.height);
     if (texture.width == 0 || texture.height == 0) {
         return Result<Image>::Fail(SizeError(std::format("texture '{}' has a zero dimension", texture.name)));
     }
+    const size_t expected = Domain::ExpectedByteSize(texture.format, texture.width, texture.height);
     if (texture.pixels.size() != expected) {
         return Result<Image>::Fail(SizeError(std::format("texture '{}' holds {} bytes, expected {} for {}x{}",
                                                          texture.name, texture.pixels.size(), expected, texture.width,
@@ -247,7 +250,8 @@ Result<Image> UploadContext::Upload(const Domain::Texture& texture) {
     ImageDesc desc;
     desc.extent = {texture.width, texture.height};
     desc.format = format;
-    desc.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    desc.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                 (mipped ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
     desc.mipLevels = levels;
     auto image = CreateImage(m_device, desc);
     if (!image.ok()) {
@@ -307,9 +311,9 @@ Result<Image> UploadContext::Upload(const Domain::Texture& texture) {
     return image;
 }
 
-FenceValue UploadContext::Flush() {
+Result<FenceValue> UploadContext::Flush() {
     if (m_cmd == VK_NULL_HANDLE) {
-        return m_lastFlushed;
+        return Result<FenceValue>::Ok(m_lastFlushed);
     }
     const auto& fn = m_device.Fn();
     const VkCommandBuffer cmd = m_cmd;
@@ -317,20 +321,21 @@ FenceValue UploadContext::Flush() {
     std::vector<Buffer> oneOff = std::move(m_oneOff);
     m_oneOff.clear();
 
-    if (fn.vkEndCommandBuffer(cmd) != VK_SUCCESS) {
+    VkResult ended = fn.vkEndCommandBuffer(cmd);
+    if (ended != VK_SUCCESS) {
         fn.vkFreeCommandBuffers(m_device.Handle(), m_pool.Get(), 1, &cmd);
-        return m_lastFlushed;
+        return Result<FenceValue>::Fail(VkFail("gpu.vk", "vkEndCommandBuffer", ended));
     }
     SubmitDesc desc;
     desc.commandBuffers = std::span<const VkCommandBuffer>(&cmd, 1);
     auto value = m_device.GraphicsQueue().Submit(desc);
     if (!value.ok()) {
         fn.vkFreeCommandBuffers(m_device.Handle(), m_pool.Get(), 1, &cmd);
-        return m_lastFlushed;
+        return value;
     }
     m_lastFlushed = value.value();
     m_inFlight.push_back({cmd, value.value(), std::move(oneOff)});
-    return m_lastFlushed;
+    return value;
 }
 
 Result<std::vector<std::byte>> UploadContext::Download(const Buffer& buffer, VkDeviceSize size) {
@@ -338,7 +343,10 @@ Result<std::vector<std::byte>> UploadContext::Download(const Buffer& buffer, VkD
     if (!buffer.handle || size == 0 || size > buffer.size) {
         return R::Fail(SizeError(std::format("cannot download {} bytes from a buffer of {} bytes", size, buffer.size)));
     }
-    Flush();
+    auto flushed = Flush();
+    if (!flushed.ok()) {
+        return R::Fail(flushed.error());
+    }
     auto host = CreateBuffer(m_device, size, VK_BUFFER_USAGE_TRANSFER_DST_BIT, MemoryUsage::DeviceToHost);
     if (!host.ok()) {
         return R::Fail(host.error());
