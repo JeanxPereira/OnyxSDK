@@ -1,6 +1,19 @@
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#define DOCTEST_CONFIG_IMPLEMENT
 #include <doctest/doctest.h>
 
-TEST_CASE("Gpu device rig builds") {
-    CHECK(true);
+#include <cstdio>
+
+#include "Onyx/Gpu/Device.h"
+
+int main(int argc, char** argv) {
+    {
+        Onyx::Gpu::DeviceOptions options;
+        options.validation = false;
+        auto probe = Onyx::Gpu::Device::Create(options);
+        if (!probe.ok() && probe.error().code == "gpu.noDevice") {
+            std::puts("Gpu.Device: no Vulkan device, skipping");
+            return 77;
+        }
+    }
+    return doctest::Context(argc, argv).run();
 }
