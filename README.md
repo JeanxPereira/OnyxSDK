@@ -38,7 +38,7 @@ v2 is in progress on branch `v2`. W0 (the skeleton), W1 (Core), W2 (Gpu and Rend
 
 The parity gate (`Render.Parity`) renders the frozen corpus and compares it with the goldens; it passed on an AMD Radeon RX 6750 XT within the v1 `[hardware]` tolerances, with no tolerance change. A `[software]` profile is recorded for lavapipe (Mesa 25.2.8 / LLVM 20.1.2); the cause is documented in `Tests/Golden/tolerances.toml`: the AMD GPU exports fp16 colour rounded toward zero where llvmpipe rounds fp32 to nearest, and llvmpipe filters UNORM8 textures in 8-bit fixed point. `Render.Reproducible` checks that two runs are byte-identical, and the Linux `check.py` run is green on WSL with all eleven suites. The oracle tool lives in `Tests/Oracle` (not `Tools/`, because `Tools/` and `tools/` cannot coexist on a case-insensitive filesystem). GPU test suites exit 77 and are reported as skipped when no Vulkan device exists.
 
-The suites added by W3 are `Ui.Unit`, `Ui.Gpu` (77 without a device), `Shell.Unit`, `Shell.Window` (77 without GLFW or a present-capable device) and `Examples.Build` (`MinimalViewer --help` must exit 0 and print the usage; no device needed) and `Examples.Embedded` (`Embedded --frames 3`; 77 without a device). `Onyx::Media` and `Onyx::Exchange` still expose only `LayerName()`. `legacy/` is the v1 tree and is not built. CI is defined for both OSes but has not yet run on a hosted runner.
+The suites added by W3 are `Ui.Unit`, `Ui.Gpu` (77 without a device), `Shell.Unit`, `Shell.Window` (77 without GLFW or a present-capable device) and `Examples.Build` (`MinimalViewer --help` must exit 0 and print the usage; no device needed) and `Examples.Embedded` (`Embedded --frames 3`: the sample open, then three frames, no validation message; 77 without a device). `Onyx::Media` and `Onyx::Exchange` still expose only `LayerName()`. `legacy/` is the v1 tree and is not built. CI is defined for both OSes but has not yet run on a hosted runner.
 
 ## Running the shell
 
@@ -60,7 +60,7 @@ int main(int argc, char** argv) {
 
 ## Drawing Onyx inside your own frame
 
-`Examples/Embedded` shows a host that keeps its own window, ImGui context, Vulkan instance and swapchain. It creates the device through volk, hands it to `Gpu::Device::Adopt`, uses its own `ImGuiVulkanBackend` as the `ITextureBinder` and takes `--frames N` to run a fixed number of frames (it exits 77 without a device). The contract the host keeps:
+`Examples/Embedded` shows a host that keeps its own window, ImGui context, Vulkan instance and swapchain. It creates the device through volk, hands it to `Gpu::Device::Adopt`, uses its own `ImGuiVulkanBackend` as the `ITextureBinder` and takes `--frames N` to run until the sample is open in its tabs and then N more frames (at most 600 in all). It exits 77 without a device and 1 when the validation layer, if installed, reports anything. The contract the host keeps:
 
 - Build a `UiContext` once per frame and call `PanelHost::DrawAll`. Record the ImGui pass after it, into the same frame's command buffer: the Viewport records the scene into `UiContext::frame`, so there is one submit per host frame.
 - `DocumentTabs` destroys a closed view two draws after it retires, so GPU resources recorded into an in-flight frame survive the submit.

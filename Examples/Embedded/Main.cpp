@@ -50,6 +50,8 @@ using namespace Onyx;
 
 constexpr int kExitNoDevice = 77;
 constexpr int kExitUsage = 2;
+// With --frames, the most frames the host draws while waiting for the sample.
+constexpr long kMaxFrames = 600;
 
 struct Options {
     long frames = -1;
@@ -230,14 +232,39 @@ int RunHost(const Options& options) {
     bool shown = !options.open.empty();
     bool freshLayout = true;
     long drawn = 0;
+    // With --frames N: frames drawn since the sample became ready (parsed and, for the built-in sample,
+    // both tabs placed), so the views have drawn and uploaded before the host stops.
+    long drawnReady = 0;
+    const auto sampleReady = [&] {
+        const Modules::Document* document = workspace.Get(sampleId);
+        return shown && document && document->ready.load() && (!options.open.empty() || tabsView->Count() == 2);
+    };
     double last = glfwGetTime();
 
-    while (!glfwWindowShouldClose(host.Window()) && (options.frames < 0 || drawn < options.frames)) {
+    // Declared after everything the GPU may still be using, so an exception out of the loop waits for the
+    // queues before the panels, the pool and the device go.
+    struct IdleOnExit {
+        Embedded::HostWindow& host;
+        ~IdleOnExit() {
+            try {
+                host.WaitIdle();
+            } catch (const std::exception& failure) {
+                std::fprintf(stderr, "Embedded: %s\n", failure.what());
+            }
+        }
+    } idleOnExit{host};
+
+    while (!glfwWindowShouldClose(host.Window()) && (options.frames < 0 || drawnReady < options.frames)) {
+        if (options.frames >= 0 && drawn >= kMaxFrames) {
+            throw std::runtime_error("the sample was not ready after " + std::to_string(kMaxFrames) + " frames");
+        }
         glfwPollEvents();
         if (host.Minimised()) {
             glfwWaitEventsTimeout(0.05);
             continue;
         }
+        // imgui's vertex buffer ring keeps the image count given at Create: it only has to cover the
+        // frames in flight, which FrameRing bounds, so a recreated swapchain needs no backend change.
         host.Refresh();
 
         const double now = glfwGetTime();
@@ -287,7 +314,8 @@ int RunHost(const Options& options) {
         }
         ImGui::End();
 
-        // The host drives Onyx too: once the sample has parsed it opens two of its entries in tabs.
+        // The host drives Onyx too: once the sample has parsed it opens two of its entries in tabs. The
+        // decode runs on the job queue and DocumentTabs::Add happens in a later Pump, not here.
         const Modules::Document* document = workspace.Get(sampleId);
         if (!shown && document && document->ready.load()) {
             shown = true;
@@ -309,16 +337,29 @@ int RunHost(const Options& options) {
         }
         ImGui::Render();
 
+        // The ImGui pass goes into the same command buffer the panels recorded into (the Viewport's
+        // scene pass), after them: one submit per host frame.
         host.BeginRendering(frame.Cmd(), image);
         backend->Record(frame.Cmd(), ImGui::GetDrawData());
         host.EndRendering(frame.Cmd(), image);
         Require(frames->End(frame));
         host.Present(image);
+        // imgui parks a failed Vulkan call in the backend; drain it every frame.
         Require(backend->Fault());
         ++drawn;
+        if (sampleReady()) {
+            ++drawnReady;
+        }
     }
     host.WaitIdle();
     std::printf("Embedded: %ld frames on %s\n", drawn, host.DeviceName());
+    if (host.ValidationMessages() > 0) {
+        std::fprintf(stderr, "Embedded: the validation layer reported %u messages\n", host.ValidationMessages());
+        return 1;
+    }
+    if (!host.Validating()) {
+        std::printf("Embedded: VK_LAYER_KHRONOS_validation is not installed; validation was not checked\n");
+    }
     return 0;
 }
 

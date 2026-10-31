@@ -150,12 +150,15 @@ Edges only point downward in this list. The CLI verb contract
 `Shell::Run`) assembles the table: `cli.Add(Cli::StockVerbs())`,
 `cli.Add(Render::CliVerbs())`, `cli.Add(Exchange::CliVerbs())`.
 `ONYX_WITH_UI` implies `ONYX_WITH_GPU`; a UI without a GPU layer is not a v2
-target, and `UiContext::gpu` is a reference, never null.
+target. `UiContext::gpu` is still a pointer: null in headless tests and
+before a host created its device, and `textures` is null whenever `gpu` is.
 
 **Dependency fetch is per component.** `FetchContent` for volk, Vulkan
 Headers, VMA and glslang runs only when `ONYX_WITH_GPU` is on; imgui only with
 `ONYX_WITH_UI`; glfw only with `ONYX_WITH_SHELL`; FFmpeg and miniaudio only
-with `ONYX_WITH_MEDIA`. Defaults: all on when Onyx is the top-level project,
+with `ONYX_WITH_MEDIA`. An example may fetch what it alone needs:
+`Examples/Embedded` fetches glfw for its own window under `ONYX_WITH_UI` and
+`ONYX_BUILD_EXAMPLES`, even with the Shell off; no Onyx target links it. Defaults: all on when Onyx is the top-level project,
 and when nested the consumer sets what it links. `ONYX_BUILD_TESTS`,
 `ONYX_BUILD_EXAMPLES`, `ONYX_BUILD_TOOLS` default ON only when top-level.
 

@@ -4,6 +4,7 @@
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -19,8 +20,9 @@ void Check(VkResult result, const char* what) {
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL OnMessage(VkDebugUtilsMessageSeverityFlagBitsEXT, VkDebugUtilsMessageTypeFlagsEXT,
-                                         const VkDebugUtilsMessengerCallbackDataEXT* data, void*) {
+                                         const VkDebugUtilsMessengerCallbackDataEXT* data, void* user) {
     std::fprintf(stderr, "[vulkan] %s\n", data->pMessage);
+    ++*static_cast<std::atomic<uint32_t>*>(user);
     return VK_FALSE;
 }
 
@@ -138,7 +140,8 @@ void HostWindow::CreateInstance() {
     std::vector<const char*> layers;
     bool debugUtils = false;
 
-#ifndef NDEBUG
+    // The validation layer, when installed, checks the host and Onyx alike: the adopted device lives on
+    // this instance.
     uint32_t layerCount = 0;
     Check(vkEnumerateInstanceLayerProperties(&layerCount, nullptr), "vkEnumerateInstanceLayerProperties");
     std::vector<VkLayerProperties> available(layerCount);
@@ -151,7 +154,6 @@ void HostWindow::CreateInstance() {
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         debugUtils = true;
     }
-#endif
 
     VkApplicationInfo app{};
     app.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -182,6 +184,7 @@ void HostWindow::CreateInstance() {
                                 VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
                                 VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
         messenger.pfnUserCallback = &OnMessage;
+        messenger.pUserData = &m_validationMessages;
         Check(vkCreateDebugUtilsMessengerEXT(m_instance, &messenger, nullptr, &m_messenger),
               "vkCreateDebugUtilsMessengerEXT");
     }
@@ -256,7 +259,8 @@ void HostWindow::CreateDevice() {
     std::vector<VkQueueFamilyProperties> families(familyCount);
     vkGetPhysicalDeviceQueueFamilyProperties(m_physical, &familyCount, families.data());
     // Onyx wants a queue of its own; the host presents on the first one. A family with a single queue
-    // makes the two share it, which is safe here because both submit from this one thread.
+    // makes the two share it. That is correct only single-threaded: the host's vkQueuePresentKHR does not
+    // take Onyx's queue mutex, so nothing may submit through Onyx from another thread meanwhile.
     const uint32_t queueCount = families[m_family].queueCount >= 2 ? 2 : 1;
     const float priorities[2] = {1.0f, 1.0f};
 

@@ -2,6 +2,7 @@
 
 #include <volk.h>
 
+#include <atomic>
 #include <cstdint>
 #include <stdexcept>
 #include <vector>
@@ -62,6 +63,12 @@ public:
 
     void WaitIdle();
 
+    // True when VK_LAYER_KHRONOS_validation is loaded and its messages are counted.
+    bool Validating() const { return m_messenger != VK_NULL_HANDLE; }
+    // Warnings and errors the validation layer reported on this instance, which Onyx's adopted device
+    // shares.
+    uint32_t ValidationMessages() const { return m_validationMessages.load(); }
+
 private:
     void Destroy();
     void CreateInstance();
@@ -90,6 +97,7 @@ private:
     std::vector<VkSemaphore> m_acquire;
     std::vector<VkSemaphore> m_present;
     bool m_stale = false;
+    std::atomic<uint32_t> m_validationMessages{0};
 };
 
 }
