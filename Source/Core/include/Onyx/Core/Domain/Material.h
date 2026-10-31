@@ -19,6 +19,7 @@ struct Material {
     BlendMode blend = BlendMode::Opaque;
     glm::vec2 uvOffset{0.0f};
     float metallic = 0.0f;
+    float vertexColorScale = 1.0f; // multiplies the vertex colour's rgb in the shader; a format that stores colours halved sets 2
     NormalEncoding normalEncoding = NormalEncoding::Xyz;
     std::map<TextureRole, uint32_t> textures;
 };
