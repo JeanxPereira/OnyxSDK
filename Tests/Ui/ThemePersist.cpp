@@ -75,7 +75,9 @@ TEST_CASE("Unknown override tokens and bad values are ignored") {
     CHECK(theme.State().userScale == 3.0f);
 }
 
-TEST_CASE("The schema documents every key") {
+// ui.theme.overrides is intentionally outside the schema: it is a free-form list, not a setting
+// with a range or an option set.
+TEST_CASE("The schema documents the five scalar theme keys") {
     Onyx::Services::SettingsSchema schema;
     Theme::DescribeSettings(schema);
     CHECK(schema.Entries().size() == 5);

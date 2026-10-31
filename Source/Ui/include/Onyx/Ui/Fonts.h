@@ -16,8 +16,10 @@ struct FontSet {
 
 // Clears the atlas and rebuilds it: the text font with the SF Symbols range
 // merged in, then the bundled mono font. `icons` is the text font itself: the
-// symbols are merged glyphs of it. Fails with "ui.font.missing" when a file is absent.
+// symbols are merged glyphs of it. An empty `monoFont` means the bundled one.
+// Fails with "ui.font.missing" when a file is absent.
 Result<FontSet> BuildFonts(ImFontAtlas& atlas, const std::filesystem::path& textFont, float refPx,
-                           const std::filesystem::path& iconFont);
+                           const std::filesystem::path& iconFont,
+                           const std::filesystem::path& monoFont = {});
 
 }

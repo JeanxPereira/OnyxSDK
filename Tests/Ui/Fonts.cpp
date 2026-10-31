@@ -35,6 +35,10 @@ TEST_CASE("BuildFonts yields text, mono and icons") {
     ImGui::TextUnformatted("Probe \xEE\x80\x80");
     ImGui::End();
     rig.EndFrame();
+
+    // Symbols inside the merged range are present, up to the highest code point SfSymbols.h defines.
+    CHECK(result.value().text->IsGlyphInFont(0xE001));
+    CHECK(result.value().text->IsGlyphInFont(0xFA19));
 }
 
 TEST_CASE("BuildFonts reports a missing file") {
@@ -48,4 +52,12 @@ TEST_CASE("BuildFonts reports a missing file") {
                                          15.0f, FontDir() / "Nope.ttf");
     REQUIRE_FALSE(missingIcons.ok());
     CHECK(missingIcons.error().code == "ui.font.missing");
+}
+
+TEST_CASE("BuildFonts reports a missing mono font") {
+    HeadlessImGui rig;
+    const auto result = BuildFonts(*ImGui::GetIO().Fonts, FontDir() / "SFMono-Regular.otf", 15.0f,
+                                   FontDir() / "SFSymbols.ttf", FontDir() / "NoMono.otf");
+    REQUIRE_FALSE(result.ok());
+    CHECK(result.error().code == "ui.font.missing");
 }

@@ -6,7 +6,8 @@ namespace Onyx::Ui {
 
 namespace {
 
-constexpr ImWchar kSymbolRange[] = {0xE000, 0xF8FF, 0};
+// The ceiling is the highest code point SfSymbols.h defines (U+FA19).
+constexpr ImWchar kSymbolRange[] = {0xE000, 0xFA19, 0};
 constexpr ImVec2 kSymbolOffset{0.0f, 3.0f};
 constexpr const char* kMonoAsset = "fonts/SFMono-Regular.otf";
 
@@ -17,15 +18,16 @@ Error Missing(const std::filesystem::path& path, const char* what) {
 }
 
 Result<FontSet> BuildFonts(ImFontAtlas& atlas, const std::filesystem::path& textFont, float refPx,
-                           const std::filesystem::path& iconFont) {
+                           const std::filesystem::path& iconFont, const std::filesystem::path& monoFontOverride) {
     std::error_code ec;
     if (!std::filesystem::is_regular_file(textFont, ec))
         return Result<FontSet>::Fail(Missing(textFont, "text font"));
     if (!std::filesystem::is_regular_file(iconFont, ec))
         return Result<FontSet>::Fail(Missing(iconFont, "icon font"));
-    const std::filesystem::path monoFont = FindAsset(kMonoAsset);
-    if (monoFont.empty())
-        return Result<FontSet>::Fail(Missing(kMonoAsset, "mono font"));
+    const std::filesystem::path monoFont =
+        monoFontOverride.empty() ? FindAsset(kMonoAsset) : monoFontOverride;
+    if (monoFont.empty() || !std::filesystem::is_regular_file(monoFont, ec))
+        return Result<FontSet>::Fail(Missing(monoFont.empty() ? kMonoAsset : monoFont, "mono font"));
 
     atlas.Clear();
 
