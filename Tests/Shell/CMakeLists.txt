@@ -3,7 +3,7 @@ set(_shell_window_link Onyx::TestKit Onyx::ExampleBox Onyx::ExamplePrism Onyx::E
 if(ONYX_WITH_MEDIA)
     list(APPEND _shell_window_link Onyx::Media)
 endif()
-onyx_add_tests(Shell LINK Onyx::TestKit Onyx::ExampleBox)
+onyx_add_tests(Shell LINK Onyx::TestKit Onyx::ExampleBox Onyx::ExamplePrismUi)
 onyx_add_tests(Shell SUITE Window SKIP_RETURN_CODE 77 LINK ${_shell_window_link})
 onyx_install_assets(OnyxShellWindowTests)
 if(ONYX_WITH_MEDIA)

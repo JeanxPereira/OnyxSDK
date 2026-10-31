@@ -29,18 +29,20 @@ void PaletteView::Draw(Onyx::Ui::UiContext& ui) {
 
     const float swatch = Onyx::Ui::Widgets::MetricsFor(ui.theme).rowHeight * 2.0f;
     const float spacing = ImGui::GetStyle().ItemSpacing.x;
-    const float cell = swatch + spacing;
-    const int perRow = std::max(1, static_cast<int>((ImGui::GetContentRegionAvail().x + spacing) / cell));
+    const float cell = std::max(swatch, ImGui::CalcTextSize("#00000000").x);
+    const int perRow = std::max(1, static_cast<int>((ImGui::GetContentRegionAvail().x + spacing) / (cell + spacing)));
 
     for (size_t i = 0; i < m_palette->colors.size(); ++i) {
         const glm::u8vec4 c = m_palette->colors[i];
         ImGui::PushID(static_cast<int>(i));
         ImGui::BeginGroup();
         const ImVec2 origin = ImGui::GetCursorScreenPos();
-        ImGui::InvisibleButton("##swatch", ImVec2(swatch, swatch));
+        ImGui::InvisibleButton("##swatch", ImVec2(cell, swatch));
+        const ImVec2 min(origin.x + (cell - swatch) * 0.5f, origin.y);
+        const ImVec2 max(min.x + swatch, min.y + swatch);
         ImDrawList* list = ImGui::GetWindowDrawList();
-        list->AddRectFilled(origin, ImVec2(origin.x + swatch, origin.y + swatch), IM_COL32(c.r, c.g, c.b, c.a));
-        list->AddRect(origin, ImVec2(origin.x + swatch, origin.y + swatch), ImGui::GetColorU32(ImGuiCol_Border));
+        list->AddRectFilled(min, max, IM_COL32(c.r, c.g, c.b, c.a));
+        list->AddRect(min, max, ImGui::GetColorU32(ImGuiCol_Border));
         char hex[16];
         std::snprintf(hex, sizeof hex, "#%02x%02x%02x%02x", c.r, c.g, c.b, c.a);
         ImGui::Text("%zu", i);
