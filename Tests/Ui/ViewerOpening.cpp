@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include <Onyx/Ui/Viewers/DocumentTabs.h>
 #include <Onyx/Ui/Viewers/HexView.h>
 #include <Onyx/Ui/Viewers/ImageView.h>
 #include <Onyx/Ui/Viewers/Opening.h>
@@ -329,4 +330,56 @@ TEST_CASE("OpenEntry routes a Video entry with no decoders to a Video spec with 
     const auto opened = OpenEntry(ui, fx.Pick(ObxWorkspace::kBlob), placed.Callback());
     REQUIRE_MESSAGE(opened.ok(), opened.error().code << ": " << opened.error().message);
     CHECK(seen);
+}
+
+namespace {
+
+// The ui.open.decode diagnostic reported after `before` diagnostics, or an empty one.
+Services::Diag DecodeDiagAfter(Modules::Document& document, size_t before) {
+    const auto all = document.diags.Snapshot();
+    for (size_t i = before; i < all.size(); ++i) {
+        if (all[i].code == "ui.open.decode") return all[i];
+    }
+    return {};
+}
+
+}
+
+TEST_CASE("a null payload reports ui.open.decode and opens no tab") {
+    ObxUi fx;
+    Modules::Document* document = fx.workspace.Get(fx.doc);
+    REQUIRE(document != nullptr);
+    fx.workspace.Decoders().Text(document->roots[ObxWorkspace::kText].type,
+                                 [](Modules::DecodeContext&) { return std::optional<Domain::Text>(); });
+    UiContext ui = fx.Make();
+    DocumentTabs tabs(fx.workspace);
+    const auto place = [&](std::unique_ptr<IDocumentView> view) { tabs.Add(std::move(view)); };
+    const size_t tabsBefore = tabs.Count();
+
+    size_t before = document->diags.Count();
+    REQUIRE(OpenEntry(ui, fx.Pick(ObxWorkspace::kText), place).ok());
+    REQUIRE(fx.PumpUntil([&] { return document->diags.Count() > before; }));
+    CHECK(tabs.Count() == tabsBefore);
+    Services::Diag decode = DecodeDiagAfter(*document, before);
+    CHECK(decode.code == "ui.open.decode");
+    CHECK(decode.severity == Services::Severity::Error);
+    CHECK(decode.message.find("txt") != std::string::npos);
+    CHECK(decode.message.find("Text") != std::string::npos);
+
+    // A viewer that makes no view from a decoded payload opens nothing either, and says so.
+    ViewerSpec refuse;
+    refuse.id = "refuse";
+    refuse.target = Domain::MediaKind::Image;
+    refuse.priority = 100;
+    refuse.create = [](OpenRequest&) { return std::unique_ptr<IDocumentView>(); };
+    ui.viewers.Register(std::move(refuse));
+
+    before = document->diags.Count();
+    REQUIRE(OpenEntry(ui, fx.Pick(ObxWorkspace::kImage), place).ok());
+    REQUIRE(fx.PumpUntil([&] { return document->diags.Count() > before; }));
+    CHECK(tabs.Count() == tabsBefore);
+    decode = DecodeDiagAfter(*document, before);
+    CHECK(decode.code == "ui.open.decode");
+    CHECK(decode.message.find("img") != std::string::npos);
+    CHECK(decode.message.find("Image") != std::string::npos);
 }

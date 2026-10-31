@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <mutex>
+#include <string>
 #include <utility>
 
 namespace Onyx::Media {
@@ -16,6 +17,7 @@ namespace Onyx::Media {
 struct AudioOutput::Impl {
     mutable std::mutex mutex;
     Domain::Audio clip;
+    std::string owner;
     size_t cursor = 0;
     bool playing = false;
     bool paused = false;
@@ -48,7 +50,7 @@ AudioOutput::~AudioOutput() {
     m_impl->device.Close();
 }
 
-Result<void> AudioOutput::Play(const Domain::Audio& audio) {
+Result<void> AudioOutput::Play(const Domain::Audio& audio, std::string_view owner) {
     if (audio.sampleRate == 0 || audio.channels == 0 || audio.samples.size() < audio.channels) {
         return Result<void>::Fail({"media.audio", "the clip has no sample rate, channels or samples"});
     }
@@ -74,6 +76,7 @@ Result<void> AudioOutput::Play(const Domain::Audio& audio) {
     {
         std::lock_guard lock(m_impl->mutex);
         std::swap(m_impl->clip, clip);
+        m_impl->owner = owner;
         m_impl->cursor = 0;
         m_impl->paused = false;
         m_impl->playing = true;
@@ -87,6 +90,7 @@ void AudioOutput::Stop() {
         m_impl->playing = false;
         m_impl->paused = false;
         m_impl->cursor = 0;
+        m_impl->owner.clear();
     }
     std::lock_guard lock(m_impl->deviceMutex);
     m_impl->device.Stop();
@@ -117,6 +121,11 @@ bool AudioOutput::Paused() const {
 bool AudioOutput::Playing() const {
     std::lock_guard lock(m_impl->mutex);
     return m_impl->playing;
+}
+
+std::string_view AudioOutput::Owner() const {
+    std::lock_guard lock(m_impl->mutex);
+    return m_impl->playing ? std::string_view(m_impl->owner) : std::string_view();
 }
 
 double AudioOutput::Latency() const {

@@ -162,24 +162,55 @@ Result<UploadContext::Staged> UploadContext::Stage(VkDeviceSize size) {
         m_oneOff.push_back(std::move(oneOff.value()));
         return R::Ok(staged);
     }
-    VkDeviceSize offset = AlignUp(m_stagingOffset, m_copyAlignment);
-    if (offset + size > m_staging.size) {
-        // The copies recorded so far still read the ring: submit them and wait before reusing it.
+    const VkDeviceSize capacity = m_staging.size;
+    Queue& queue = m_device.GraphicsQueue();
+    for (;;) {
+        ReclaimStaging(queue.Completed());
+        if (m_stagingTail == m_stagingHead && m_stagingHead % capacity != 0) {
+            // Nothing is live: start again at the beginning of the buffer.
+            m_stagingHead += capacity - m_stagingHead % capacity;
+            m_stagingTail = m_stagingHead;
+        }
+        const uint64_t base = m_stagingHead - m_stagingHead % capacity;
+        const VkDeviceSize aligned = AlignUp(m_stagingHead % capacity, m_copyAlignment);
+        // A request never straddles the end of the buffer; the skipped bytes stay with this batch.
+        const uint64_t at = aligned + size > capacity ? base + capacity : base + aligned;
+        if (at + size - m_stagingTail <= capacity) {
+            m_stagingHead = at + size;
+            const VkDeviceSize offset = at % capacity;
+            return R::Ok(Staged{m_staging.handle.Get(), offset, static_cast<std::byte*>(m_staging.mapped) + offset,
+                                m_staging.allocation});
+        }
+        if (!m_stagingInFlight.empty()) {
+            auto waited = queue.Wait(m_stagingInFlight.front().value);
+            if (!waited.ok()) {
+                return R::Fail(waited.error());
+            }
+            continue;
+        }
+        if (m_cmd == VK_NULL_HANDLE) {
+            // Bytes staged for a request that never recorded its copy: nothing reads them.
+            m_stagingHead = PendingStagingBegin();
+            continue;
+        }
+        // The pending batch fills the ring by itself: submit it, and the next pass waits for it.
         auto flushed = Flush();
         if (!flushed.ok()) {
             return R::Fail(flushed.error());
         }
-        if (flushed.value() != 0) {
-            auto waited = m_device.GraphicsQueue().Wait(flushed.value());
-            if (!waited.ok()) {
-                return R::Fail(waited.error());
-            }
-        }
-        offset = 0;
+        ++m_fullDrains;
     }
-    m_stagingOffset = offset + size;
-    return R::Ok(Staged{m_staging.handle.Get(), offset, static_cast<std::byte*>(m_staging.mapped) + offset,
-                        m_staging.allocation});
+}
+
+void UploadContext::ReclaimStaging(FenceValue completed) {
+    while (!m_stagingInFlight.empty() && m_stagingInFlight.front().value <= completed) {
+        m_stagingTail = m_stagingInFlight.front().end;
+        m_stagingInFlight.pop_front();
+    }
+}
+
+uint64_t UploadContext::PendingStagingBegin() const {
+    return m_stagingInFlight.empty() ? m_stagingTail : m_stagingInFlight.back().end;
 }
 
 Result<Buffer> UploadContext::Upload(std::span<const std::byte> bytes, VkBufferUsageFlags usage) {
@@ -243,10 +274,6 @@ Result<Image> UploadContext::Upload(const Domain::Texture& texture) {
 
     const uint32_t levels = mipped ? static_cast<uint32_t>(std::bit_width(std::max(texture.width, texture.height))) : 1;
 
-    auto staged = Stage(texture.pixels.size());
-    if (!staged.ok()) {
-        return Result<Image>::Fail(staged.error());
-    }
     ImageDesc desc;
     desc.extent = {texture.width, texture.height};
     desc.format = format;
@@ -257,9 +284,39 @@ Result<Image> UploadContext::Upload(const Domain::Texture& texture) {
     if (!image.ok()) {
         return image;
     }
+    auto recorded = RecordTexture(texture, image.value().handle.Get(), levels, false);
+    if (!recorded.ok()) {
+        return Result<Image>::Fail(recorded.error());
+    }
+    return image;
+}
+
+Result<void> UploadContext::UploadInto(const Domain::Texture& texture, const Image& image) {
+    if (!image.handle || image.extent.width != texture.width || image.extent.height != texture.height ||
+        image.format != ToVkFormat(texture.format)) {
+        return Result<void>::Fail(
+            SizeError(std::format("texture '{}' does not match the extent and format of the target image", texture.name)));
+    }
+    const size_t expected = Domain::ExpectedByteSize(texture.format, texture.width, texture.height);
+    if (texture.pixels.size() != expected) {
+        return Result<void>::Fail(SizeError(std::format("texture '{}' holds {} bytes, expected {} for {}x{}",
+                                                        texture.name, texture.pixels.size(), expected, texture.width,
+                                                        texture.height)));
+    }
+    return RecordTexture(texture, image.handle.Get(), image.mipLevels, true);
+}
+
+// Stages the pixels and records the copy, the mip blits and the final transition. `overwrite` names an
+// image that earlier submissions may still read or write: its first barrier then waits for them.
+Result<void> UploadContext::RecordTexture(const Domain::Texture& texture, VkImage handle, uint32_t levels,
+                                          bool overwrite) {
+    auto staged = Stage(texture.pixels.size());
+    if (!staged.ok()) {
+        return Result<void>::Fail(staged.error());
+    }
     auto recording = Recording();
     if (!recording.ok()) {
-        return Result<Image>::Fail(recording.error());
+        return Result<void>::Fail(recording.error());
     }
     const VkCommandBuffer cmd = recording.value();
 
@@ -267,16 +324,16 @@ Result<Image> UploadContext::Upload(const Domain::Texture& texture) {
     VkResult r = vmaFlushAllocation(m_device.Allocator(), staged.value().allocation, staged.value().offset,
                                     texture.pixels.size());
     if (r != VK_SUCCESS) {
-        return Result<Image>::Fail(VkFail("gpu.vk", "vmaFlushAllocation", r));
+        return Result<void>::Fail(VkFail("gpu.vk", "vmaFlushAllocation", r));
     }
 
     const auto& fn = m_device.Fn();
-    const VkImage handle = image.value().handle.Get();
     constexpr auto kTransfer = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
     constexpr auto kReadStages = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
     ImageBarrier(m_device, cmd, handle, 0, levels, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                 VK_PIPELINE_STAGE_2_NONE, 0, kTransfer, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+                 overwrite ? VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_2_NONE, 0, kTransfer,
+                 VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
     VkBufferImageCopy copy{};
     copy.bufferOffset = staged.value().offset;
@@ -308,7 +365,7 @@ Result<Image> UploadContext::Upload(const Domain::Texture& texture) {
     ImageBarrier(m_device, cmd, handle, levels - 1, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, kTransfer, VK_ACCESS_2_TRANSFER_WRITE_BIT, kReadStages,
                  VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-    return image;
+    return Result<void>::Ok();
 }
 
 Result<FenceValue> UploadContext::Flush() {
@@ -321,9 +378,12 @@ Result<FenceValue> UploadContext::Flush() {
     std::vector<Buffer> oneOff = std::move(m_oneOff);
     m_oneOff.clear();
 
+    // A dropped batch never reads its staging bytes, so they return to the ring at once.
+    const uint64_t stagingBegin = PendingStagingBegin();
     VkResult ended = fn.vkEndCommandBuffer(cmd);
     if (ended != VK_SUCCESS) {
         fn.vkFreeCommandBuffers(m_device.Handle(), m_pool.Get(), 1, &cmd);
+        m_stagingHead = stagingBegin;
         return Result<FenceValue>::Fail(VkFail("gpu.vk", "vkEndCommandBuffer", ended));
     }
     SubmitDesc desc;
@@ -331,10 +391,14 @@ Result<FenceValue> UploadContext::Flush() {
     auto value = m_device.GraphicsQueue().Submit(desc);
     if (!value.ok()) {
         fn.vkFreeCommandBuffers(m_device.Handle(), m_pool.Get(), 1, &cmd);
+        m_stagingHead = stagingBegin;
         return value;
     }
     m_lastFlushed = value.value();
     m_inFlight.push_back({cmd, value.value(), std::move(oneOff)});
+    if (m_stagingHead > stagingBegin) {
+        m_stagingInFlight.push_back({value.value(), m_stagingHead});
+    }
     return value;
 }
 

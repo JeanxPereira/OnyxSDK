@@ -74,3 +74,12 @@ TEST_CASE("TextView draws in the host's mono font when the context names one") {
     DrawFrames(imgui, view, ui);
     CHECK(fonts.value().mono->LastBaked != nullptr);
 }
+
+TEST_CASE("TextView counts CRLF endings as one line break") {
+    TextView view = Make("a\r\nb\r\n");
+    REQUIRE(view.Lines() == 2);
+    CHECK(view.Line(0) == "a");
+    CHECK(view.Line(1) == "b");
+    for (size_t i = 0; i < view.Lines(); ++i) CHECK(view.Line(i).find('\r') == std::string_view::npos);
+    CHECK(view.FindNext("b", 0) == 1);
+}

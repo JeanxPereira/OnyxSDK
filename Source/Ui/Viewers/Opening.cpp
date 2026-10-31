@@ -86,9 +86,13 @@ void Decode(Decoded& out, const Modules::DecoderRegistry& decoders, MediaKind ki
 using Create = std::function<std::unique_ptr<IDocumentView>(OpenRequest&)>;
 using Place = std::function<void(std::unique_ptr<IDocumentView>)>;
 
-void Finish(OpenRequest& request, const Create& create, const Place& place) {
-    if (!create || !place) return;
-    if (std::unique_ptr<IDocumentView> view = create(request)) place(std::move(view));
+// False when the viewer made no view.
+bool Finish(OpenRequest& request, const Create& create, const Place& place) {
+    if (!create || !place) return true;
+    std::unique_ptr<IDocumentView> view = create(request);
+    if (!view) return false;
+    place(std::move(view));
+    return true;
 }
 
 }
@@ -163,11 +167,12 @@ Result<void> OpenEntry(UiContext& ui, const Selection& selection, std::function<
             if (!owner) return;
             for (Services::Diag& d : decoded->diags.Drain()) owner->diags.Report(std::move(d));
             if (ws->Get(where.doc) != owner.get()) return;
+            const std::string what = decoded->entry.name + " (" + std::string(Domain::Name(kind)) + ")";
             if (!decoded->ok) {
                 const bool any = !capability.empty();
                 owner->diags.Report({Services::Severity::Error, any ? "ui.open.any" : "ui.open.decode",
-                                     decoded->entry.name + (any ? " has no result for the " + capability + " capability"
-                                                                : std::string(" could not be decoded for viewing")),
+                                     what + (any ? " has no result for the " + capability + " capability"
+                                                 : std::string(" could not be decoded for viewing")),
                                      std::nullopt});
                 return;
             }
@@ -175,7 +180,10 @@ Result<void> OpenEntry(UiContext& ui, const Selection& selection, std::function<
                                 std::move(decoded->image), std::move(decoded->text), std::move(decoded->scene),
                                 std::move(decoded->audio), std::move(decoded->table), {}, std::move(decoded->file),
                                 decoded->entry.source, std::move(decoded->any), capability};
-            Finish(request, create, place);
+            if (!Finish(request, create, place)) {
+                owner->diags.Report({Services::Severity::Error, "ui.open.decode",
+                                     what + ": the viewer made no view of the decoded payload", std::nullopt});
+            }
         });
     return Result<void>::Ok();
 }

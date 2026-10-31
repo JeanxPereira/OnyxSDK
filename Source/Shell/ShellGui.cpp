@@ -154,6 +154,14 @@ GuiStack::~GuiStack() {
 }
 
 void Shell::DrawFrame(Gpu::Frame& frame) {
+    ApplyPendingAudio();
+    struct InFrame {
+        bool& flag;
+        explicit InFrame(bool& f) : flag(f) { flag = true; }
+        ~InFrame() { flag = false; }
+        InFrame(const InFrame&) = delete;
+        InFrame& operator=(const InFrame&) = delete;
+    } inFrame(m_inFrame);
     Ui::UiContext ui = Context(&frame);
     ui.dt = ImGui::GetIO().DeltaTime;
 
