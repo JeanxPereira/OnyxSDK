@@ -1,0 +1,5 @@
+exit 0
+--- stdout
+schema stats: {"imageCount":1,"clipCount":1,"gainDefault":1,"flags":0}
+[Error] prism.section.range: bad: payload out of bounds
+--- stderr

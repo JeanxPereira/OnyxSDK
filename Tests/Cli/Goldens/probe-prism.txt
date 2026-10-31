@@ -1,0 +1,6 @@
+exit 0
+--- stdout
+module	confidence	reason
+prm	95	PRM1 magic at 0
+winner: prm
+--- stderr

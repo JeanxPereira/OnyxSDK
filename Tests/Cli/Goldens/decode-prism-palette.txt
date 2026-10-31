@@ -1,0 +1,6 @@
+exit 0
+--- stdout
+table palette columns=5 rows=4
+any palette: prism.palette
+[Error] prism.section.range: bad: payload out of bounds
+--- stderr

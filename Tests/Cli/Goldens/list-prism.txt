@@ -1,0 +1,11 @@
+exit 0
+--- stdout
+palette  prm.palette  16 bytes
+tiles  prm.image  20 bytes
+manifest  prm.manifest  17 bytes
+clip  prm.clip  1610 bytes
+entries  prm.entries  35 bytes
+stats  prm.stats  16 bytes
+bad  prm.image  4 bytes [FAILED]
+[Error] prism.section.range: bad: payload out of bounds
+--- stderr
