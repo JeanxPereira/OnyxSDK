@@ -16,9 +16,9 @@ TEST_CASE("ReadTolerances reads the hardware profile and rejects an unknown one"
     CHECK(hardware.value().maxHighDeltaPct == doctest::Approx(0.8));
     CHECK(hardware.value().maxMae == doctest::Approx(1.0));
 
-    auto missing = ReadTolerances(file, "software");
+    auto missing = ReadTolerances(file, "absent");
     REQUIRE_FALSE(missing.ok());
-    CHECK(missing.error().message.find("software") != std::string::npos);
+    CHECK(missing.error().message.find("absent") != std::string::npos);
     CHECK(missing.error().message.find("tolerances.toml") != std::string::npos);
 
     CHECK_FALSE(ReadTolerances(ONYX_GOLDEN_DIR "/absent.toml", "hardware").ok());
