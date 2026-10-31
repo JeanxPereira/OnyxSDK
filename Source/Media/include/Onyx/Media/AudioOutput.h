@@ -14,7 +14,8 @@ namespace Onyx::Media {
 
 // Plays decoded clips on one playback device (float32 at the clip's rate and channel count; the device
 // is opened again when a clip with another rate or channel count plays). Stop stops the device and
-// Play starts it again. Position() counts the frames the device consumed. Thread-safe.
+// Play starts it again. Position() counts the frames the device consumed. Thread-safe, except that the
+// view Owner() returns stays valid only until the next Play or Stop.
 class AudioOutput final : public Ui::IAudioOutput {
 public:
     AudioOutput();
