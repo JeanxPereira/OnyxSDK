@@ -1,0 +1,11 @@
+# Runs an executable with --help and requires both a zero exit code and the verb usage text.
+if(NOT EXE)
+    message(FATAL_ERROR "CheckHelp.cmake needs -DEXE=<path>")
+endif()
+execute_process(COMMAND "${EXE}" --help RESULT_VARIABLE code OUTPUT_VARIABLE out ERROR_VARIABLE err)
+if(NOT code EQUAL 0)
+    message(FATAL_ERROR "${EXE} --help exited with ${code}\n${out}${err}")
+endif()
+if(NOT out MATCHES "usage: .*<verb>")
+    message(FATAL_ERROR "${EXE} --help did not print the verb usage:\n${out}${err}")
+endif()

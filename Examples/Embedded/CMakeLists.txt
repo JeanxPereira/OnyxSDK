@@ -1,0 +1,11 @@
+include(${PROJECT_SOURCE_DIR}/cmake/Assets.cmake)
+include(${PROJECT_SOURCE_DIR}/cmake/Deps/Glfw.cmake)
+include(${PROJECT_SOURCE_DIR}/cmake/Deps/Imgui.cmake)
+onyx_dep_glfw()
+onyx_dep_imgui()
+
+add_executable(Embedded Main.cpp HostWindow.cpp)
+target_link_libraries(Embedded PRIVATE Onyx::Ui Onyx::ExampleBox imgui::glfw glfw)
+onyx_warnings(Embedded)
+set_target_properties(Embedded PROPERTIES CXX_SCAN_FOR_MODULES OFF)
+onyx_install_assets(Embedded)
