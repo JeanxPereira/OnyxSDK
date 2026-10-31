@@ -21,6 +21,16 @@ using namespace Onyx::Ui;
 
 namespace {
 
+// Waits, without pumping, until a worker has queued a continuation; false after ten seconds.
+bool WaitForCallback(Modules::Workspace& workspace) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (workspace.Jobs().PendingCallbacks() == 0) {
+        if (std::chrono::steady_clock::now() > deadline) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return true;
+}
+
 struct Placed {
     std::unique_ptr<IDocumentView> view;
     int calls = 0;
@@ -170,7 +180,7 @@ TEST_CASE("OpenEntry lets the last reference to a closed document die inside Pum
 
     REQUIRE(OpenEntry(ui, fx.Pick(ObxWorkspace::kText), placed.Callback()).ok());
     // The worker has finished and dropped its closure; only the continuation's result holds the document.
-    while (fx.workspace.Jobs().PendingCallbacks() == 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    REQUIRE(WaitForCallback(fx.workspace));
     fx.workspace.Close(fx.doc);
     CHECK_FALSE(watch.expired());
     fx.workspace.Jobs().Pump();
@@ -185,7 +195,7 @@ TEST_CASE("OpenEntry on a document closed before the worker starts places nothin
 
     REQUIRE(OpenEntry(ui, fx.Pick(ObxWorkspace::kText), placed.Callback()).ok());
     fx.workspace.Close(fx.doc);
-    while (fx.workspace.Jobs().PendingCallbacks() == 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    REQUIRE(WaitForCallback(fx.workspace));
     fx.workspace.Jobs().Pump();
     CHECK(placed.calls == 0);
 }

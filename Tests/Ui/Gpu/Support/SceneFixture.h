@@ -17,11 +17,12 @@
 
 namespace Onyx::TestSupport {
 
-// One host frame the way a shell runs it: the frame is begun before the panels draw, so panels can
-// record their own passes into it, and the UI pass is recorded last into `target`.
-inline Result<TestKit::Image8> RenderHostFrame(UiGpuFixture& fx, Gpu::RenderTarget& target,
-                                               const std::function<void(Gpu::Frame&)>& draw) {
-    using Out = Result<TestKit::Image8>;
+// Records one host frame into `target`: ImGui draws through `draw`, then the backend records the
+// draw data, and the frame is submitted. Returns the submitted value; the next call may begin while
+// this frame still executes.
+inline Result<Gpu::FenceValue> SubmitHostFrameValue(UiGpuFixture& fx, Gpu::RenderTarget& target,
+                                                    const std::function<void(Gpu::Frame&)>& draw) {
+    using Out = Result<Gpu::FenceValue>;
     const VkExtent2D extent = target.Extent();
     ImGui::GetIO().DisplaySize = ImVec2(static_cast<float>(extent.width), static_cast<float>(extent.height));
 
@@ -42,50 +43,35 @@ inline Result<TestKit::Image8> RenderHostFrame(UiGpuFixture& fx, Gpu::RenderTarg
     if (!fault.ok()) {
         return Out::Fail(fault.error());
     }
-    auto ended = fx.frames->End(*frame.value());
-    if (!ended.ok()) {
-        return Out::Fail(ended.error());
+    return fx.frames->End(*frame.value());
+}
+
+inline Result<void> SubmitHostFrame(UiGpuFixture& fx, Gpu::RenderTarget& target,
+                                    const std::function<void(Gpu::Frame&)>& draw) {
+    auto submitted = SubmitHostFrameValue(fx, target, draw);
+    if (!submitted.ok()) {
+        return Result<void>::Fail(submitted.error());
     }
-    auto pixels = Gpu::ReadbackColor(*fx.device, target, ended.value());
+    return Result<void>::Ok();
+}
+
+// The same frame, then a readback of `target` once it completed.
+inline Result<TestKit::Image8> RenderHostFrame(UiGpuFixture& fx, Gpu::RenderTarget& target,
+                                               const std::function<void(Gpu::Frame&)>& draw) {
+    using Out = Result<TestKit::Image8>;
+    auto submitted = SubmitHostFrameValue(fx, target, draw);
+    if (!submitted.ok()) {
+        return Out::Fail(submitted.error());
+    }
+    auto pixels = Gpu::ReadbackColor(*fx.device, target, submitted.value());
     if (!pixels.ok()) {
         return Out::Fail(pixels.error());
     }
     TestKit::Image8 image;
-    image.width = extent.width;
-    image.height = extent.height;
+    image.width = target.Extent().width;
+    image.height = target.Extent().height;
     image.rgba = std::move(pixels.value());
     return Out::Ok(std::move(image));
-}
-
-// The same frame without the readback: it returns once the frame is submitted, so the next call
-// begins while this one may still be executing.
-inline Result<void> SubmitHostFrame(UiGpuFixture& fx, Gpu::RenderTarget& target,
-                                    const std::function<void(Gpu::Frame&)>& draw) {
-    const VkExtent2D extent = target.Extent();
-    ImGui::GetIO().DisplaySize = ImVec2(static_cast<float>(extent.width), static_cast<float>(extent.height));
-
-    auto frame = fx.frames->Begin();
-    if (!frame.ok()) {
-        return Result<void>::Fail(frame.error());
-    }
-    fx.backend->NewFrame();
-    fx.imgui.NewFrame();
-    draw(*frame.value());
-    ImGui::Render();
-
-    frame.value()->AddWait(fx.textures->Flush());
-    target.Begin(frame.value()->Cmd(), {0.0f, 0.0f, 0.0f, 1.0f});
-    fx.backend->Record(frame.value()->Cmd(), ImGui::GetDrawData());
-    target.End(frame.value()->Cmd());
-    auto fault = fx.backend->Fault();
-    if (!fault.ok()) {
-        return Result<void>::Fail(fault.error());
-    }
-    auto ended = fx.frames->End(*frame.value());
-    if (!ended.ok()) {
-        return Result<void>::Fail(ended.error());
-    }
-    return Result<void>::Ok();
 }
 
 inline std::unique_ptr<Gpu::RenderTarget> MakeHostTarget(Gpu::Device& device, uint32_t size = 256) {

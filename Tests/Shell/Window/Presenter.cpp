@@ -156,7 +156,7 @@ TEST_CASE("An idle step blocks in WaitEvents for the idle cap") {
         auto stepped = fx->shell->Step(DrawDemoWindow);
         const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - before).count();
         REQUIRE(stepped.ok());
-        longest = (std::max)(longest, elapsed);
+        longest = std::max(longest, elapsed);
     }
     CHECK(longest >= 0.04);
     fx->device->GraphicsQueue().WaitIdle();
@@ -175,7 +175,7 @@ TEST_CASE("A zero-sized framebuffer does not spin even with a redraw pending") {
         const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - before).count();
         REQUIRE_MESSAGE(stepped.ok(), stepped.error().code << ": " << stepped.error().message);
         CHECK(stepped.value());
-        longest = (std::max)(longest, elapsed);
+        longest = std::max(longest, elapsed);
     }
     CHECK(longest >= 0.03);
     fx->window->ForceFramebufferSize(std::nullopt);
@@ -229,6 +229,27 @@ TEST_CASE("The idle wait cap is clamped to a positive minimum") {
     CHECK(fx->shell->IdleWaitCap() > 0.0);
     fx->shell->SetIdleWaitCap(0.25);
     CHECK(fx->shell->IdleWaitCap() == doctest::Approx(0.25));
+    fx->device->GraphicsQueue().WaitIdle();
+    CHECK(fx->device->ValidationMessageCount() == 0);
+}
+
+TEST_CASE("Time spent minimised does not count towards the first restored frame") {
+    auto fx = MakeWindowFixture();
+    REQUIRE(StepRedrawing(*fx).ok());
+    fx->theme->Mutate([](Ui::ThemeState& state) { state.accent = glm::vec4(0.9f, 0.2f, 0.2f, 1.0f); }, true);
+    REQUIRE(StepRedrawing(*fx).ok());
+    REQUIRE(fx->theme->IsTransitioning());
+
+    fx->window->ForceFramebufferSize(glm::ivec2(0, 0));
+    const auto minimisedUntil = std::chrono::steady_clock::now() + std::chrono::milliseconds(400);
+    while (std::chrono::steady_clock::now() < minimisedUntil) {
+        REQUIRE(StepRedrawing(*fx).ok());
+    }
+    fx->window->ForceFramebufferSize(std::nullopt);
+    REQUIRE(StepRedrawing(*fx).ok());
+    // The transition lasts a quarter second; had the minimised time been passed as one delta it
+    // would have finished on this frame.
+    CHECK(fx->theme->IsTransitioning());
     fx->device->GraphicsQueue().WaitIdle();
     CHECK(fx->device->ValidationMessageCount() == 0);
 }
