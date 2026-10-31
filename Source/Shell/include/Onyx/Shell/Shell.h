@@ -161,13 +161,15 @@ private:
 };
 
 // Runs argv[1..] through the shell's verbs (the stock ones plus anything added to Verbs()). Returns the
-// Cli exit code; a usage failure also writes a shell.args line to `err`.
+// Cli exit code; a usage failure also writes a shell.args line to `err`. Arguments are UTF-8: on Windows,
+// when argv is the process's own, they are read again from the wide command line.
 int RunCli(Shell& shell, int argc, char** argv, std::ostream& out, std::ostream& err);
 // The same over std::cout and std::cerr.
 int RunCli(Shell& shell, int argc, char** argv);
 
 // How Shell::Run treats a command line. No argument: Gui. Exactly one argument that is not a verb name
-// and names an existing regular file: GuiOpen with that file. Anything else: Cli.
+// and names an existing regular file: GuiOpen with that file. Anything else: Cli. Arguments are UTF-8
+// as in RunCli.
 struct ArgsRoute {
     enum class Kind { Gui, GuiOpen, Cli };
     Kind kind = Kind::Gui;

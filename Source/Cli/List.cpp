@@ -2,6 +2,7 @@
 
 #include <Onyx/Core/Cli/Json.h>
 #include <Onyx/Core/Cli/Run.h>
+#include <Onyx/Core/Services/Paths.h>
 
 #include <ostream>
 
@@ -33,7 +34,7 @@ void WriteEntryJson(std::ostream& out, const Domain::AssetEntry& e, const Types:
 
 void WriteJson(std::ostream& out, const std::filesystem::path& path, const Modules::Document& doc,
                const Types::TypeCatalog& catalog) {
-    out << "{\"path\":\"" << JsonEscape(path.string()) << "\",\"module\":\""
+    out << "{\"path\":\"" << JsonEscape(Services::Paths::ToUtf8(path)) << "\",\"module\":\""
         << JsonEscape(doc.module ? doc.module->Info().id : std::string()) << "\",\"entries\":[";
     for (size_t i = 0; i < doc.roots.size(); ++i) {
         if (i) out << ",";
@@ -61,8 +62,8 @@ Verb ListVerb() {
                 return kUsage;
             }
 
-            const std::filesystem::path path(args.positional[0]);
-            OpenDocument opened(ws, path, args.game);
+            const std::filesystem::path path = Services::Paths::FromUtf8(args.positional[0]);
+            Modules::ScopedDocument opened(ws, path, args.game);
             if (!OpenOrReport(opened, path, out)) return kNoModule;
 
             if (args.json) {

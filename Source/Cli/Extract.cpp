@@ -78,7 +78,7 @@ void ExtractEntries(std::ostream& out, const Modules::Document& doc, const std::
             continue;
         }
 
-        const std::shared_ptr<const Vfs::IFile> file = FileOf(doc, e);
+        const std::shared_ptr<const Vfs::IFile> file = Modules::FileOf(doc, e.source);
         if (!file) {
             out << "error '" << e.name << "': file index " << e.source.fileIndex << " out of range\n";
             ++failures;
@@ -89,7 +89,7 @@ void ExtractEntries(std::ostream& out, const Modules::Document& doc, const std::
             const std::filesystem::path targetDir =
                 e.source.fileIndex == 0 ? outDir : outDir / std::to_string(e.source.fileIndex);
             if (!claimed.insert(targetDir / e.name).second) {
-                out << "skipped '" << e.name << "': duplicate name in " << targetDir.string() << "\n";
+                out << "skipped '" << e.name << "': duplicate name in " << Services::Paths::ToUtf8(targetDir) << "\n";
                 ++failures;
                 continue;
             }
@@ -135,15 +135,15 @@ Verb ExtractVerb() {
                 return kUsage;
             }
 
-            const std::filesystem::path path(args.positional[0]);
-            const std::filesystem::path outDir(args.positional[1]);
-            OpenDocument opened(ws, path, args.game);
+            const std::filesystem::path path = Services::Paths::FromUtf8(args.positional[0]);
+            const std::filesystem::path outDir = Services::Paths::FromUtf8(args.positional[1]);
+            Modules::ScopedDocument opened(ws, path, args.game);
             if (!OpenOrReport(opened, path, out)) return kNoModule;
 
             std::error_code ec;
             std::filesystem::create_directories(outDir, ec);
             if (ec) {
-                out << "cannot create " << outDir.string() << ": " << ec.message() << "\n";
+                out << "cannot create " << Services::Paths::ToUtf8(outDir) << ": " << ec.message() << "\n";
                 return kPartial;
             }
 

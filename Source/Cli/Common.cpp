@@ -1,5 +1,7 @@
 #include "Common.h"
 
+#include <Onyx/Core/Services/Paths.h>
+
 #include <ostream>
 
 namespace Onyx::Cli::Detail {
@@ -34,29 +36,14 @@ bool ParseArgs(std::span<const std::string_view> args, Args& parsed) {
     return true;
 }
 
-OpenDocument::OpenDocument(Modules::Workspace& ws, const std::filesystem::path& path, std::string_view moduleHint)
-    : m_ws(ws) {
-    m_id = ws.Open(path, moduleHint);
-    if (m_id != 0) m_doc = ws.Get(m_id);
-}
-
-OpenDocument::~OpenDocument() {
-    if (m_id != 0) m_ws.Close(m_id);
-}
-
-bool OpenOrReport(OpenDocument& opened, const std::filesystem::path& path, std::ostream& out) {
+bool OpenOrReport(const Modules::ScopedDocument& opened, const std::filesystem::path& path, std::ostream& out) {
     if (opened.ok()) return true;
-    out << "no module accepts " << path.string() << "\n";
+    out << "no module accepts " << Services::Paths::ToUtf8(path) << "\n";
     return false;
 }
 
 bool IsFailed(const Domain::AssetEntry& entry) {
     return Domain::HasFlag(entry.flags, Domain::NodeFlags::Failed);
-}
-
-std::shared_ptr<const Vfs::IFile> FileOf(const Modules::Document& doc, const Domain::AssetEntry& entry) {
-    if (entry.source.fileIndex >= doc.files.size()) return nullptr;
-    return doc.files[entry.source.fileIndex];
 }
 
 }

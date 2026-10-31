@@ -1,6 +1,7 @@
 #include "Common.h"
 
 #include <Onyx/Core/Cli/Run.h>
+#include <Onyx/Core/Services/Paths.h>
 
 #include <ostream>
 
@@ -16,7 +17,7 @@ Verb ProbeVerb() {
                 return kUsage;
             }
 
-            const Modules::ProbeRanking ranking = ws.Probe(std::string(args.positional[0]));
+            const Modules::ProbeRanking ranking = ws.Probe(Services::Paths::FromUtf8(args.positional[0]));
             const Modules::IGameModule* winner = ranking.winner;
             if (!args.game.empty()) winner = ws.FindModule(args.game);
 

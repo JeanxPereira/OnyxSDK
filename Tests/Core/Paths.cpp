@@ -56,3 +56,21 @@ TEST_CASE("Paths.UserConfigNeverRelative") {
     setenv(name, saved.c_str(), 1);
 #endif
 }
+
+TEST_CASE("Paths::FromUtf8 round-trips a non-ASCII name") {
+    const std::string name = reinterpret_cast<const char*>(u8"caf\u00e9-\u00fc");
+    const fs::path path = Paths::FromUtf8(name);
+    CHECK(Paths::ToUtf8(path) == name);
+    CHECK(path.u8string() == std::u8string(u8"caf\u00e9-\u00fc"));
+}
+
+TEST_CASE("Paths::FromUtf8 does not throw on bytes that are not UTF-8") {
+    const std::string bytes = "caf\xe9-\xff";
+    fs::path path;
+    CHECK_NOTHROW(path = Paths::FromUtf8(bytes));
+    CHECK(path == fs::path(bytes));
+    CHECK_NOTHROW(Paths::FromUtf8(std::string("\xe0\x80")));
+    CHECK_NOTHROW(Paths::FromUtf8(std::string("ab\xc3")));
+    CHECK(Paths::ToUtf8(Paths::FromUtf8(reinterpret_cast<const char*>(u8"\u65e5\u672c"))) ==
+          reinterpret_cast<const char*>(u8"\u65e5\u672c"));
+}
