@@ -16,7 +16,10 @@ using namespace Onyx;
 using Tests::Decoding;
 using Tests::Find;
 using Tests::HasDiag;
+using Tests::Bytes;
 using Tests::NewWorkspace;
+using Tests::RawPrism;
+using Tests::RawSection;
 using Tests::SamplePrism;
 using Tests::TempFile;
 
@@ -188,4 +191,82 @@ TEST_CASE("the stats schema reads the four fields") {
     CHECK(json.find("\"clipCount\":1") != std::string::npos);
     CHECK(json.find("\"gainDefault\":1") != std::string::npos);
     CHECK(json.find("\"flags\":0") != std::string::npos);
+}
+
+namespace {
+
+// Opens a file holding one palette and one section named "subject" of the given kind.
+struct Subject {
+    TempFile file;
+    std::unique_ptr<Modules::Workspace> ws = NewWorkspace();
+    Modules::Document* doc = nullptr;
+    const Domain::AssetEntry* entry = nullptr;
+
+    Subject(const std::string& name, uint8_t kind, const std::vector<std::byte>& payload)
+        : file(name, RawPrism(1, {RawSection{0, "palette", Bytes({1, 2, 3, 255})}, RawSection{kind, "subject", payload}})) {
+        doc = ws->Get(ws->Open(file.path));
+        REQUIRE(doc);
+        entry = Find(*doc, "subject");
+        REQUIRE(entry);
+    }
+};
+
+}
+
+TEST_CASE("a palette payload that is not a multiple of 4 fails prism.palette.size on decode") {
+    Subject s("palettedecode.prm", 0, Bytes({1, 2, 3, 4, 5, 6}));
+    Decoding table(*s.ws, *s.doc, *s.entry);
+    CHECK_FALSE(s.ws->Decoders().DecodeTable(table.ctx));
+    Decoding any(*s.ws, *s.doc, *s.entry);
+    CHECK_FALSE(s.ws->Decoders().DecodeAny(any.ctx, "prism.palette"));
+    CHECK(HasDiag(*s.doc, "prism.palette.size", Services::Severity::Error));
+}
+
+TEST_CASE("an image shorter than its header fails prism.image.truncated") {
+    Subject s("imagetrunc.prm", 1, Bytes({2, 0}));
+    Decoding image(*s.ws, *s.doc, *s.entry);
+    CHECK_FALSE(s.ws->Decoders().DecodeImage(image.ctx));
+    CHECK(HasDiag(*s.doc, "prism.image.truncated", Services::Severity::Error));
+}
+
+TEST_CASE("an image whose payload does not match its size fails prism.image.size on decode") {
+    Subject s("imagesize.prm", 1, Bytes({2, 0, 2, 0, 0}));
+    Decoding image(*s.ws, *s.doc, *s.entry);
+    CHECK_FALSE(s.ws->Decoders().DecodeImage(image.ctx));
+    CHECK(HasDiag(*s.doc, "prism.image.size", Services::Severity::Error));
+}
+
+TEST_CASE("a clip shorter than its header fails prism.clip.truncated") {
+    Subject s("cliptrunc.prm", 3, Bytes({0x40, 0x1F, 0, 0, 1}));
+    Decoding clip(*s.ws, *s.doc, *s.entry);
+    CHECK_FALSE(s.ws->Decoders().DecodeAudio(clip.ctx));
+    CHECK(HasDiag(*s.doc, "prism.clip.truncated", Services::Severity::Error));
+}
+
+TEST_CASE("a clip whose frame count does not match fails prism.clip.size on decode") {
+    Subject s("clipdecode.prm", 3, Bytes({0x40, 0x1F, 0, 0, 1, 0, 5, 0, 0, 0, 1, 0}));
+    Decoding clip(*s.ws, *s.doc, *s.entry);
+    CHECK_FALSE(s.ws->Decoders().DecodeAudio(clip.ctx));
+    CHECK(HasDiag(*s.doc, "prism.clip.size", Services::Severity::Error));
+}
+
+TEST_CASE("an entries table shorter than its header fails prism.entries.truncated") {
+    Subject s("entriestrunc.prm", 4, Bytes({2, 0}));
+    Decoding entries(*s.ws, *s.doc, *s.entry);
+    CHECK_FALSE(s.ws->Decoders().DecodeTable(entries.ctx));
+    CHECK(HasDiag(*s.doc, "prism.entries.truncated", Services::Severity::Error));
+}
+
+TEST_CASE("an entries table declaring more cells than fit fails prism.entries.size") {
+    Subject s("entriessize.prm", 4, Bytes({2, 0, 2, 0, 0, 0}));
+    Decoding entries(*s.ws, *s.doc, *s.entry);
+    CHECK_FALSE(s.ws->Decoders().DecodeTable(entries.ctx));
+    CHECK(HasDiag(*s.doc, "prism.entries.size", Services::Severity::Error));
+}
+
+TEST_CASE("an entries cell running past the payload fails prism.entries.truncated") {
+    Subject s("entriescell.prm", 4, Bytes({1, 0, 1, 0, 9, 0, 'a'}));
+    Decoding entries(*s.ws, *s.doc, *s.entry);
+    CHECK_FALSE(s.ws->Decoders().DecodeTable(entries.ctx));
+    CHECK(HasDiag(*s.doc, "prism.entries.truncated", Services::Severity::Error));
 }

@@ -8,12 +8,18 @@
 
 #include <Onyx/Core/Modules/Workspace.h>
 
+#include <Prism/Palette.h>
+
+#include <memory>
 #include <vector>
 
 using namespace Onyx;
 using Tests::Find;
 using Tests::HasDiag;
+using Tests::Bytes;
 using Tests::NewWorkspace;
+using Tests::RawPrism;
+using Tests::RawSection;
 using Tests::SamplePrism;
 using Tests::TempFile;
 
@@ -133,4 +139,86 @@ TEST_CASE("a truncated section header stops the walk and keeps what was read") {
     REQUIRE(doc);
     CHECK(doc->roots.size() < 7);
     CHECK(HasDiag(*doc, "prism.section.truncated", Services::Severity::Warning));
+}
+
+TEST_CASE("a second palette is reported as prism.palette.duplicate and the first one is used") {
+    Prism::Writer w;
+    w.SetPalette({{10, 20, 30, 255}, {40, 50, 60, 255}});
+    w.AddImage("pic", 1, 1, {1});
+    w.AddRange("second", Prism::Kind::Palette, 0, 8);
+    TempFile file("duplicate.prm", w.Build());
+    auto ws = NewWorkspace();
+    Modules::Document* doc = ws->Get(ws->Open(file.path));
+    REQUIRE(doc);
+
+    CHECK(HasDiag(*doc, "prism.palette.duplicate", Services::Severity::Error));
+    CHECK(doc->diags.Count(Services::Severity::Error) == 1);
+    CHECK(Domain::HasFlag(Find(*doc, "second")->flags, Domain::NodeFlags::Failed));
+    CHECK_FALSE(Domain::HasFlag(Find(*doc, "palette")->flags, Domain::NodeFlags::Failed));
+    CHECK_FALSE(Domain::HasFlag(Find(*doc, "pic")->flags, Domain::NodeFlags::Failed));
+
+    const auto palette = std::static_pointer_cast<const Prism::Palette>(doc->moduleState);
+    REQUIRE(palette);
+    REQUIRE(palette->colors.size() == 2);
+    CHECK(palette->colors[1] == glm::u8vec4(40, 50, 60, 255));
+}
+
+TEST_CASE("a file without the PRM1 magic reports prism.header.bad") {
+    TempFile file("badmagic.prm", Bytes({'N', 'O', 'P', 'E', 0, 0, 0, 0, 0, 0}));
+    auto ws = NewWorkspace();
+    Modules::Document* doc = ws->Get(ws->Open(file.path, "prm"));
+    REQUIRE(doc);
+    CHECK(HasDiag(*doc, "prism.header.bad", Services::Severity::Error));
+    CHECK(doc->roots.empty());
+}
+
+TEST_CASE("a file shorter than the header reports prism.header.truncated") {
+    TempFile file("short.prm", Bytes({'P', 'R', 'M', '1', 1, 0}));
+    auto ws = NewWorkspace();
+    Modules::Document* doc = ws->Get(ws->Open(file.path, "prm"));
+    REQUIRE(doc);
+    CHECK(HasDiag(*doc, "prism.header.truncated", Services::Severity::Error));
+    CHECK(doc->roots.empty());
+}
+
+TEST_CASE("a section count beyond what the file can hold is clamped with a warning") {
+    TempFile file("clamped.prm", Bytes({'P', 'R', 'M', '1', 0, 0, 0xFF, 0xFF, 0xFF, 0x7F}));
+    auto ws = NewWorkspace();
+    Modules::Document* doc = ws->Get(ws->Open(file.path, "prm"));
+    REQUIRE(doc);
+    CHECK(HasDiag(*doc, "prism.sections.clamped", Services::Severity::Warning));
+    CHECK(doc->roots.empty());
+}
+
+TEST_CASE("an unknown section kind is Failed with prism.section.kind") {
+    Prism::Writer w;
+    w.SetPalette({{1, 2, 3, 4}});
+    w.AddRange("odd", static_cast<Prism::Kind>(9), 0, 4);
+    TempFile file("kind.prm", w.Build());
+    auto ws = NewWorkspace();
+    Modules::Document* doc = ws->Get(ws->Open(file.path));
+    REQUIRE(doc);
+    CHECK(HasDiag(*doc, "prism.section.kind", Services::Severity::Error));
+    CHECK(Domain::HasFlag(Find(*doc, "odd")->flags, Domain::NodeFlags::Failed));
+    CHECK_FALSE(Domain::HasFlag(Find(*doc, "palette")->flags, Domain::NodeFlags::Failed));
+}
+
+TEST_CASE("a palette whose size is not paletteCount * 4 is Failed with prism.palette.size") {
+    TempFile file("palsize.prm", RawPrism(3, {RawSection{0, "palette", Bytes({1, 2, 3, 4, 5, 6, 7, 8})}}));
+    auto ws = NewWorkspace();
+    Modules::Document* doc = ws->Get(ws->Open(file.path));
+    REQUIRE(doc);
+    CHECK(HasDiag(*doc, "prism.palette.size", Services::Severity::Error));
+    CHECK(Domain::HasFlag(Find(*doc, "palette")->flags, Domain::NodeFlags::Failed));
+}
+
+TEST_CASE("a clip whose frame count does not match its payload is Failed with prism.clip.size") {
+    // 8000 Hz, 1 channel, 5 frames declared, 2 frames present.
+    const auto payload = Bytes({0x40, 0x1F, 0, 0, 1, 0, 5, 0, 0, 0, 1, 0, 2, 0});
+    TempFile file("clipsize.prm", RawPrism(0, {RawSection{3, "clip", payload}}));
+    auto ws = NewWorkspace();
+    Modules::Document* doc = ws->Get(ws->Open(file.path));
+    REQUIRE(doc);
+    CHECK(HasDiag(*doc, "prism.clip.size", Services::Severity::Error));
+    CHECK(Domain::HasFlag(Find(*doc, "clip")->flags, Domain::NodeFlags::Failed));
 }
