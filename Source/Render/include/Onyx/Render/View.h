@@ -27,6 +27,9 @@ struct View {
     ShadingMode mode = ShadingMode::Solid;
     glm::vec4 clear{0.10f, 0.11f, 0.13f, 1.0f};
     std::optional<Gradient> background;
+    // The clip and time RenderToImage poses the scene at before drawing. SceneRenderer::Draw does not
+    // evaluate it and reports render.pose.ignored when it is set: an interactive host drives an
+    // AnimationPlayer itself and passes the result to GpuScene::SetPalette and SetWorldTransforms.
     std::optional<ClipTime> pose;
 };
 

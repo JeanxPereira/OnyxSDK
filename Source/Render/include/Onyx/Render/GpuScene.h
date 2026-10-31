@@ -57,7 +57,8 @@ public:
     // CPU copy of the joint palette, one matrix per skeleton joint. A span of any other size is
     // ignored and reported by the next SceneRenderer::Draw as render.palette.size.
     void SetPalette(std::span<const glm::mat4> palette);
-    // The world transform of each joint, kept for the skeleton overlay.
+    // The world transform of each joint, kept for the skeleton overlay. A span of any other size than
+    // the joint count is ignored and reported by the next SceneRenderer::Draw as render.worlds.size.
     void SetWorldTransforms(std::span<const glm::mat4> worlds);
     // Defaults to the rest palette of the skeleton; empty without one.
     std::span<const glm::mat4> Palette() const { return m_palette; }
@@ -104,6 +105,7 @@ private:
     std::vector<glm::mat4> m_palette;
     std::vector<glm::mat4> m_worlds;
     bool m_paletteRejected = false;
+    bool m_worldsRejected = false;
 };
 
 }

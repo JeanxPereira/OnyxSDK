@@ -13,6 +13,12 @@ void GpuScene::SetPalette(std::span<const glm::mat4> palette) {
 }
 
 void GpuScene::SetWorldTransforms(std::span<const glm::mat4> worlds) {
+    const size_t jointCount = m_skeleton ? m_skeleton->joints.size() : 0;
+    if (worlds.size() != jointCount) {
+        m_worldsRejected = true;
+        return;
+    }
+    m_worldsRejected = false;
     m_worlds.assign(worlds.begin(), worlds.end());
 }
 

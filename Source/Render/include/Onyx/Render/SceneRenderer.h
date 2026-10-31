@@ -14,8 +14,8 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <tuple>
 #include <utility>
-#include <unordered_map>
 
 namespace Onyx::Render {
 
@@ -30,8 +30,12 @@ struct RendererOptions {
 
 // Loads scenes onto the GPU and records their draws. One renderer serves any number of scenes and
 // render targets whose formats and sample count match its options. It keeps descriptor sets keyed
-// by the transient buffer of a frame slot, so it must be paired with one FrameRing at a time and
-// recreated when that ring is replaced. Must be destroyed before its Device. Not thread-safe.
+// by the id of the FrameRing and the transient buffer of a frame slot. When a Draw sees a different
+// ring than the last one, it waits for the graphics queue to finish what was submitted, resets its
+// descriptor pools and clears the caches, so a replaced ring never meets a stale set. Each pool holds
+// 64 sets; the frame pool needs one set per frame slot and distinct palette range, so exhausting it
+// reports gpu.vk with a message naming kSets in SceneRenderer.cpp. Must be destroyed before its
+// Device. Not thread-safe.
 //
 // Error codes: render.target.format (the target does not match RendererOptions), render.scene.device
 // (the scene belongs to another Device), render.part.vertices (the scene's vertices or indices exceed
@@ -43,6 +47,8 @@ struct RendererOptions {
 //   render.part.index       an index outside the part's vertices; part skipped
 //   render.part.vertices    see above
 //   render.palette.size     SetPalette was given the wrong size and ignored
+//   render.worlds.size      SetWorldTransforms was given the wrong size and ignored
+//   render.pose.ignored     View::pose was set; only RenderToImage evaluates it
 class SceneRenderer {
 public:
     // Builds every pipeline once through PipelineBuilder and the device pipeline cache.
@@ -65,15 +71,18 @@ public:
     Gpu::Device& GetDevice() const { return m_device; }
 
 private:
+    using DescriptorCache = std::map<std::pair<uint64_t, VkBuffer>, VkDescriptorSet>;
+
     SceneRenderer(Gpu::Device& device, const RendererOptions& options);
 
     Result<void> Populate(GpuScene& out, const Domain::Scene& scene, Gpu::UploadContext& upload,
                           Services::DiagSink* diags);
-    Result<VkDescriptorSet> FrameSet(VkBuffer transient, VkDeviceSize paletteRange);
-    Result<VkDescriptorSet> BackgroundSet(VkBuffer transient);
-    Result<VkDescriptorSet> UniformSet(std::optional<Gpu::DescriptorPool>& pool,
-                                       std::unordered_map<VkBuffer, VkDescriptorSet>& sets, VkDescriptorSetLayout layout,
-                                       VkBuffer transient, VkDeviceSize range);
+    Result<VkDescriptorSet> FrameSet(uint64_t ringId, VkBuffer transient, VkDeviceSize paletteRange);
+    Result<VkDescriptorSet> BackgroundSet(uint64_t ringId, VkBuffer transient);
+    Result<VkDescriptorSet> UniformSet(std::optional<Gpu::DescriptorPool>& pool, DescriptorCache& sets,
+                                       VkDescriptorSetLayout layout, uint64_t ringId, VkBuffer transient,
+                                       VkDeviceSize range);
+    Result<void> BindRing(uint64_t ringId);
     Result<OverlayPlan> PlanOverlays(Gpu::Frame& frame, const GpuScene& scene, const View& view,
                                      const Overlays& overlays);
     void RecordOverlays(VkCommandBuffer cmd, const OverlayPlan& plan);
@@ -83,12 +92,13 @@ private:
     std::unique_ptr<ScenePipelines> m_pipelines;
     std::optional<Gpu::DescriptorPool> m_framePool;
     std::optional<Gpu::DescriptorPool> m_backgroundPool;
-    std::map<std::pair<VkBuffer, VkDeviceSize>, VkDescriptorSet> m_frameSets;
-    std::unordered_map<VkBuffer, VkDescriptorSet> m_backgroundSets;
+    uint64_t m_ringId = 0;
+    std::map<std::tuple<uint64_t, VkBuffer, VkDeviceSize>, VkDescriptorSet> m_frameSets;
+    DescriptorCache m_backgroundSets;
     std::optional<Gpu::DescriptorPool> m_gridPool;
     std::optional<Gpu::DescriptorPool> m_overlayPool;
-    std::unordered_map<VkBuffer, VkDescriptorSet> m_gridSets;
-    std::unordered_map<VkBuffer, VkDescriptorSet> m_overlaySets;
+    DescriptorCache m_gridSets;
+    DescriptorCache m_overlaySets;
 };
 
 }

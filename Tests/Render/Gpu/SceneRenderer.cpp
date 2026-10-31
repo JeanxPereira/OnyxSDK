@@ -388,3 +388,86 @@ TEST_CASE("The joint map is applied: a permuted map with remapped indices render
     CHECK_MESSAGE(changed.differingPct > 0.5, TestKit::FormatMetrics(changed));
     CHECK_MESSAGE(fx.device->ValidationMessageCount() == 0, fx.device->LastValidationMessage());
 }
+
+TEST_CASE("Draw reports a set View::pose as ignored, once per call") {
+    auto fx = MakeRenderFixture();
+    auto fixture = TestKit::BuildAnimatedChain();
+    auto gpu = LoadOrFail(fx, fixture.scene);
+    Render::View view = ViewOf(fixture);
+    view.pose = Render::ClipTime{0, 0.5f};
+
+    auto target = Gpu::RenderTarget::Create(*fx.device, {.extent = {32, 32}});
+    REQUIRE(target.ok());
+    auto frame = fx.frames->Begin();
+    REQUIRE(frame.ok());
+    Services::DiagSink diags;
+    CHECK(fx.renderer->Draw(*frame.value(), *target.value(), gpu, view, {}, &diags).ok());
+    CHECK(fx.frames->End(*frame.value()).ok());
+    size_t count = 0;
+    for (const Services::Diag& diag : diags.Snapshot()) {
+        if (diag.code == "render.pose.ignored") {
+            ++count;
+            CHECK(diag.severity == Services::Severity::Warning);
+        }
+    }
+    CHECK(count == 1);
+
+    // Without a pose there is nothing to report.
+    view.pose.reset();
+    frame = fx.frames->Begin();
+    REQUIRE(frame.ok());
+    Services::DiagSink quiet;
+    CHECK(fx.renderer->Draw(*frame.value(), *target.value(), gpu, view, {}, &quiet).ok());
+    CHECK(fx.frames->End(*frame.value()).ok());
+    CHECK_FALSE(HasCode(quiet, "render.pose.ignored"));
+    CHECK_MESSAGE(fx.device->ValidationMessageCount() == 0, fx.device->LastValidationMessage());
+}
+
+TEST_CASE("World transforms of the wrong size are ignored and reported at Draw") {
+    auto fx = MakeRenderFixture();
+    auto fixture = TestKit::BuildSkinnedCube();
+    auto gpu = LoadOrFail(fx, fixture.scene);
+    const size_t joints = gpu.WorldTransforms().size();
+    REQUIRE(joints > 0);
+    const std::vector<glm::mat4> wrong(joints + 2, glm::mat4(1.0f));
+    gpu.SetWorldTransforms(wrong);
+    CHECK(gpu.WorldTransforms().size() == joints);
+
+    auto target = Gpu::RenderTarget::Create(*fx.device, {.extent = {32, 32}});
+    REQUIRE(target.ok());
+    auto frame = fx.frames->Begin();
+    REQUIRE(frame.ok());
+    Services::DiagSink diags;
+    CHECK(fx.renderer->Draw(*frame.value(), *target.value(), gpu, ViewOf(fixture), {}, &diags).ok());
+    CHECK(fx.frames->End(*frame.value()).ok());
+    CHECK(HasCode(diags, "render.worlds.size"));
+
+    gpu.SetWorldTransforms(std::vector<glm::mat4>(joints, glm::mat4(1.0f)));
+    CHECK(gpu.WorldTransforms().size() == joints);
+    frame = fx.frames->Begin();
+    REQUIRE(frame.ok());
+    Services::DiagSink after;
+    CHECK(fx.renderer->Draw(*frame.value(), *target.value(), gpu, ViewOf(fixture), {}, &after).ok());
+    CHECK(fx.frames->End(*frame.value()).ok());
+    CHECK_FALSE(HasCode(after, "render.worlds.size"));
+    CHECK_MESSAGE(fx.device->ValidationMessageCount() == 0, fx.device->LastValidationMessage());
+}
+
+TEST_CASE("Replacing the frame ring keeps the renderer correct under validation") {
+    auto fx = MakeRenderFixture();
+    const auto fixture = TestKit::BuildBlendStack();
+    const Render::View view = ViewOf(fixture);
+    auto gpu = LoadOrFail(fx, fixture.scene);
+    auto first = RenderOnce(fx, gpu, view, {}, 64, 64);
+    REQUIRE(first.ok());
+    const uint64_t oldId = fx.frames->Id();
+
+    auto frames = Gpu::FrameRing::Create(*fx.device);
+    REQUIRE(frames.ok());
+    fx.frames = std::move(frames.value());
+    CHECK(fx.frames->Id() != oldId);
+    auto second = RenderOnce(fx, gpu, view, {}, 64, 64);
+    REQUIRE(second.ok());
+    CHECK(second.value().rgba == first.value().rgba);
+    CHECK_MESSAGE(fx.device->ValidationMessageCount() == 0, fx.device->LastValidationMessage());
+}

@@ -13,6 +13,7 @@
 #include <map>
 #include <span>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -634,14 +635,51 @@ Result<void> SceneRenderer::Populate(GpuScene& out, const Domain::Scene& scene, 
     return Result<void>::Ok();
 }
 
-Result<VkDescriptorSet> SceneRenderer::FrameSet(VkBuffer transient, VkDeviceSize paletteRange) {
-    const auto key = std::make_pair(transient, paletteRange);
+namespace {
+
+// The pools hold a fixed number of sets (kSets in Create); say which knob to raise when one fills.
+Error PoolFull(Error error, const char* pool) {
+    if (error.code == "gpu.vk") {
+        error.message = std::format("the {} descriptor pool is full ({}); raise kSets in SceneRenderer.cpp or lower "
+                                    "framesInFlight and the number of distinct palette sizes",
+                                    pool, error.message);
+    }
+    return error;
+}
+
+}
+
+Result<void> SceneRenderer::BindRing(uint64_t ringId) {
+    if (ringId == m_ringId) {
+        return Result<void>::Ok();
+    }
+    if (m_ringId != 0) {
+        // The sets of the previous ring may still be read by submitted frames.
+        Gpu::Queue& queue = m_device.GraphicsQueue();
+        auto waited = queue.Wait(queue.LastSubmitted());
+        if (!waited.ok()) {
+            return waited;
+        }
+        for (std::optional<Gpu::DescriptorPool>* pool : {&m_framePool, &m_backgroundPool, &m_gridPool, &m_overlayPool}) {
+            pool->value().Reset();
+        }
+        m_frameSets.clear();
+        m_backgroundSets.clear();
+        m_gridSets.clear();
+        m_overlaySets.clear();
+    }
+    m_ringId = ringId;
+    return Result<void>::Ok();
+}
+
+Result<VkDescriptorSet> SceneRenderer::FrameSet(uint64_t ringId, VkBuffer transient, VkDeviceSize paletteRange) {
+    const auto key = std::make_tuple(ringId, transient, paletteRange);
     if (auto found = m_frameSets.find(key); found != m_frameSets.end()) {
         return Result<VkDescriptorSet>::Ok(found->second);
     }
     auto set = m_framePool->Allocate(m_pipelines->opaque.setLayouts[0].Get());
     if (!set.ok()) {
-        return set;
+        return Result<VkDescriptorSet>::Fail(PoolFull(set.error(), "frame"));
     }
     VkDescriptorBufferInfo uboInfo{transient, 0, sizeof(Shader::FrameUbo)};
     VkDescriptorBufferInfo paletteInfo{transient, 0, paletteRange};
@@ -664,13 +702,13 @@ Result<VkDescriptorSet> SceneRenderer::FrameSet(VkBuffer transient, VkDeviceSize
     return set;
 }
 
-Result<VkDescriptorSet> SceneRenderer::BackgroundSet(VkBuffer transient) {
-    if (auto found = m_backgroundSets.find(transient); found != m_backgroundSets.end()) {
+Result<VkDescriptorSet> SceneRenderer::BackgroundSet(uint64_t ringId, VkBuffer transient) {
+    if (auto found = m_backgroundSets.find({ringId, transient}); found != m_backgroundSets.end()) {
         return Result<VkDescriptorSet>::Ok(found->second);
     }
     auto set = m_backgroundPool->Allocate(m_pipelines->background.setLayouts[0].Get());
     if (!set.ok()) {
-        return set;
+        return Result<VkDescriptorSet>::Fail(PoolFull(set.error(), "background"));
     }
     VkDescriptorBufferInfo info{transient, 0, sizeof(Shader::BackgroundUbo)};
     VkWriteDescriptorSet write{};
@@ -681,7 +719,7 @@ Result<VkDescriptorSet> SceneRenderer::BackgroundSet(VkBuffer transient) {
     write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     write.pBufferInfo = &info;
     m_device.Fn().vkUpdateDescriptorSets(m_device.Handle(), 1, &write, 0, nullptr);
-    m_backgroundSets.emplace(transient, set.value());
+    m_backgroundSets.emplace(std::make_pair(ringId, transient), set.value());
     return set;
 }
 
@@ -695,6 +733,17 @@ Result<void> SceneRenderer::Draw(Gpu::Frame& frame, Gpu::RenderTarget& target, c
     }
     if (scene.m_device != &m_device) {
         return Result<void>::Fail({"render.scene.device", "the scene was loaded on another device", 0});
+    }
+    if (view.pose) {
+        Report(diags, Severity::Warning, "render.pose.ignored",
+               "View::pose is evaluated by RenderToImage only; pose the GpuScene with SetPalette and SetWorldTransforms");
+    }
+    if (scene.m_worldsRejected) {
+        Report(diags, Severity::Warning, "render.worlds.size",
+               "SetWorldTransforms was given a span whose size differs from the skeleton's joint count and was ignored");
+    }
+    if (auto bound = BindRing(frame.RingId()); !bound.ok()) {
+        return bound;
     }
     if (scene.m_paletteRejected) {
         Report(diags, Severity::Warning, "render.palette.size",
@@ -759,13 +808,13 @@ Result<void> SceneRenderer::Draw(Gpu::Frame& frame, Gpu::RenderTarget& target, c
     }
 
     const VkBuffer transientBuffer = mainUbo.value().buffer;
-    auto frameSet = FrameSet(transientBuffer, paletteRange);
+    auto frameSet = FrameSet(frame.RingId(), transientBuffer, paletteRange);
     if (!frameSet.ok()) {
         return Result<void>::Fail(frameSet.error());
     }
     VkDescriptorSet backgroundSet = VK_NULL_HANDLE;
     if (backgroundUbo) {
-        auto set = BackgroundSet(backgroundUbo->buffer);
+        auto set = BackgroundSet(frame.RingId(), backgroundUbo->buffer);
         if (!set.ok()) {
             return Result<void>::Fail(set.error());
         }
@@ -860,14 +909,14 @@ Result<void> SceneRenderer::Draw(Gpu::Frame& frame, Gpu::RenderTarget& target, c
 }
 
 Result<VkDescriptorSet> SceneRenderer::UniformSet(std::optional<Gpu::DescriptorPool>& pool,
-                                                  std::unordered_map<VkBuffer, VkDescriptorSet>& sets,
-                                                  VkDescriptorSetLayout layout, VkBuffer transient, VkDeviceSize range) {
-    if (auto found = sets.find(transient); found != sets.end()) {
+                                                  DescriptorCache& sets, VkDescriptorSetLayout layout,
+                                                  uint64_t ringId, VkBuffer transient, VkDeviceSize range) {
+    if (auto found = sets.find({ringId, transient}); found != sets.end()) {
         return Result<VkDescriptorSet>::Ok(found->second);
     }
     auto set = pool->Allocate(layout);
     if (!set.ok()) {
-        return set;
+        return Result<VkDescriptorSet>::Fail(PoolFull(set.error(), "overlay"));
     }
     VkDescriptorBufferInfo info{transient, 0, range};
     VkWriteDescriptorSet write{};
@@ -878,7 +927,7 @@ Result<VkDescriptorSet> SceneRenderer::UniformSet(std::optional<Gpu::DescriptorP
     write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     write.pBufferInfo = &info;
     m_device.Fn().vkUpdateDescriptorSets(m_device.Handle(), 1, &write, 0, nullptr);
-    sets.emplace(transient, set.value());
+    sets.emplace(std::make_pair(ringId, transient), set.value());
     return set;
 }
 
@@ -892,8 +941,8 @@ Result<OverlayPlan> SceneRenderer::PlanOverlays(Gpu::Frame& frame, const GpuScen
         }
         const Shader::GridUbo data = MakeGridUbo(view, overlays);
         std::memcpy(ubo.value().mapped, &data, sizeof(data));
-        auto set = UniformSet(m_gridPool, m_gridSets, m_pipelines->grid.setLayouts[0].Get(), ubo.value().buffer,
-                              sizeof(Shader::GridUbo));
+        auto set = UniformSet(m_gridPool, m_gridSets, m_pipelines->grid.setLayouts[0].Get(), frame.RingId(),
+                              ubo.value().buffer, sizeof(Shader::GridUbo));
         if (!set.ok()) {
             return Result<OverlayPlan>::Fail(set.error());
         }
@@ -917,7 +966,7 @@ Result<OverlayPlan> SceneRenderer::PlanOverlays(Gpu::Frame& frame, const GpuScen
             }
             std::memcpy(vertices.value().mapped, lines.data(), lines.size() * sizeof(Shader::OverlayVertex));
             auto set = UniformSet(m_overlayPool, m_overlaySets, m_pipelines->overlay.setLayouts[0].Get(),
-                                  ubo.value().buffer, sizeof(Shader::OverlayUbo));
+                                  frame.RingId(), ubo.value().buffer, sizeof(Shader::OverlayUbo));
             if (!set.ok()) {
                 return Result<OverlayPlan>::Fail(set.error());
             }

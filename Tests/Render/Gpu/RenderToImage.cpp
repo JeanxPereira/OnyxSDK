@@ -49,3 +49,34 @@ TEST_CASE("RenderToImage reports a failing scene instead of crashing") {
     CHECK(reused.error().code == "gpu.extent");
     CHECK_MESSAGE(fx.device->ValidationMessageCount() == 0, fx.device->LastValidationMessage());
 }
+
+TEST_CASE("An adopted device renders blend-stack byte-identically to the owning device") {
+    auto fx = MakeRenderFixture();
+    Gpu::Device& own = *fx.device;
+    const auto fixture = TestKit::BuildBlendStack();
+    const Render::View view = ViewOf(fixture);
+    constexpr uint32_t size = 128;
+
+    auto owned = Render::RenderToImage(own, fixture.scene, view, {}, {size, size});
+    REQUIRE_MESSAGE(owned.ok(), owned.error().code << ": " << owned.error().message);
+
+    Gpu::ExternalDevice external{own.Instance(),
+                                 own.PhysicalDevice(),
+                                 own.Handle(),
+                                 own.GraphicsQueue().Handle(),
+                                 own.GraphicsQueue().Family(),
+                                 vkGetInstanceProcAddr,
+                                 vkGetDeviceProcAddr,
+                                 {true, true, true},
+                                 {}};
+    auto adopted = Gpu::Device::Adopt(external);
+    REQUIRE_MESSAGE(adopted.ok(), adopted.error().code << ": " << adopted.error().message);
+    CHECK(adopted.value()->Info().adopted);
+    auto viaAdopted = Render::RenderToImage(*adopted.value(), fixture.scene, view, {}, {size, size});
+    REQUIRE_MESSAGE(viaAdopted.ok(), viaAdopted.error().code << ": " << viaAdopted.error().message);
+    CHECK(viaAdopted.value().pixels == owned.value().pixels);
+    adopted.value().reset();
+
+    CHECK_FALSE(own.GraphicsQueue().Fault().has_value());
+    CHECK_MESSAGE(own.ValidationMessageCount() == 0, own.LastValidationMessage());
+}
