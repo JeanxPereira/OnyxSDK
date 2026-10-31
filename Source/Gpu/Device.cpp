@@ -374,6 +374,10 @@ Result<void> Device::CreateOwned(const DeviceOptions& options) {
     enabled.v13.synchronization2 = VK_TRUE;
     enabled.features2.features.robustBufferAccess = supported.features2.features.robustBufferAccess;
     m_info.robustBufferAccess = supported.features2.features.robustBufferAccess == VK_TRUE;
+    if (supported.features2.features.samplerAnisotropy == VK_TRUE) {
+        enabled.features2.features.samplerAnisotropy = VK_TRUE;
+        m_info.maxAnisotropy = chosen.props.limits.maxSamplerAnisotropy;
+    }
 
     const float priority = 1.0f;
     VkDeviceQueueCreateInfo queueInfo{};

@@ -47,6 +47,8 @@ public:
     // and records the failure in Fault().
     FenceValue Completed() const;
     Result<void> Wait(FenceValue value, uint64_t timeoutNs = UINT64_MAX);
+    // vkQueueWaitIdle under the queue mutex. Swapchain teardown and recreate only; never on a frame path.
+    Result<void> WaitIdle();
 
     // Sticky: the most recent failure from Submit, Wait (a timeout is not a fault), Present
     // (missing swapchain entry point) or Completed. Never cleared.

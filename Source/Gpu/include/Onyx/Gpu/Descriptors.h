@@ -39,7 +39,7 @@ struct SamplerDesc {
     VkFilter filter = VK_FILTER_LINEAR;
     VkSamplerAddressMode address = VK_SAMPLER_ADDRESS_MODE_REPEAT;
     bool mipmaps = true;
-    // Owned devices do not enable samplerAnisotropy, so this is not applied to them.
+    // Applied, clamped to DeviceInfo::maxAnisotropy, when both are above zero.
     float maxAnisotropy = 0.0f;
 };
 

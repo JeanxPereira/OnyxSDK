@@ -35,7 +35,8 @@ public:
     RenderTarget& operator=(const RenderTarget&) = delete;
 
     // gpu.extent on a zero dimension. The previous images retire through Unique and are destroyed
-    // once the queue completes the submissions that may still use them.
+    // once the queue completes the submissions that may still use them. Old images retire at
+    // LastSubmitted, so Resize must not fall between a host's Begin and the submit of that command buffer.
     Result<void> Resize(VkExtent2D extent);
 
     // Transitions the attachments, begins dynamic rendering with a clear and sets viewport and scissor.

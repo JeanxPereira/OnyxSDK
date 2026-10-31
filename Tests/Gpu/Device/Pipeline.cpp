@@ -110,5 +110,9 @@ TEST_CASE("DescriptorPool allocates sets from a layout and recycles them on Rese
     auto sampler = Gpu::CreateSampler(*device, {.filter = VK_FILTER_NEAREST, .mipmaps = false});
     REQUIRE(sampler.ok());
     CHECK(sampler.value().Get() != VK_NULL_HANDLE);
+
+    auto anisotropic = Gpu::CreateSampler(*device, {.maxAnisotropy = 16.0f});
+    REQUIRE(anisotropic.ok());
+    CHECK(anisotropic.value().Get() != VK_NULL_HANDLE);
     CHECK(device->ValidationMessageCount() == 0);
 }

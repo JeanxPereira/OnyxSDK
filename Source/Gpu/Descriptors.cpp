@@ -48,6 +48,11 @@ Result<Unique<VkSampler>> CreateSampler(Device& device, const SamplerDesc& desc)
     info.addressModeV = desc.address;
     info.addressModeW = desc.address;
     info.maxLod = desc.mipmaps ? VK_LOD_CLAMP_NONE : 0.0f;
+    const float limit = device.Info().maxAnisotropy;
+    if (desc.maxAnisotropy > 0.0f && limit > 0.0f) {
+        info.anisotropyEnable = VK_TRUE;
+        info.maxAnisotropy = desc.maxAnisotropy < limit ? desc.maxAnisotropy : limit;
+    }
     info.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
     VkSampler sampler = VK_NULL_HANDLE;
     VkResult r = device.Fn().vkCreateSampler(device.Handle(), &info, nullptr, &sampler);

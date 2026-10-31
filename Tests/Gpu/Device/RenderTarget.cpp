@@ -1,5 +1,7 @@
 #include <doctest/doctest.h>
 
+#include <Spirv/TriangleDepthFrag.h>
+#include <Spirv/TriangleDepthVert.h>
 #include <Spirv/TriangleFrag.h>
 #include <Spirv/TriangleVert.h>
 
@@ -79,7 +81,55 @@ TEST_CASE("RenderTarget clears to the requested colour and reads back top-down")
     CHECK(device->ValidationMessageCount() == 0);
 }
 
-TEST_CASE("Triangle draw covers the target and depth test is active") {
+namespace {
+
+struct DrawConstants {
+    float color[4];
+    float depth;
+};
+
+Gpu::Pipeline BuildDepthPipeline(Gpu::Device& device, bool depthTest) {
+    auto pipeline = Gpu::PipelineBuilder(device)
+                        .Vertex({Spirv::kTriangleDepthVert, Spirv::kTriangleDepthVertWords})
+                        .Fragment({Spirv::kTriangleDepthFrag, Spirv::kTriangleDepthFragWords})
+                        .PushConstants(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(DrawConstants))
+                        .Color(VK_FORMAT_R8G8B8A8_UNORM)
+                        .Depth(VK_FORMAT_D32_SFLOAT, depthTest, depthTest, VK_COMPARE_OP_LESS)
+                        .Samples(VK_SAMPLE_COUNT_4_BIT)
+                        .Build();
+    REQUIRE(pipeline.ok());
+    return std::move(pipeline.value());
+}
+
+// Draws the full-screen triangle once per entry, in order, and returns the first pixel.
+std::array<int, 4> DrawAndRead(Gpu::Device& device, Gpu::Pipeline& pipeline, std::span<const DrawConstants> draws) {
+    auto rt = Gpu::RenderTarget::Create(device, {.extent = {32, 32}});
+    REQUIRE(rt.ok());
+    auto v = SubmitOnce(device, [&](VkCommandBuffer cmd) {
+        rt.value()->Begin(cmd, {0.0f, 0.0f, 0.0f, 1.0f});
+        device.Fn().vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline.Get());
+        for (const DrawConstants& c : draws) {
+            device.Fn().vkCmdPushConstants(cmd, pipeline.layout.Get(),
+                                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(c), &c);
+            device.Fn().vkCmdDraw(cmd, 3, 1, 0, 0);
+        }
+        rt.value()->End(cmd);
+    });
+    auto px = Gpu::ReadbackColor(device, *rt.value(), v);
+    REQUIRE(px.ok());
+    REQUIRE(px.value().size() == 32 * 32 * 4);
+    // Sample the centre pixel; the triangle covers the whole target.
+    const size_t centre = (16 * 32 + 16) * 4;
+    return {static_cast<int>(px.value()[centre]), static_cast<int>(px.value()[centre + 1]),
+            static_cast<int>(px.value()[centre + 2]), static_cast<int>(px.value()[centre + 3])};
+}
+
+constexpr DrawConstants kNearGreen{{0.0f, 1.0f, 0.0f, 1.0f}, 0.25f};
+constexpr DrawConstants kFarBlue{{0.0f, 0.0f, 1.0f, 1.0f}, 0.75f};
+
+}
+
+TEST_CASE("Triangle draw covers the target") {
     auto device = CreateTestDevice();
     auto rt = Gpu::RenderTarget::Create(*device, {.extent = {64, 48}});
     REQUIRE(rt.ok());
@@ -96,8 +146,6 @@ TEST_CASE("Triangle draw covers the target and depth test is active") {
         rt.value()->Begin(cmd, {0.0f, 0.0f, 1.0f, 1.0f});
         device->Fn().vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.value().pipeline.Get());
         device->Fn().vkCmdDraw(cmd, 3, 1, 0, 0);
-        // A second draw at the same depth fails the LESS test and must leave the first colour intact.
-        device->Fn().vkCmdDraw(cmd, 3, 1, 0, 0);
         rt.value()->End(cmd);
     });
     auto px = Gpu::ReadbackColor(*device, *rt.value(), v);
@@ -112,6 +160,31 @@ TEST_CASE("Triangle draw covers the target and depth test is active") {
     CHECK(device->ValidationMessageCount() == 0);
 }
 
+TEST_CASE("Depth test with LESS keeps the nearer colour in either draw order") {
+    auto device = CreateTestDevice();
+    auto pipeline = BuildDepthPipeline(*device, true);
+
+    const std::array nearThenFar{kNearGreen, kFarBlue};
+    auto a = DrawAndRead(*device, pipeline, nearThenFar);
+    CHECK(a == std::array<int, 4>{0, 255, 0, 255});
+
+    const std::array farThenNear{kFarBlue, kNearGreen};
+    auto b = DrawAndRead(*device, pipeline, farThenNear);
+    CHECK(b == std::array<int, 4>{0, 255, 0, 255});
+    CHECK(device->ValidationMessageCount() == 0);
+}
+
+TEST_CASE("Without a depth test the last draw wins") {
+    auto device = CreateTestDevice();
+    auto pipeline = BuildDepthPipeline(*device, false);
+
+    const std::array nearThenFar{kNearGreen, kFarBlue};
+    CHECK(DrawAndRead(*device, pipeline, nearThenFar) == std::array<int, 4>{0, 0, 255, 255});
+    const std::array farThenNear{kFarBlue, kNearGreen};
+    CHECK(DrawAndRead(*device, pipeline, farThenNear) == std::array<int, 4>{0, 255, 0, 255});
+    CHECK(device->ValidationMessageCount() == 0);
+}
+
 TEST_CASE("Resize under validation retires the old images and the next frame is clean") {
     auto device = CreateTestDevice();
     auto rt = Gpu::RenderTarget::Create(*device, {.extent = {64, 64}});
@@ -121,7 +194,11 @@ TEST_CASE("Resize under validation retires the old images and the next frame is 
         rt.value()->Begin(cmd, {1.0f, 0.0f, 0.0f, 1.0f});
         rt.value()->End(cmd);
     });
+    // A target owns three images (resolve, multisampled colour, depth); each retires its view and its
+    // allocation as separate entries, so a resize adds six.
+    const size_t pendingBefore = device->Retire().Pending();
     REQUIRE(rt.value()->Resize({128, 96}).ok());
+    CHECK(device->Retire().Pending() - pendingBefore >= 6);
     CHECK(rt.value()->Generation() == 1);
     CHECK(rt.value()->Extent().width == 128);
     CHECK(rt.value()->Extent().height == 96);

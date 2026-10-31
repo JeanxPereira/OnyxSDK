@@ -79,6 +79,9 @@ struct DeviceInfo {
     bool validation = false;
     bool adopted = false;
     bool robustBufferAccess = false;
+    // The sampler anisotropy limit when Create enabled samplerAnisotropy, otherwise 0. Adopt always
+    // reports 0 because the host's enablement is unknown.
+    float maxAnisotropy = 0.0f;
 };
 
 struct InstanceFns {

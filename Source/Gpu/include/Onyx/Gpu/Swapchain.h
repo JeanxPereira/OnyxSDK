@@ -27,12 +27,13 @@ struct SwapImage {
     uint32_t index = 0;
 };
 
-// The surface belongs to the host and must outlive the swapchain. Destruction waits for the last
-// queue submission, then destroys the swapchain and its views.
+// The surface belongs to the host and must outlive the swapchain. Destruction and Recreate call
+// Queue::WaitIdle (queue-scoped, so presents in flight finish first), then destroy the old swapchain
+// and its views.
 class Swapchain {
 public:
     // gpu.surface when the graphics queue family cannot present to the surface, gpu.present when the
-    // device was created without presentSupport, gpu.extent when the surface has no drawable area.
+    // device was created without presentSupport (acquire and present failures are gpu.vk), gpu.extent when the surface has no drawable area.
     static Result<std::unique_ptr<Swapchain>> Create(Device& device, const SwapchainOptions& options);
 
     Swapchain(const Swapchain&) = delete;
@@ -44,7 +45,7 @@ public:
     Result<std::optional<SwapImage>> Acquire(VkSemaphore signal);
     // Out of date and suboptimal results set NeedsRecreate() and are not errors.
     Result<void> Present(std::span<const VkSemaphore> wait, uint32_t index);
-    // The one place besides ~Device that calls vkDeviceWaitIdle.
+    // Waits for the graphics queue to go idle; never call it on a frame path.
     Result<void> Recreate(VkExtent2D extent);
 
     bool NeedsRecreate() const { return m_needsRecreate; }

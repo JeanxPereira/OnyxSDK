@@ -79,9 +79,8 @@ Swapchain::~Swapchain() {
     if (m_swapchain == VK_NULL_HANDLE) {
         return;
     }
-    // Waits on the timeline, not the whole device: every submission that touches a swapchain image has
-    // finished once the last submitted value completes.
-    m_device.GraphicsQueue().Wait(m_device.GraphicsQueue().LastSubmitted());
+    // A failed wait is already recorded in Queue::Fault(); the swapchain is destroyed regardless.
+    m_device.GraphicsQueue().WaitIdle();
     DestroyViews();
     m_device.Fn().vkDestroySwapchainKHR(m_device.Handle(), m_swapchain, nullptr);
 }
@@ -108,8 +107,11 @@ Result<void> Swapchain::Build(VkExtent2D requested) {
 
     uint32_t formatCount = 0;
     r = ifn.getPhysicalDeviceSurfaceFormatsKHR(physical, surface, &formatCount, nullptr);
-    if (r != VK_SUCCESS || formatCount == 0) {
+    if (r != VK_SUCCESS) {
         return Result<void>::Fail(VkFail("gpu.vk", "vkGetPhysicalDeviceSurfaceFormatsKHR", r));
+    }
+    if (formatCount == 0) {
+        return Result<void>::Fail({"gpu.vk", "the surface reports no formats", 0});
     }
     std::vector<VkSurfaceFormatKHR> formats(formatCount);
     r = ifn.getPhysicalDeviceSurfaceFormatsKHR(physical, surface, &formatCount, formats.data());
@@ -230,7 +232,7 @@ Result<std::optional<SwapImage>> Swapchain::Acquire(VkSemaphore signal) {
         m_needsRecreate = true;
         return Out::Ok(std::nullopt);
     default:
-        return Out::Fail(VkFail("gpu.present", "vkAcquireNextImageKHR", r));
+        return Out::Fail(VkFail("gpu.vk", "vkAcquireNextImageKHR", r));
     }
     return Out::Ok(SwapImage{m_images[index], m_views[index], index});
 }
@@ -257,7 +259,7 @@ Result<void> Swapchain::Present(std::span<const VkSemaphore> wait, uint32_t inde
         m_needsRecreate = true;
         return Result<void>::Ok();
     default:
-        return Result<void>::Fail(VkFail("gpu.present", "vkQueuePresentKHR", r));
+        return Result<void>::Fail(VkFail("gpu.vk", "vkQueuePresentKHR", r));
     }
 }
 
@@ -265,9 +267,9 @@ Result<void> Swapchain::Recreate(VkExtent2D extent) {
     if (extent.width == 0 || extent.height == 0) {
         return Result<void>::Fail({"gpu.extent", "swapchain extent must be non-zero", 0});
     }
-    VkResult r = m_device.Fn().vkDeviceWaitIdle(m_device.Handle());
-    if (r != VK_SUCCESS) {
-        return Result<void>::Fail(VkFail("gpu.vk", "vkDeviceWaitIdle", r));
+    auto idle = m_device.GraphicsQueue().WaitIdle();
+    if (!idle.ok()) {
+        return idle;
     }
     return Build(extent);
 }
