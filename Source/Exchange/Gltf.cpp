@@ -1,6 +1,7 @@
 #define CGLTF_WRITE_IMPLEMENTATION
 #include <cgltf_write.h>
 
+#include <Onyx/Core/Services/Log.h>
 #include <Onyx/Exchange/Gltf.h>
 
 #include "PngEncode.h"
@@ -218,12 +219,19 @@ Result<void> WriteGltf(const Domain::Scene& scene, const std::filesystem::path& 
             addAttr("COLOR_0", cgltf_attribute_type_color, 0, addFloats(cgltf_type_vec4, 4, flatten4(part.colors)));
         }
         if (hasSkin && !part.jointMap.empty() && part.joints.size() == n && part.weights.size() == n) {
+            // An unmapped local index, or one mapped past the skeleton, becomes joint 0 with weight 0.
             std::vector<uint16_t> joints(n * 4);
             std::vector<float> jointsFlat(n * 4);
+            std::vector<float> weights = flatten4(part.weights);
             for (size_t v = 0; v < n; ++v) {
                 for (size_t c = 0; c < 4; ++c) {
                     const size_t local = part.joints[v][static_cast<glm::length_t>(c)];
-                    const uint16_t global = local < part.jointMap.size() ? part.jointMap[local] : uint16_t{0};
+                    uint16_t global = 0;
+                    if (local < part.jointMap.size() && part.jointMap[local] < jointCount) {
+                        global = part.jointMap[local];
+                    } else {
+                        weights[v * 4 + c] = 0.0f;
+                    }
                     joints[v * 4 + c] = global;
                     jointsFlat[v * 4 + c] = static_cast<float>(global);
                 }
@@ -231,7 +239,7 @@ Result<void> WriteGltf(const Domain::Scene& scene, const std::filesystem::path& 
             addAttr("JOINTS_0", cgltf_attribute_type_joints, 0,
                     addAccessor(cgltf_type_vec4, cgltf_component_type_r_16u, n, joints.data(), sizeof(uint16_t) * 4,
                                 jointsFlat, 4));
-            addAttr("WEIGHTS_0", cgltf_attribute_type_weights, 0, addFloats(cgltf_type_vec4, 4, flatten4(part.weights)));
+            addAttr("WEIGHTS_0", cgltf_attribute_type_weights, 0, addFloats(cgltf_type_vec4, 4, weights));
         }
 
         std::vector<float> indexFlat(part.indices.begin(), part.indices.end());
@@ -357,11 +365,28 @@ Result<void> WriteGltf(const Domain::Scene& scene, const std::filesystem::path& 
     meshes[0].primitives = primitives.data();
     meshes[0].primitives_count = primitives.size();
 
-    // Animations: one sampler and one channel per populated key list. A clip without a usable channel is dropped.
+    // Animations: one sampler and one channel per populated key list. glTF forbids two channels on the same node and
+    // path, so a later key list for a (joint, path) already written is skipped with a warning. Rotation keys are
+    // normalised, and a zero quaternion becomes the identity. A clip without a usable channel is dropped.
     for (const Domain::AnimClip* clip : clips) {
         std::vector<cgltf_animation_sampler> samplerList;
         std::vector<size_t> channelJoint;
         std::vector<cgltf_animation_path_type> channelPath;
+
+        auto taken = [&](size_t joint, cgltf_animation_path_type path) {
+            for (size_t k = 0; k < channelJoint.size(); ++k) {
+                if (channelJoint[k] == joint && channelPath[k] == path) {
+                    Services::Log::Default().Write(Services::LogLevel::Warn, "exchange.gltf",
+                                                   "clip {}: joint {} has a second {} key list; it is skipped",
+                                                   clip->name, joint,
+                                                   path == cgltf_animation_path_type_rotation      ? "rotation"
+                                                   : path == cgltf_animation_path_type_translation ? "translation"
+                                                                                                   : "scale");
+                    return true;
+                }
+            }
+            return false;
+        };
 
         auto emit = [&](const std::vector<float>& times, cgltf_accessor* output, size_t joint,
                         cgltf_animation_path_type path) {
@@ -377,15 +402,18 @@ Result<void> WriteGltf(const Domain::Scene& scene, const std::filesystem::path& 
 
         for (const Domain::AnimChannel& channel : clip->channels) {
             if (channel.joint >= jointCount) continue;
-            if (!channel.rotation.empty()) {
+            if (!channel.rotation.empty() && !taken(channel.joint, cgltf_animation_path_type_rotation)) {
                 std::vector<float> times, values;
                 for (const auto& key : channel.rotation) {
                     times.push_back(key.time);
-                    values.insert(values.end(), {key.value.x, key.value.y, key.value.z, key.value.w});
+                    const float length = glm::length(key.value);
+                    const glm::quat q = length > 0.0f && std::isfinite(length) ? key.value / length
+                                                                                : glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+                    values.insert(values.end(), {q.x, q.y, q.z, q.w});
                 }
                 emit(times, addFloats(cgltf_type_vec4, 4, values), channel.joint, cgltf_animation_path_type_rotation);
             }
-            if (!channel.translation.empty()) {
+            if (!channel.translation.empty() && !taken(channel.joint, cgltf_animation_path_type_translation)) {
                 std::vector<float> times, values;
                 for (const auto& key : channel.translation) {
                     times.push_back(key.time);
@@ -393,7 +421,7 @@ Result<void> WriteGltf(const Domain::Scene& scene, const std::filesystem::path& 
                 }
                 emit(times, addFloats(cgltf_type_vec3, 3, values), channel.joint, cgltf_animation_path_type_translation);
             }
-            if (!channel.scale.empty()) {
+            if (!channel.scale.empty() && !taken(channel.joint, cgltf_animation_path_type_scale)) {
                 std::vector<float> times, values;
                 for (const auto& key : channel.scale) {
                     times.push_back(key.time);

@@ -9,7 +9,9 @@
 #include "Support.h"
 
 #include <cstddef>
+#include <memory>
 #include <string>
+#include <vector>
 
 using namespace Onyx;
 
@@ -195,4 +197,134 @@ TEST_CASE("a block-compressed texture is skipped") {
     for (cgltf_size i = 0; i < parsed.data->materials_count; ++i) {
         CHECK(parsed.data->materials[i].pbr_metallic_roughness.base_color_texture.texture == nullptr);
     }
+}
+
+namespace {
+
+// A triangle skinned to a two-joint chain: vertex v uses local joint indices `locals[v]` through `jointMap`
+// with weights (0.5, 0.5, 0, 0), and the scene carries `clip` as its one animation.
+Domain::Scene SkinnedTriangle(std::vector<uint16_t> jointMap, std::vector<glm::u16vec4> locals, Domain::AnimClip clip) {
+    auto skeleton = std::make_shared<Domain::Skeleton>();
+    skeleton->joints.push_back(Domain::Joint{"root", -1});
+    skeleton->joints.push_back(Domain::Joint{"tip", 0});
+    auto animations = std::make_shared<Domain::AnimationSet>();
+    animations->clips.push_back(std::move(clip));
+
+    Domain::MeshPart part;
+    part.positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}};
+    part.indices = {0, 1, 2};
+    part.joints = std::move(locals);
+    part.weights.assign(3, glm::vec4(0.5f, 0.5f, 0.0f, 0.0f));
+    part.jointMap = std::move(jointMap);
+
+    Domain::Scene scene;
+    scene.skeleton = skeleton;
+    scene.animations = animations;
+    scene.parts.push_back(std::move(part));
+    return scene;
+}
+
+Domain::AnimClip OneKeyClip() {
+    Domain::AnimClip clip;
+    clip.name = "clip";
+    Domain::AnimChannel channel;
+    channel.joint = 1;
+    channel.translation = {{0.0f, glm::vec3(0.0f)}, {1.0f, glm::vec3(1.0f)}};
+    clip.channels.push_back(channel);
+    return clip;
+}
+
+const cgltf_accessor* Attribute(const cgltf_data& d, cgltf_attribute_type type) {
+    const cgltf_primitive& p = d.meshes[0].primitives[0];
+    for (cgltf_size i = 0; i < p.attributes_count; ++i) {
+        if (p.attributes[i].type == type) return p.attributes[i].data;
+    }
+    return nullptr;
+}
+
+}
+
+TEST_CASE("WriteGltf writes rotation keys as unit quaternions and a zero quaternion as the identity") {
+    Tests::TempDir dir("gltf_quat");
+    Domain::AnimClip clip;
+    clip.name = "spin";
+    Domain::AnimChannel channel;
+    channel.joint = 1;
+    channel.rotation = {{0.0f, glm::quat(0.0f, 0.0f, 0.0f, 0.0f)}, {1.0f, glm::quat(0.0f, 0.0f, 0.0f, 2.0f)}};
+    clip.channels.push_back(channel);
+    const auto path = dir.path / "quat.glb";
+    REQUIRE(Exchange::WriteGltf(SkinnedTriangle({0, 1}, {{0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}}, clip), path).ok());
+
+    Parsed parsed(path);
+    REQUIRE(parsed.Ok());
+    REQUIRE(parsed.data->animations_count == 1);
+    REQUIRE(parsed.data->animations[0].samplers_count == 1);
+    const cgltf_accessor* output = parsed.data->animations[0].samplers[0].output;
+    REQUIRE(output->count == 2);
+    float first[4] = {};
+    float second[4] = {};
+    REQUIRE(cgltf_accessor_read_float(output, 0, first, 4));
+    REQUIRE(cgltf_accessor_read_float(output, 1, second, 4));
+    CHECK(first[0] == 0.0f);
+    CHECK(first[1] == 0.0f);
+    CHECK(first[2] == 0.0f);
+    CHECK(first[3] == 1.0f);
+    CHECK(second[2] == doctest::Approx(1.0f));
+    CHECK(second[3] == doctest::Approx(0.0f));
+}
+
+TEST_CASE("WriteGltf writes an unmapped or out-of-range joint as joint 0 with weight 0") {
+    Tests::TempDir dir("gltf_jointmap");
+    // Local 0 maps to joint 1, local 1 maps past the two-joint skeleton, local 5 has no mapping.
+    const auto path = dir.path / "joints.glb";
+    REQUIRE(Exchange::WriteGltf(SkinnedTriangle({1, 9}, {{0, 1, 0, 0}, {0, 5, 0, 0}, {0, 0, 0, 0}}, OneKeyClip()),
+                                path)
+                .ok());
+
+    Parsed parsed(path);
+    REQUIRE(parsed.Ok());
+    const cgltf_accessor* joints = Attribute(*parsed.data, cgltf_attribute_type_joints);
+    const cgltf_accessor* weights = Attribute(*parsed.data, cgltf_attribute_type_weights);
+    REQUIRE(joints);
+    REQUIRE(weights);
+    for (cgltf_size v = 0; v < 3; ++v) {
+        cgltf_uint j[4] = {};
+        float w[4] = {};
+        REQUIRE(cgltf_accessor_read_uint(joints, v, j, 4));
+        REQUIRE(cgltf_accessor_read_float(weights, v, w, 4));
+        for (int c = 0; c < 4; ++c) CHECK(j[c] < parsed.data->skins[0].joints_count);
+        CHECK(j[0] == 1);
+        CHECK(w[0] == 0.5f);
+        if (v < 2) {
+            CHECK(j[1] == 0);
+            CHECK(w[1] == 0.0f);
+        }
+    }
+}
+
+TEST_CASE("WriteGltf keeps the first of two channels on the same joint and path") {
+    Tests::TempDir dir("gltf_duplicate");
+    Domain::AnimClip clip = OneKeyClip();
+    Domain::AnimChannel again;
+    again.joint = 1;
+    again.translation = {{0.0f, glm::vec3(2.0f)}, {0.5f, glm::vec3(3.0f)}, {1.0f, glm::vec3(4.0f)}};
+    again.scale = {{0.0f, glm::vec3(1.0f)}};
+    clip.channels.push_back(again);
+    const auto path = dir.path / "duplicate.glb";
+    REQUIRE(Exchange::WriteGltf(SkinnedTriangle({0, 1}, {{0, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 0, 0}}, clip), path).ok());
+
+    Parsed parsed(path);
+    REQUIRE(parsed.Ok());
+    REQUIRE(parsed.data->animations_count == 1);
+    const cgltf_animation& animation = parsed.data->animations[0];
+    REQUIRE(animation.channels_count == 2);
+    for (cgltf_size a = 0; a < animation.channels_count; ++a) {
+        for (cgltf_size b = a + 1; b < animation.channels_count; ++b) {
+            CHECK_FALSE((animation.channels[a].target_node == animation.channels[b].target_node &&
+                         animation.channels[a].target_path == animation.channels[b].target_path));
+        }
+    }
+    CHECK(animation.channels[0].target_path == cgltf_animation_path_type_translation);
+    CHECK(animation.channels[0].sampler->input->count == 2);
+    CHECK(animation.channels[1].target_path == cgltf_animation_path_type_scale);
 }
