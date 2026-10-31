@@ -136,3 +136,33 @@ TEST_CASE("A panel may remove itself while drawing") {
     Frames(rig, host, ui, 1);
     CHECK(draws == 1);
 }
+
+namespace {
+
+class ForeignThrower : public IPanel {
+public:
+    std::string_view Id() const override { return "foreign"; }
+    std::string_view Title() const override { return "Foreign"; }
+    void Draw(UiContext&) override { throw 42; }
+};
+
+}
+
+TEST_CASE("A panel throwing a non-std type is hidden and the host stays usable") {
+    HeadlessImGui rig;
+    BareContext bare;
+    UiContext ui = bare.Make();
+    PanelHost host;
+    int good = 0;
+    host.Add(std::make_unique<ForeignThrower>());
+    host.Add(std::make_unique<TestPanel>("good", good));
+
+    Frames(rig, host, ui, 1);
+    CHECK_FALSE(host.Find("foreign")->visible);
+    CHECK(good == 1);
+
+    host.Remove("foreign");
+    CHECK(host.Find("foreign") == nullptr);
+    host.Add(std::make_unique<TestPanel>("late", good));
+    CHECK(host.Find("late") != nullptr);
+}

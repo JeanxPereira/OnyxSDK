@@ -40,38 +40,46 @@ IPanel* PanelHost::Find(std::string_view id) {
 }
 
 void PanelHost::DrawAll(UiContext& ui) {
-    m_drawing = true;
+    struct Scope {
+        PanelHost& host;
+        explicit Scope(PanelHost& h) : host(h) { host.m_drawing = true; }
+        ~Scope() {
+            host.m_drawing = false;
+            std::vector<Pending> pending;
+            pending.swap(host.m_pending);
+            for (Pending& op : pending) {
+                if (op.add) host.Add(std::move(op.add));
+                else host.Remove(op.remove);
+            }
+        }
+    } scope(*this);
+
     for (size_t i = 0; i < m_panels.size(); ++i) {
         IPanel& panel = *m_panels[i];
         if (!panel.visible) continue;
 
         const std::string label = std::string(panel.Title()) + "##" + std::string(panel.Id());
+        bool threw = false;
         std::string failure;
         if (ImGui::Begin(label.c_str(), &panel.visible)) {
             try {
                 panel.Draw(ui);
             } catch (const std::exception& e) {
+                threw = true;
                 failure = e.what();
             } catch (...) {
+                threw = true;
                 failure = "unknown exception";
             }
         }
         ImGui::End();
 
-        if (!failure.empty()) {
+        if (threw) {
             panel.visible = false;
             const std::string id(panel.Id());
             if (m_reported.insert(id).second)
                 Services::Log::Default().Write(Services::LogLevel::Error, "ui.panel", "Panel '{}' threw: {}", id, failure);
         }
-    }
-
-    m_drawing = false;
-    std::vector<Pending> pending;
-    pending.swap(m_pending);
-    for (Pending& op : pending) {
-        if (op.add) Add(std::move(op.add));
-        else Remove(op.remove);
     }
 }
 

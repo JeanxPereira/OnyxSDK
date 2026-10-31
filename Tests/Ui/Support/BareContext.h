@@ -9,8 +9,8 @@
 #include <cstddef>
 
 // A UiContext for tests that only forward the context to callbacks. Theme has no definition yet, so
-// its reference points into raw storage and is never dereferenced; replace it with a real member
-// once Theme exists. Every other member is real.
+// its reference points into raw storage that is never read; the controller replaces the fake with
+// a real Theme member once the parallel task lands. Every other member is real.
 struct BareContext {
     Onyx::Modules::Workspace workspace;
     Onyx::Ui::CommandRegistry commands;
@@ -18,7 +18,6 @@ struct BareContext {
     Onyx::Ui::PanelHost panels;
     Onyx::Ui::FrameClock clock;
     alignas(std::max_align_t) std::byte themeStorage[64]{};
-    static_assert(sizeof(themeStorage) >= 64);
 
     Onyx::Ui::UiContext Make() {
         return Onyx::Ui::UiContext{workspace,

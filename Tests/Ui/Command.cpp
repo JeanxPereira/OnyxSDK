@@ -135,3 +135,21 @@ TEST_CASE("PollShortcuts runs the first enabled command whose chord is pressed")
     CHECK(firstRuns == 1);
     CHECK(secondRuns == 0);
 }
+
+TEST_CASE("Add ignores an empty id") {
+    CommandRegistry reg;
+    int count = 0;
+    reg.Add(Counting("", count));
+    CHECK(reg.All().empty());
+    CHECK(reg.Find("") == nullptr);
+}
+
+TEST_CASE("Run on a command without a run callback succeeds and does nothing") {
+    BareContext bare;
+    UiContext ui = bare.Make();
+    CommandRegistry reg;
+    Command c;
+    c.id = "empty";
+    reg.Add(std::move(c));
+    CHECK(reg.Run("empty", ui).ok());
+}
