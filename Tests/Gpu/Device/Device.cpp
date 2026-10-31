@@ -1,9 +1,12 @@
 #include <doctest/doctest.h>
 
+#include <atomic>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <span>
 #include <string>
+#include <thread>
 
 #include "Onyx/Gpu/Device.h"
 #include "Onyx/Gpu/FrameRing.h"
@@ -29,6 +32,29 @@ TEST_CASE("Queue::Submit of an empty submit advances the timeline and the submit
     CHECK(device->GraphicsQueue().Wait(v.value()).ok());
     CHECK(device->GraphicsQueue().Completed() >= 1);
     CHECK(device->SubmitCount() == 1);
+    CHECK(device->ValidationMessageCount() == 0);
+}
+
+TEST_CASE("Queue::Lock holds off a Submit from another thread until it is released") {
+    auto device = CreateTestDevice();
+    Gpu::Queue& queue = device->GraphicsQueue();
+    std::atomic<bool> submitted{false};
+    std::thread submitter;
+    {
+        const auto lock = queue.Lock();
+        submitter = std::thread([&] {
+            auto v = queue.Submit({});
+            CHECK(v.ok());
+            submitted = true;
+        });
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        CHECK_FALSE(submitted.load());
+        CHECK(device->SubmitCount() == 0);
+    }
+    submitter.join();
+    CHECK(submitted.load());
+    CHECK(device->SubmitCount() == 1);
+    CHECK(queue.Wait(queue.LastSubmitted()).ok());
     CHECK(device->ValidationMessageCount() == 0);
 }
 

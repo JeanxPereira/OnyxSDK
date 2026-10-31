@@ -25,8 +25,11 @@ struct BackendOptions {
 
 // ImGui's Vulkan renderer over dynamic rendering on an Onyx Gpu::Device. It binds to the ImGui
 // context that is current when Create runs and must be destroyed while that context is still current.
-// Font textures are managed by ImGui's texture protocol (ImGuiBackendFlags_RendererHasTextures); the
-// backend uploads them with its own queue submissions, so drive it from the thread that owns the queue.
+// Font textures are managed by ImGui's texture protocol (ImGuiBackendFlags_RendererHasTextures): imgui
+// uploads them by submitting to the graphics queue directly and waiting for it idle. Record and
+// RebuildFonts hold Gpu::Queue::Lock around those calls, so a submission from another thread through
+// Queue::Submit waits rather than racing them; Record and RebuildFonts must not be called while the
+// caller holds that lock.
 // Under IMGUI_IMPL_VULKAN_USE_VOLK imgui resolves Vulkan through volk's process-wide globals, so a host
 // that creates the Device with Device::Adopt must have volk loaded for the same instance (see the note on
 // volk globals in Device.h).

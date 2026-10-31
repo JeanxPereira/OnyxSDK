@@ -135,6 +135,8 @@ void ImGuiVulkanBackend::Record(VkCommandBuffer cmd, ImDrawData* drawData) {
     if (drawData == nullptr) {
         return;
     }
+    // A texture update inside RenderDrawData submits to the queue and waits for it idle.
+    const auto lock = m_device.GraphicsQueue().Lock();
     ImGui_ImplVulkan_RenderDrawData(drawData, cmd);
 }
 
@@ -143,6 +145,7 @@ void ImGuiVulkanBackend::RebuildFonts() {
     if (!queue.Wait(queue.LastSubmitted()).ok()) {
         (void)queue.WaitIdle();
     }
+    const auto lock = queue.Lock();
     for (ImTextureData* texture : ImGui::GetPlatformIO().Textures) {
         if (texture->Status != ImTextureStatus_OK) {
             continue;

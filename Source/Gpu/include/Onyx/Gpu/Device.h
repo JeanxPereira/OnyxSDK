@@ -62,9 +62,11 @@ struct ExternalFeatures {
     bool timelineSemaphore = false;
 };
 
-// The host's handles are never destroyed by Onyx. The queue is used only through Queue::Submit and
-// Queue::Present under Onyx's mutex, so the host either hands Onyx a dedicated queue of that family
-// or routes its own submissions through the same Queue::Submit. An adopted Device does not call
+// The host's handles are never destroyed by Onyx. The queue is used only under Onyx's mutex: through
+// Queue::Submit and Queue::Present, and by code holding Queue::Lock (Onyx::Ui's ImGui backend lets
+// imgui submit and wait idle on the graphics queue under that lock while it uploads font textures).
+// So the host either hands Onyx a dedicated queue of that family or routes its own submissions
+// through the same Queue::Submit, or holds Queue::Lock around them. An adopted Device does not call
 // vkDeviceWaitIdle on shutdown; it waits on its own timeline instead. The host's instance and device
 // must be created with apiVersion 1.3 or higher: Onyx calls the core entry points (vkQueueSubmit2,
 // vkCmdBeginRendering and the rest), never the KHR aliases, and Adopt refuses with gpu.feature naming

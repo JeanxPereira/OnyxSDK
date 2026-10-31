@@ -50,6 +50,11 @@ public:
     // vkQueueWaitIdle under the queue mutex. Swapchain teardown and recreate only; never on a frame path.
     Result<void> WaitIdle();
 
+    // Holds the mutex Submit, Present and WaitIdle take, for code that must touch Handle() directly (a
+    // third-party renderer that submits and waits on the queue itself). Calling Submit, Present or
+    // WaitIdle on this queue while holding it deadlocks.
+    [[nodiscard]] std::unique_lock<std::mutex> Lock() { return std::unique_lock<std::mutex>(m_mutex); }
+
     // Sticky: the most recent failure from Submit, Wait (a timeout is not a fault), Present
     // (missing swapchain entry point) or Completed. Never cleared.
     std::optional<Error> Fault() const;

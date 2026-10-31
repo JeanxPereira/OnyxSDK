@@ -437,10 +437,14 @@ on that value (as a submit wait or a fence-equivalent) before it samples an
 Onyx `RenderTarget` in its own pass. In the other direction, before Onyx
 re-renders a target the host is still reading, the host signals its own
 timeline semaphore and the next frame waits on it through `Frame::AddWait`. The queue the host passes
-in `ExternalDevice` is used only through `Device::GraphicsQueue().Submit()`,
-which holds the queue mutex; the host either hands Onyx a dedicated queue of
+in `ExternalDevice` is used only under the queue mutex: through
+`Device::GraphicsQueue().Submit()` and `Present()`, and by code that holds
+`Queue::Lock()`. The one such caller is Onyx::Ui's `ImGuiVulkanBackend`:
+imgui's Vulkan backend submits font texture uploads to the queue and waits
+for it idle by itself, so `Record` and `RebuildFonts` hold `Queue::Lock()`
+around the imgui calls. The host either hands Onyx a dedicated queue of
 the same family (preferred, and what `Examples/Embedded` does) or routes its
-own submissions through that same `Submit`. This precondition is stated in
+own submissions through that same `Submit` (or holds `Queue::Lock()`). This precondition is stated in
 the header and observable through `Device::SubmitCount()`, which counts the
 submits that went through `Queue::Submit`; a host's direct submits cannot be
 detected.
@@ -450,6 +454,8 @@ Rules enforced by this layer:
 - No `vkQueueWaitIdle`/`vkDeviceWaitIdle` outside `Device::~Device` (owned
   devices only; an adopted device waits on its own timeline), `Swapchain::Recreate`
   and `Swapchain::~Swapchain`, which use `Queue::WaitIdle` under the queue mutex.
+  The exception is imgui's own texture upload inside `ImGuiVulkanBackend`
+  (Ui), which calls `vkQueueWaitIdle` while the backend holds `Queue::Lock()`.
 - No synchronous submit. `UploadContext::Flush` submits once and returns a
   timeline value; callers that need the data wait on the value, and in
   practice the frame ring already orders it.
