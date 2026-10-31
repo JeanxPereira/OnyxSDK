@@ -179,4 +179,22 @@ void ImGuiVulkanBackend::Unbind(ImTextureID id) {
                               m_device.GraphicsQueue().LastSubmitted());
 }
 
+Result<void> ImGuiVulkanBackend::Rebind(ImTextureID id, VkImageView view, VkImageLayout layout) {
+    if (id == ImTextureID_Invalid) {
+        return Result<void>::Fail({"ui.backend.init", "Rebind of a null texture id", 0});
+    }
+    VkDescriptorImageInfo info{};
+    info.imageView = view;
+    info.imageLayout = layout;
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = reinterpret_cast<VkDescriptorSet>(static_cast<uintptr_t>(id));
+    write.descriptorCount = 1;
+    // The layout imgui's backend creates for its texture sets.
+    write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    write.pImageInfo = &info;
+    m_device.Fn().vkUpdateDescriptorSets(m_device.Handle(), 1, &write, 0, nullptr);
+    return Result<void>::Ok();
+}
+
 }

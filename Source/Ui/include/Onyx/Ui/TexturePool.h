@@ -19,17 +19,18 @@
 //   ui.texture.size    a texture with a zero extent or a pixel vector of the wrong length; Update with a
 //                      different extent or format, or with an id the pool does not own
 //   ui.texture.format  the device cannot sample the texture's format
-// Other failures pass through unchanged: the Gpu layer's codes and the binder's (ui.backend.init from Bind).
+// Other failures pass through unchanged: the Gpu layer's codes and the binder's (ui.backend.init from Bind
+// or Rebind).
 namespace Onyx::Ui {
 
 // Textures a UI shows: uploaded images and external views, each named by an ImTextureID.
 //
 // Uploads are batched: Create and Update record copies and Flush submits them. A frame that draws a
-// new or updated texture must wait on the value Flush returned (Frame::AddWait). Update rewrites the
-// texture's descriptor in place after the queue has drained, so the id stays stable; it must not be
-// called between recording a command buffer that draws the texture and submitting it. It also waits until
-// the graphics queue is idle (a full stall), so call it outside the frame loop; it is unsuitable for
-// per-frame updates of hot textures.
+// new or updated texture must wait on the value Flush returned (Frame::AddWait). Update points the id
+// at the new image through ITextureBinder::Rebind after the queue has drained, so the id stays stable;
+// it must not be called between recording a command buffer that draws the texture and submitting it.
+// It also waits until the graphics queue is idle (a full stall), so call it outside the frame loop; it
+// is unsuitable for per-frame updates of hot textures.
 //
 // Must be destroyed before the binder, the UploadContext and the Device. Not thread-safe.
 class TexturePool {

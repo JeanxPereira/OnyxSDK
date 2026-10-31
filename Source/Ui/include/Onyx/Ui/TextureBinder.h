@@ -18,6 +18,9 @@ public:
     virtual Result<ImTextureID> Bind(VkImageView view, VkImageLayout layout, VkSampler sampler) = 0;
     // The id stays valid for submissions that were already recorded; it must not appear in new ones.
     virtual void Unbind(ImTextureID id) = 0;
+    // Points an id this binder returned at another view, keeping the id. The caller guarantees no
+    // pending submission still samples the id (TexturePool::Update drains the queue first).
+    virtual Result<void> Rebind(ImTextureID id, VkImageView view, VkImageLayout layout) = 0;
 };
 
 }

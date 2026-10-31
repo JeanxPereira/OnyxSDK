@@ -52,8 +52,12 @@ public:
     // The sampler argument is ignored: imgui's Vulkan backend samples every texture with its internal
     // linear sampler.
     Result<ImTextureID> Bind(VkImageView view, VkImageLayout layout, VkSampler sampler) override;
-    // Frees the descriptor set once the queue completes the submissions recorded so far.
+    // Frees the descriptor set once the queue completes the submissions recorded so far. The free runs
+    // through ImGui_ImplVulkan_RemoveTexture when the device's retire queue collects it, against whatever
+    // ImGui context is current then, so collect while this backend's context is current.
     void Unbind(ImTextureID id) override;
+    // Rewrites the descriptor set behind the id in place; fails with ui.backend.init for a null id.
+    Result<void> Rebind(ImTextureID id, VkImageView view, VkImageLayout layout) override;
 
     // The first Vulkan failure imgui reported through its result callback since the last call
     // (ui.backend.init, with the VkResult name in the message), or success. Reading clears it; check it after

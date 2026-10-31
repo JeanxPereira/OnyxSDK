@@ -1,6 +1,5 @@
 #include "Onyx/Ui/TexturePool.h"
 
-#include <cstdint>
 #include <string>
 #include <utility>
 
@@ -91,16 +90,10 @@ Result<void> TexturePool::Update(ImTextureID id, const Domain::Texture& texture)
         return Result<void>::Fail(image.error());
     }
 
-    VkDescriptorImageInfo info{};
-    info.imageView = image.value().view.Get();
-    info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = reinterpret_cast<VkDescriptorSet>(static_cast<uintptr_t>(id));
-    write.descriptorCount = 1;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    write.pImageInfo = &info;
-    m_device.Fn().vkUpdateDescriptorSets(m_device.Handle(), 1, &write, 0, nullptr);
+    auto rebound = m_binder.Rebind(id, image.value().view.Get(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    if (!rebound.ok()) {
+        return rebound;
+    }
 
     entry.image = std::move(image.value());
     return Result<void>::Ok();

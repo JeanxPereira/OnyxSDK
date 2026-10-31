@@ -2,6 +2,8 @@
 
 #include <Onyx/Core/Domain/Texture.h>
 
+#include <vector>
+
 #include "Support/UiGpuFixture.h"
 
 using namespace Onyx;
@@ -20,6 +22,49 @@ Domain::Texture Solid(uint32_t width, uint32_t height, std::byte r, std::byte g,
     return texture;
 }
 
+// Forwards to the real backend and records what the pool asked of it.
+struct RecordingBinder final : Ui::ITextureBinder {
+    explicit RecordingBinder(Ui::ITextureBinder& inner) : inner(inner) {}
+
+    Result<ImTextureID> Bind(VkImageView view, VkImageLayout layout, VkSampler sampler) override {
+        return inner.Bind(view, layout, sampler);
+    }
+    void Unbind(ImTextureID id) override { inner.Unbind(id); }
+    Result<void> Rebind(ImTextureID id, VkImageView view, VkImageLayout layout) override {
+        rebinds.push_back({id, view, layout});
+        return inner.Rebind(id, view, layout);
+    }
+
+    struct Call {
+        ImTextureID id;
+        VkImageView view;
+        VkImageLayout layout;
+    };
+    Ui::ITextureBinder& inner;
+    std::vector<Call> rebinds;
+};
+
+}
+
+TEST_CASE("TexturePool Update rebinds the id through the binder") {
+    auto fx = MakeUiGpuFixture();
+    RecordingBinder binder(*fx->backend);
+    {
+        Ui::TexturePool pool(*fx->device, *fx->upload, binder);
+        auto id = pool.Create(Solid(4, 4, std::byte{255}, std::byte{0}, std::byte{0}));
+        REQUIRE(id.ok());
+        CHECK(binder.rebinds.empty());
+
+        auto updated = pool.Update(id.value(), Solid(4, 4, std::byte{0}, std::byte{0}, std::byte{255}));
+        REQUIRE_MESSAGE(updated.ok(), updated.error().code << ": " << updated.error().message);
+        REQUIRE(binder.rebinds.size() == 1);
+        CHECK(binder.rebinds[0].id == id.value());
+        CHECK(binder.rebinds[0].view != VK_NULL_HANDLE);
+        CHECK(binder.rebinds[0].layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        pool.Flush();
+    }
+    fx->device->GraphicsQueue().WaitIdle();
+    CHECK(fx->device->ValidationMessageCount() == 0);
 }
 
 TEST_CASE("TexturePool creates a texture and reports its size") {
