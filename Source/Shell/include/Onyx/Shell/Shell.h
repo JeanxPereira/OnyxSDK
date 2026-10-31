@@ -91,8 +91,11 @@ public:
     // Applies on the next layout reset and, when the config directory holds no imgui.ini, at start.
     void SetDockLayout(DockLayout layout) { m_layout = std::move(layout); }
 
-    // With arguments: the command line through Verbs() and its exit code. Without: the window loop,
-    // 0 after a normal close and 1 when a frame fails (the error is logged and written to stderr).
+    // Routes the command line through RouteArgs. Cli: the command line through Verbs() and its exit
+    // code. Gui: the window loop, 0 after a normal close and 1 when a frame fails (the error is logged
+    // and written to stderr). GuiOpen: the same loop after Open on the file; an Open failure is logged
+    // and the window still opens. Run tears the window stack down, panels included, before it returns,
+    // so a second Run on the same Shell draws an empty window.
     int Run(int argc, char** argv);
 
     // Starts the parse on the job queue, lists the file in Recents and names it in the title. Fails
@@ -147,5 +150,14 @@ private:
 int RunCli(Shell& shell, int argc, char** argv, std::ostream& out, std::ostream& err);
 // The same over std::cout and std::cerr.
 int RunCli(Shell& shell, int argc, char** argv);
+
+// How Shell::Run treats a command line. No argument: Gui. Exactly one argument that is not a verb name
+// and names an existing regular file: GuiOpen with that file. Anything else: Cli.
+struct ArgsRoute {
+    enum class Kind { Gui, GuiOpen, Cli };
+    Kind kind = Kind::Gui;
+    std::filesystem::path file;
+};
+ArgsRoute RouteArgs(int argc, char** argv, const Cli::VerbTable& verbs);
 
 }

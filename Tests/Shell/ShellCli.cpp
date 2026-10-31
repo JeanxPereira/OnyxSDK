@@ -72,3 +72,34 @@ TEST_CASE("Run with arguments takes the command line path") {
     std::vector<char*> argv{a0.data(), a1.data()};
     CHECK(shell.Run(2, argv.data()) == 7);
 }
+
+TEST_CASE("RouteArgs sends a lone existing file to the GUI and everything else to the CLI") {
+    TempDir dir("cli_route");
+    const auto obx = WriteObx(dir.path / "fixture.obx");
+    Shell::Shell shell(TestOptions(dir.path));
+
+    const auto route = [&](std::vector<std::string> args) {
+        std::vector<char*> argv;
+        for (std::string& arg : args) argv.push_back(arg.data());
+        return Shell::RouteArgs(static_cast<int>(argv.size()), argv.data(), shell.Verbs());
+    };
+
+    CHECK(route({"onyx"}).kind == Shell::ArgsRoute::Kind::Gui);
+
+    const Shell::ArgsRoute file = route({"onyx", obx.string()});
+    CHECK(file.kind == Shell::ArgsRoute::Kind::GuiOpen);
+    CHECK(std::filesystem::equivalent(file.file, obx));
+
+    CHECK(route({"onyx", (dir.path / "missing.obx").string()}).kind == Shell::ArgsRoute::Kind::Cli);
+    CHECK(route({"onyx", dir.path.string()}).kind == Shell::ArgsRoute::Kind::Cli);
+    CHECK(route({"onyx", "--help"}).kind == Shell::ArgsRoute::Kind::Cli);
+    CHECK(route({"onyx", "probe", obx.string()}).kind == Shell::ArgsRoute::Kind::Cli);
+    CHECK(route({"onyx", obx.string(), obx.string()}).kind == Shell::ArgsRoute::Kind::Cli);
+
+    // A verb name wins over a file of the same name.
+    WriteObx(dir.path / "probe");
+    const std::filesystem::path previous = std::filesystem::current_path();
+    std::filesystem::current_path(dir.path);
+    CHECK(route({"onyx", "probe"}).kind == Shell::ArgsRoute::Kind::Cli);
+    std::filesystem::current_path(previous);
+}

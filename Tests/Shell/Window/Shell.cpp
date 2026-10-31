@@ -98,6 +98,28 @@ TEST_CASE("The shell opens a document, shows a viewer tab and records the recent
     CHECK_MESSAGE(shell.GpuDevice()->ValidationMessageCount() == 0, shell.GpuDevice()->LastValidationMessage());
 }
 
+TEST_CASE("A file routed from the command line opens in the window") {
+    TempDir dir("shell_route_open");
+    const auto obx = WriteObx(dir.path / "fixture.obx");
+    Shell::Shell shell(TestOptions(dir.path));
+    REQUIRE(shell.Workspace().AddModule(std::make_unique<OnyxBox::Module>()).ok());
+
+    std::string program = "onyx";
+    std::string argument = obx.string();
+    char* argv[] = {program.data(), argument.data()};
+    const Shell::ArgsRoute route = Shell::RouteArgs(2, argv, shell.Verbs());
+    REQUIRE(route.kind == Shell::ArgsRoute::Kind::GuiOpen);
+    REQUIRE(shell.Open(route.file).ok());
+
+    REQUIRE(StepUntil(shell, [&] { return !shell.Workspace().Documents().empty() && shell.Workspace().Documents()[0]->ready.load(); }));
+    RequireWindowValidationLayer(*shell.GpuDevice());
+    CHECK(shell.Workspace().Documents().size() == 1);
+    CHECK(shell.RecentFiles().Entries().size() == 1);
+
+    shell.GpuDevice()->GraphicsQueue().WaitIdle();
+    CHECK_MESSAGE(shell.GpuDevice()->ValidationMessageCount() == 0, shell.GpuDevice()->LastValidationMessage());
+}
+
 TEST_CASE("A theme font change rebuilds the atlas with the new font and size") {
     TempDir dir("shell_fonts");
     Shell::Shell shell(TestOptions(dir.path));

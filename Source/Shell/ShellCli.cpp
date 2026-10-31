@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string_view>
+#include <system_error>
 
 #include "Onyx/Core/Cli/Run.h"
 #include "Onyx/Shell/Shell.h"
@@ -20,6 +21,21 @@ int RunCli(Shell& shell, int argc, char** argv, std::ostream& out, std::ostream&
 
 int RunCli(Shell& shell, int argc, char** argv) {
     return RunCli(shell, argc, argv, std::cout, std::cerr);
+}
+
+ArgsRoute RouteArgs(int argc, char** argv, const Cli::VerbTable& verbs) {
+    if (argc <= 1) {
+        return {ArgsRoute::Kind::Gui, {}};
+    }
+    if (argc == 2 && !verbs.Find(argv[1])) {
+        // The narrow argv is in the native code page, which is what path's char constructor reads.
+        std::filesystem::path file(argv[1]);
+        std::error_code ec;
+        if (std::filesystem::is_regular_file(file, ec)) {
+            return {ArgsRoute::Kind::GuiOpen, std::move(file)};
+        }
+    }
+    return {ArgsRoute::Kind::Cli, {}};
 }
 
 }

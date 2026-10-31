@@ -610,13 +610,18 @@ hooks and no `ONYX_HAS_*` macros.
 
 ```cpp
 int main(int argc, char** argv) {
-    Onyx::Shell::Shell shell({ .appName = "MinimalViewer", .configDir = Onyx::Core::Paths::UserConfig("MinimalViewer") });
+    Onyx::Shell::Shell shell({ .appName = "MinimalViewer" });       // configDir defaults to Paths::UserConfig(appName)
     shell.Workspace().AddModule(std::make_unique<OnyxBox::Module>());
-    shell.Ui().AddExtension(std::make_unique<OnyxBox::Ui>());       // optional
+    shell.AddExtension(std::make_unique<MyExtension>());            // optional
     shell.Commands().Remove("onyx.file.exportAll");                 // optional
-    return shell.Run(argc, argv);                                   // GUI without args; CLI with args
+    return shell.Run(argc, argv);
 }
 ```
+
+`Run` routes the command line through `RouteArgs`: no argument opens the
+window; exactly one argument that is not a verb name and names an existing
+regular file opens the window and calls `Open` on that file (double-clicking
+an associated file); any other command line runs the CLI.
 
 `Shell` composes `NativeWindow` (GLFW + decoration), `Gpu::Device`,
 `Gpu::Swapchain`, `ImGuiBackend`, `Dock`, `MenuBar` (from commands),

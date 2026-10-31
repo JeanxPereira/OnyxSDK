@@ -298,8 +298,16 @@ Result<bool> Shell::Step() {
 }
 
 int Shell::Run(int argc, char** argv) {
-    if (argc > 1) {
+    const ArgsRoute route = RouteArgs(argc, argv, m_verbs);
+    if (route.kind == ArgsRoute::Kind::Cli) {
         return RunCli(*this, argc, argv);
+    }
+    if (route.kind == ArgsRoute::Kind::GuiOpen) {
+        auto opened = Open(route.file);
+        if (!opened.ok()) {
+            Services::Log::Default().Write(Services::LogLevel::Warn, "shell.open", "{}: {}", opened.error().code,
+                                           opened.error().message);
+        }
     }
     for (;;) {
         auto stepped = Step();
