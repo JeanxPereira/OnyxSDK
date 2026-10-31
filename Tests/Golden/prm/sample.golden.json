@@ -1,0 +1,60 @@
+{
+  "roots": [
+    {
+      "name": "palette",
+      "key": "prm.palette",
+      "kind": "Table",
+      "size": 16,
+      "flags": 0,
+      "children": []
+    },
+    {
+      "name": "tiles",
+      "key": "prm.image",
+      "kind": "Image",
+      "size": 20,
+      "flags": 0,
+      "children": []
+    },
+    {
+      "name": "manifest",
+      "key": "prm.manifest",
+      "kind": "Text",
+      "size": 17,
+      "flags": 0,
+      "children": []
+    },
+    {
+      "name": "clip",
+      "key": "prm.clip",
+      "kind": "Audio",
+      "size": 1610,
+      "flags": 0,
+      "children": []
+    },
+    {
+      "name": "entries",
+      "key": "prm.entries",
+      "kind": "Table",
+      "size": 35,
+      "flags": 0,
+      "children": []
+    },
+    {
+      "name": "stats",
+      "key": "prm.stats",
+      "kind": "Raw",
+      "size": 16,
+      "flags": 0,
+      "children": []
+    },
+    {
+      "name": "bad",
+      "key": "prm.image",
+      "kind": "Image",
+      "size": 4,
+      "flags": 1,
+      "children": []
+    }
+  ]
+}

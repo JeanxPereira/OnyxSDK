@@ -1,0 +1,7 @@
+add_library(Prism STATIC Module.cpp Writer.cpp)
+add_library(Onyx::ExamplePrism ALIAS Prism)
+target_compile_features(Prism PUBLIC cxx_std_20)
+target_include_directories(Prism PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>")
+target_link_libraries(Prism PUBLIC Onyx::Core)
+onyx_warnings(Prism)
+set_target_properties(Prism PROPERTIES CXX_SCAN_FOR_MODULES OFF)
