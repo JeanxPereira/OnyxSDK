@@ -8,6 +8,7 @@
 #include <Onyx/Ui/Command.h>
 #include <Onyx/Ui/FrameClock.h>
 #include <Onyx/Ui/PanelHost.h>
+#include <Onyx/Ui/PathText.h>
 #include <Onyx/Ui/Theme.h>
 #include <Onyx/Ui/UiContext.h>
 #include <Onyx/Ui/ViewerRegistry.h>
@@ -18,6 +19,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -25,16 +27,16 @@
 
 // A workspace with the obx module registered and one document opened from a freshly written
 // .obx: image "img", text "txt", mesh "mesh", table "table", blob "blob", then `flatChildren`
-// blobs named "flat<N>". The file is removed with the object.
+// blobs named "flat<N>". `fileName` is UTF-8. The file is removed with the object.
 struct ObxWorkspace {
     Onyx::Modules::Workspace workspace;
     Onyx::Modules::DocumentId doc = 0;
     std::filesystem::path file;
 
-    ObxWorkspace(const std::filesystem::path& dir, size_t flatChildren) {
+    ObxWorkspace(const std::filesystem::path& dir, size_t flatChildren, std::string_view fileName = "fixture.obx") {
         std::error_code ec;
         std::filesystem::create_directories(dir, ec);
-        file = dir / "fixture.obx";
+        file = dir / Onyx::Ui::PathFromUtf8(fileName);
 
         OnyxBox::Writer writer;
         writer.AddImage("img", 8, 8, std::vector<std::byte>(8 * 8 * 4, std::byte{0x40}));
@@ -81,8 +83,8 @@ struct ObxUi {
     Onyx::Ui::PanelHost panels;
     Onyx::Ui::FrameClock clock;
 
-    explicit ObxUi(const char* name, size_t flatChildren = 8)
-        : obx(std::filesystem::temp_directory_path() / (std::string("onyx_ui_") + name), flatChildren) {}
+    explicit ObxUi(const char* name, size_t flatChildren = 8, std::string_view fileName = "fixture.obx")
+        : obx(std::filesystem::temp_directory_path() / (std::string("onyx_ui_") + name), flatChildren, fileName) {}
 
     ~ObxUi() {
         std::error_code ec;

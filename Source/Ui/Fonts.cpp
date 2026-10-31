@@ -1,6 +1,7 @@
 #include "Onyx/Ui/Fonts.h"
 
 #include "Onyx/Ui/AssetPaths.h"
+#include "Onyx/Ui/PathText.h"
 
 namespace Onyx::Ui {
 
@@ -12,7 +13,7 @@ constexpr ImVec2 kSymbolOffset{0.0f, 3.0f};
 constexpr const char* kMonoAsset = "fonts/SFMono-Regular.otf";
 
 Error Missing(const std::filesystem::path& path, const char* what) {
-    return Error{"ui.font.missing", std::string(what) + " not found: " + path.string(), 0};
+    return Error{"ui.font.missing", std::string(what) + " not found: " + PathToUtf8(path), 0};
 }
 
 }
@@ -35,7 +36,7 @@ Result<FontSet> BuildFonts(ImFontAtlas& atlas, const std::filesystem::path& text
     // can be explicit too; the scale factors live in the style, not the atlas.
     ImFontConfig textCfg;
     textCfg.SizePixels = refPx;
-    ImFont* text = atlas.AddFontFromFileTTF(textFont.string().c_str(), refPx, &textCfg);
+    ImFont* text = atlas.AddFontFromFileTTF(PathToUtf8(textFont).c_str(), refPx, &textCfg);
     if (!text)
         return Result<FontSet>::Fail(Missing(textFont, "text font (unreadable)"));
 
@@ -47,12 +48,12 @@ Result<FontSet> BuildFonts(ImFontAtlas& atlas, const std::filesystem::path& text
     iconCfg.PixelSnapH = true;
     iconCfg.GlyphMinAdvanceX = iconPx;
     iconCfg.GlyphOffset = kSymbolOffset;
-    if (!atlas.AddFontFromFileTTF(iconFont.string().c_str(), iconPx, &iconCfg, kSymbolRange))
+    if (!atlas.AddFontFromFileTTF(PathToUtf8(iconFont).c_str(), iconPx, &iconCfg, kSymbolRange))
         return Result<FontSet>::Fail(Missing(iconFont, "icon font (unreadable)"));
 
     ImFontConfig monoCfg;
     monoCfg.SizePixels = refPx;
-    ImFont* mono = atlas.AddFontFromFileTTF(monoFont.string().c_str(), refPx, &monoCfg);
+    ImFont* mono = atlas.AddFontFromFileTTF(PathToUtf8(monoFont).c_str(), refPx, &monoCfg);
     if (!mono)
         return Result<FontSet>::Fail(Missing(monoFont, "mono font (unreadable)"));
 

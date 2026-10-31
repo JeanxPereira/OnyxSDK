@@ -3,6 +3,7 @@
 #include <Onyx/Core/Domain/AssetEntry.h>
 #include <Onyx/Core/Modules/Workspace.h>
 #include <Onyx/Ui/Icons.h>
+#include <Onyx/Ui/PathText.h>
 #include <Onyx/Ui/Theme.h>
 #include <Onyx/Ui/UiContext.h>
 #include <Onyx/Ui/Widgets.h>
@@ -80,7 +81,7 @@ void DocumentBrowser::Rebuild(UiContext& ui) {
         const bool ready = doc->ready.load();
         Row row;
         row.doc = doc->id;
-        row.docLabel = doc->path.filename().string();
+        row.docLabel = PathToUtf8(doc->path.filename());
         row.hasChildren = ready && !doc->roots.empty();
         row.expanded = m_expanded.contains({doc->id, nullptr});
         row.glyph = Icon(Types::IconId::Container);
@@ -186,6 +187,10 @@ void DocumentBrowser::SelectRow(UiContext& ui, size_t row) {
 
 std::string_view DocumentBrowser::BadgeOf(size_t row) const {
     return row < m_rows.size() ? std::string_view(m_rows[row].badge) : std::string_view();
+}
+
+std::string_view DocumentBrowser::LabelOf(size_t row) const {
+    return row < m_rows.size() ? std::string_view(m_rows[row].docLabel) : std::string_view();
 }
 
 void DocumentBrowser::Activate(UiContext& ui, size_t row) {

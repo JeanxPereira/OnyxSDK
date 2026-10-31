@@ -5,6 +5,7 @@
 #include <Onyx/Ui/Icons.h>
 #include <Onyx/Ui/Panels/DocumentBrowser.h>
 #include <Onyx/Ui/PanelHost.h>
+#include <Onyx/Ui/PathText.h>
 #include <Onyx/Ui/UiContext.h>
 #include <Onyx/Ui/Widgets.h>
 
@@ -45,7 +46,7 @@ std::optional<Modules::NodePath> Problems::FindEntry(const Modules::Document& do
     if (!doc.ready.load()) return std::nullopt;
     Modules::NodePath path;
     const bool anyFile = at.file.empty();
-    if (!anyFile && at.file != doc.path.string() && at.file != doc.path.filename().string()) return std::nullopt;
+    if (!anyFile && at.file != PathToUtf8(doc.path) && at.file != PathToUtf8(doc.path.filename())) return std::nullopt;
     if (!Descend(doc.roots, at.offset, anyFile, path.indices)) return std::nullopt;
     return path;
 }

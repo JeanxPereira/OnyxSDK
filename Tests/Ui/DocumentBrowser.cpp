@@ -42,6 +42,26 @@ TEST_CASE("DocumentBrowser draws one row per visible node") {
     CHECK(browser.RowsDrawn() == 14);
 }
 
+TEST_CASE("DocumentBrowser labels a non-ASCII file name in UTF-8") {
+    const std::string name = "cafÃ©-Ã¼.obx";
+    ObxUi fx("browser_utf8", 8, name);
+    UiContext ui = fx.Make();
+    DocumentBrowser browser;
+
+    browser.Refresh(ui);
+    REQUIRE(browser.VisibleRows() == 14);
+    CHECK(browser.LabelOf(0) == name);
+
+    HeadlessImGui rig;
+    bool visible = false;
+    DrawFrames(rig, 3, [&] {
+        browser.Draw(ui);
+        visible = !ImGui::GetCurrentWindow()->SkipItems;
+    });
+    CHECK(visible);
+    CHECK(browser.RowsDrawn() == 14);
+}
+
 TEST_CASE("DocumentBrowser selecting posts SelectionChanged with the node path") {
     ObxUi fx("browser_select");
     UiContext ui = fx.Make();
