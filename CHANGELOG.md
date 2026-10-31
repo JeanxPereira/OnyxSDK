@@ -1,66 +1,112 @@
 # Changelog
 
-## Unreleased — 2.0.0
+## v2.0.0 — Unreleased
 
-v2 is a break-and-port: the public surface is redesigned and nothing from 1.x is kept as compatibility. The v1 tree lives in `legacy/` for reference and is not built.
+Onyx 2.0.0 is a break-and-port of the 1.x library. The public surface is redesigned, nothing from 1.x is kept as a compatibility layer, and code written against 1.x has to be ported. The SDK is now nine static libraries (`Onyx::Core`, `Gpu`, `Render`, `Ui`, `Shell`, `Media`, `Cli`, `Exchange` and `TestKit`) that compose from the bottom up, and a game module carries format knowledge without any game being named in `Source/`. The 1.x tree is reachable at the tag `v1.3.3`.
 
-### W0
-- **Legacy move.** The v1 tree moved to `legacy/`.
-- **Layer targets.** The nine `Onyx::*` layer targets, the `ONYX_WITH_*` component options with downward cascade, and the four presets.
-- **Tools.** `tools/check.py` as the build verdict and `tools/lint.py` for layer hygiene.
-- **Tests and CI.** The per-layer doctest rig, the standalone header check, and CI running `check.py` on Windows and Linux.
+### Added
 
-### W1
-- **Foundation.** Result, Log with sinks and ring, the main-thread marker and Paths.
-- **VFS.** A stateless virtual filesystem with Reader, OsFile, MemoryFile and SliceFile.
-- **lz4 and ISO builder.** lz4 decompression in Core and a synthetic ISO builder in TestKit.
-- **ISO mounts.** ISO 9660 images mounted through the VFS with bounds and cycle guards.
-- **Type identity.** The type catalog as an object with namespaced keys and an icon set.
-- **Domain model.** The game-agnostic data model: asset entries, meshes, materials, textures, scenes, tables and text.
-- **Services and settings.** Jobs, events and diagnostics, and atomic settings with a declared schema.
-- **Schema.** The declarative schema reader with exact integers and field-relative layout.
-- **Module contract.** `IGameModule` and the capability-aware decoder registry.
-- **Workspace.** Module registration, always-on probing, and synchronous and asynchronous document opens.
-- **CLI contract.** The verb table, exporter registry and JSON helpers in Core.
-- **Stock verbs.** `probe`, `list`, `extract` and `decode` in `Onyx::Cli`.
-- **OnyxBox and goldens.** The OnyxBox example module and writer, tree goldens and the decode smoke check.
-- **Consumer gate and tools.** `Consumer.CoreOnly` builds Core from outside the tree and asserts no GPU or UI dependency is fetched; `check.py` gains `--jobs` and quotes its ctest regex on Windows.
+**Core**
+- **Result, logging and threading.** `Result`, `Log` with sinks and a ring, the main-thread marker, and `Services::Paths`. `Paths::FromUtf8` and `Paths::ToUtf8` define the UTF-8 argument contract used by every command-line path.
+- **Virtual filesystem.** A stateless `IVirtualFileSystem` with `Reader`, `OsFile`, `MemoryFile` and `SliceFile`, lz4 decompression in `Lz4.h`, and `IsoFileSystem` for ISO 9660 images, with bounds and cycle guards.
+- **Type catalog.** `TypeCatalog` as an object with namespaced `TypeId` keys, `TypeSpec`, `TypeRegistrar` and an icon set.
+- **Domain model.** A game-agnostic model in `Onyx/Core/Domain`: `AssetEntry`, `Mesh`, `Material`, `Texture`, `Scene`, `Skeleton`, `Animation`, `Audio`, `Table` and `Text`.
+- **Services.** `Jobs`, `EventBus`, `Diagnostics`, and `Settings` with a declared `SettingsSchema` and atomic writes.
+- **Schema reader.** A declarative schema reader in `Onyx/Core/Schema` with exact integers and field-relative layout.
+- **Module contract.** `IGameModule`, `Capabilities` and the capability-aware `DecoderRegistry`, and a `Workspace` that registers modules, probes inputs and opens documents synchronously or on a job.
+- **Entry access.** `Onyx/Core/Modules/EntryAccess.h` with `FileOf`, `ReaderOf`, `ScopedDocument` and `DecodeSceneOf`, so a verb or a viewer reaches an entry's bytes or decoded scene without handling the mount itself.
+- **CLI contract.** The verb table, the `Exporters` registry and JSON helpers in `Onyx/Core/Cli`. `Cli::ResolveEntry` returns a `Resolution` carrying a `ResolveStatus`, and `Cli::ReportResolution` prints the matching message. An ambiguous name fails with `cli.ambiguous` and lists the `@paths` unless `--first` is given.
 
-### W2
-- **Device.** `Gpu::Device` creates its own Vulkan 1.3 device or adopts the host's through `ExternalDevice`, with a timeline semaphore, a retire queue and a cached `VkPipelineCache`. Error codes are the `gpu.*` table in `Device.h`.
-- **Handles and queue.** RAII buffers, images and views, and `Queue::Submit` and `Queue::Present` under one mutex. `Queue::WaitIdle` exists for swapchain teardown and recreate only; an adopted device waits on its own timeline at shutdown, never `vkDeviceWaitIdle` on the host's device.
-- **Frames and uploads.** `FrameRing` with a per-frame transient ring, and a batched `UploadContext` that flushes once per scene.
-- **Pipelines and targets.** `PipelineBuilder` over the pipeline cache, `DescriptorPool`, the MSAA `RenderTarget` and `Swapchain`.
-- **Projection and camera.** `Projection` with the Vulkan flip baked in, and `Camera`.
-- **Animation.** `AnimationPlayer` over `Domain::AnimClip`.
-- **SceneRenderer.** One upload flush per `Load`, deduplicated materials, skinning validation, and grid and skeleton overlays. The gizmo overlay is drawn by the Ui layer's Viewport.
-- **RenderToImage.** Headless render of a scene into a `Domain::Texture`, either on its own objects or on a renderer, upload context and ring the caller owns.
-- **TestKit.** PNG read and write, image comparison, tolerance profiles and the corpus scene fixtures.
-- **Oracle and parity gate.** The oracle tool in `Tests/Oracle` (not `Tools/`, since `Tools/` and `tools/` cannot coexist on a case-insensitive filesystem), the `Render.Parity` gate against the frozen goldens and `Render.Reproducible`. Parity passed on an AMD Radeon RX 6750 XT within the v1 `[hardware]` tolerances with no tolerance change.
-- **Software profile.** A `[software]` tolerance profile for lavapipe (Mesa 25.2.8 / LLVM 20.1.2). The cause is in `Tests/Golden/tolerances.toml`: fp16 round-toward-zero colour export on AMD against fp32 round-to-nearest on llvmpipe, plus 8-bit fixed-point UNORM8 texture filtering.
-- **Build and tests.** glslang is looked up on the machine (Vulkan SDK) before it is fetched; GPU test suites exit 77 (skip) without a device; the Linux `check.py` run is green on WSL with all eleven suites.
+**Gpu**
+- **Device.** `Gpu::Device` creates its own Vulkan 1.3 device or adopts the host's through `ExternalDevice`, with a timeline semaphore, a retire queue and a cached pipeline cache. Error codes are the `gpu.*` table in `Device.h`.
+- **Handles and queue.** RAII buffers, images and views, and `Queue::Submit` and `Queue::Present` under one mutex. `Queue::WaitIdle` is for swapchain teardown and recreate only; an adopted device waits on its own timeline at shutdown and never calls `vkDeviceWaitIdle` on the host's device.
+- **Frames and uploads.** `FrameRing` with a per-frame transient ring. `UploadContext` batches uploads and reclaims staging per completed flush; `FullDrains()` counts the times it had to wait for the whole ring.
+- **Pipelines and targets.** `PipelineBuilder`, `DescriptorPool`, the MSAA `RenderTarget` and `Swapchain`.
 
-### W3
-- **Ui contracts.** `UiContext` (workspace, `Gpu::Device*`, `Gpu::Frame*`, nullable `TexturePool*`, theme, commands, viewers, panels, clock, `dt`, `IAudioOutput*`), `IPanel` and `IDocumentView`.
-- **Registries.** `CommandRegistry` with `Shortcut`, and `ViewerRegistry` with `Route` (type key beats media kind, then priority, then registration order).
-- **Theme.** Single writer of `ImGuiStyle`, committed once per frame, with token-named colour overrides persisted as `ui.theme.*`; `BuildFonts` merges the text face with the symbol face.
-- **Textures and backend.** `TexturePool`, `ITextureBinder` and `ImGuiVulkanBackend` on dynamic rendering, with `Fault()`.
-- **Panels.** `onyx.browser`, `inspector`, `problems`, `log`, `settings`, `viewport`, `transport`, `timeline` and `documents` (`DocumentTabs`).
-- **Viewers.** `onyx.image`, `text`, `hex`, `table` and `audio` through `RegisterStockViewers`, and `onyx.scene` through `RegisterSceneViewer`; opening decodes on job lane 0 and places the view in `Pump()`.
-- **Rulings.** The Gallery panel and the Media-backed `IAudioOutput` are deferred to W4; ImPlot and ImGuiColorTextEdit are not dependencies.
+**Render**
+- **Camera and projection.** `Projection` with the Vulkan flip baked in, `Camera`, and `AnimationPlayer` over `Domain::AnimClip`.
+- **SceneRenderer.** One upload flush per `Load`, deduplicated materials, skinning validation, and grid and skeleton overlays.
+- **RenderToImage.** A headless render of a scene into a `Domain::Texture`, on its own objects or on a renderer, upload context and ring the caller owns.
+- **The `render` verb.** `Render::CliVerbs()` provides `render`, which writes through the exporter table's `png` entry and fails with `render.noPng` when none is registered. It rejects a non-finite `--time` and sizes above 16384.
+- **Test suites.** `Render.Unit` needs no device; `Render.Gpu` exits 77 without one.
 
-### W4
-- **Dependencies.** FFmpeg (downloaded on Windows, pkg-config on Linux), cgltf (fetched) and miniaudio (vendored), each present only with the component that links it; `-DONYX_WITH_MEDIA=OFF` skips FFmpeg.
-- **Cli.** Entry resolution in Core (`Cli::ResolveEntry`, `Modules::FindAllByName`): an ambiguous name fails with `cli.ambiguous` and lists the `@paths` unless `--first` is given; `extract` takes no entry names. CLI goldens in `Tests/Cli/Goldens`.
-- **Exchange.** `WriteGltf` (skin and animation), `WritePng` and `WriteWav`, registered as `decode --to` exporters by `Exchange::AddExporters`; cgltf and stb are private.
-- **Render verb.** `Render::CliVerbs()` provides `render`, which writes through the table's `png` exporter (`render.noPng` otherwise).
-- **Ui and Shell.** `OpenRequest` carries `file` and `range`; a `ViewerSpec` with `anyCapability` routes only to types listing it and decodes the Any slot alone; `IAudioOutput` gains `Pause`, `Resume`, `Seek` and `Paused`; the `onyx.gallery` panel; `Shell::SetAudioOutput`; the frame loop polls through hover delays.
-- **Media.** `MediaSource` (one decode thread, a bounded frame mailbox and packet read-ahead, an audio clock that yields to a steady clock), `AudioOutput` over miniaudio, `MediaView` and `RegisterMediaViewer`. Video is an entry of `MediaKind::Video`.
-- **Prism.** The second synthetic module (`prm`) with its writer, the settings `prism.transparentIndexZero` and `prism.gain`, `PrismUi` with a palette viewer, and `OnyxCli`; MinimalViewer carries OnyxBox, Prism and Media.
-- **Tests.** `Exchange.Unit`, `Media.Unit`, `Media.Gpu`, `Prism.Unit` and `Examples.Cli`.
-- **Shell.** `NativeWindow` (GLFW 3.4, Win32 borderless), `Presenter`, `GlfwPlatform`, `ShellFrame::Step` pacing, `Shell` with `Run`, `Open`, `Step()` and `hiddenWindow`, extensions, lifecycle, injectable dialogs, `Dock`, menu bar, `Recents`, stock commands and the CLI path over `Cli::StockVerbs()`.
-- **Examples.** `MinimalViewer` and `Embedded` (own GLFW, ImGui and Vulkan device adopted into Onyx), checked by `Examples.Build` (`MinimalViewer --help`) and `Examples.Embedded` (`Embedded --frames 3`, 77 without a device).
-- **Tools.** Suites `Ui.Unit`, `Ui.Gpu`, `Shell.Unit`, `Shell.Window`, `Examples.Build` and `Examples.Embedded`; a lint rule restricting writes to `ImGuiStyle` colours to `Source/Ui/Theme.cpp`; Linux CI installs the X11 and Wayland development packages.
+**Ui**
+- **Contracts.** `UiContext`, `IPanel` and `IDocumentView`.
+- **Registries.** `CommandRegistry` with `Shortcut`, and `ViewerRegistry`, whose `Route` picks by type key first, then media kind, then priority, then registration order. A `ViewerSpec` with `anyCapability` routes only to types that list it.
+- **Theme.** A single writer of `ImGuiStyle`, committed once per frame, with token-named colour overrides persisted as `ui.theme.*`, and `BuildFonts` merging the text face with the symbol face.
+- **Textures and backend.** `TexturePool`, `ITextureBinder` and `ImGuiVulkanBackend` on dynamic rendering, with `Fault()`. `TexturePool::Stream` uploads into a ring of three images per texture id.
+- **Panels.** `onyx.browser`, `inspector`, `problems`, `log`, `settings`, `viewport`, `transport`, `timeline`, `documents` (`DocumentTabs`) and `onyx.gallery`.
+- **Viewers.** `onyx.image`, `text`, `hex`, `table` and `audio` through `RegisterStockViewers`, and `onyx.scene` through `RegisterSceneViewer`. Opening decodes on a job lane and places the view from `Jobs().Pump()`; a viewer that makes no view of a decode reports `ui.open.decode`.
+- **Audio output.** `IAudioOutput` with `Pause`, `Resume`, `Seek` and `Paused`. `Play(audio, owner)` and `Owner()` let several views share one output while only the owner controls it.
+- **Test suites.** `Ui.Unit` needs no device; `Ui.Gpu` exits 77 without one.
+
+**Shell**
+- **Window and presentation.** `NativeWindow` (GLFW 3.4, with a borderless Win32 window), `Presenter`, `GlfwPlatform` and `ShellFrame::Step` pacing, which keeps polling through hover delays.
+- **Shell.** `Shell` with `Run`, `Open`, `Step()` and `hiddenWindow`, `IShellExtension`, lifecycle hooks, injectable `IDialogs`, `Dock`, the menu bar, `Recents` and the stock commands. The CLI path runs over `Cli::StockVerbs()`.
+- **Audio output.** `Shell::SetAudioOutput` is applied between frames and stops the previous output first.
+- **UTF-8 argument contract.** On Windows `Shell::Run` rebuilds its arguments from `GetCommandLineW`, so a path with non-ASCII characters reaches the verbs intact.
+- **Test suites.** `Shell.Unit` needs no device; `Shell.Window` exits 77 without GLFW or a present-capable device.
+
+**Media**
+- **MediaSource.** One decode thread, a bounded frame mailbox, packet read-ahead and an audio clock that yields to a steady clock. Pending seeks are settled before end of stream, read errors are logged as `media.read`, and a missing decoder fails with `media.stream`.
+- **AudioOutput.** A miniaudio-backed `AudioOutput`. `Latency()` is subtracted from the audio clock, and `Stop` stops the device (`DeviceRunning()`).
+- **MediaView.** `MediaView` opens on a workspace job, and its source may be used once `Opened()` is true. `RegisterMediaViewer` registers it; a video is an entry of `MediaKind::Video`.
+- **Test suites.** `Media.Unit` needs FFmpeg at build time and no device; `Media.Gpu` exits 77 without one.
+
+**Cli**
+- **Stock verbs.** `probe`, `list`, `extract` and `decode` through `Cli::StockVerbs()`. `extract` takes no entry names.
+- **Goldens.** Byte-exact CLI goldens in `Tests/Cli/Goldens`, checked by `Cli.Unit`.
+
+**Exchange**
+- **Exporters.** `WriteGltf` (skin and animation), `WritePng` and `WriteWav`, registered as `decode --to` exporters by `Exchange::AddExporters`. cgltf and stb stay private to the library.
+- **glTF output.** `WriteGltf` writes the `.bin` first and removes it if the export fails, keeps index and joint accessors without min and max, and writes through a path-aware stream.
+- **Test suite.** `Exchange.Unit` needs no device.
+
+**TestKit**
+- **Fixtures and comparison.** PNG read and write, `ImageCompare`, tolerance profiles (`Tolerances`), `SceneFixtures`, `IsoBuilder` for synthetic ISO images, `Lz4Fixtures`, `Goldens` and `DecodeSmoke`.
+- **Render parity.** `Render.Parity` compares against the frozen corpus in `Tests/Golden/corpus` with the profile in `Tests/Golden/tolerances.toml` (`[hardware]`, or `[software]` on a CPU device such as lavapipe), and `Render.Reproducible` checks that two renders match. The oracle tool lives in `Tests/Oracle`.
+
+**Examples**
+- **OnyxBox.** A synthetic example module with a writer, tree goldens and a decode smoke check.
+- **Prism.** A second synthetic module (`prm`) with its writer, the settings `prism.transparentIndexZero` and `prism.gain`, a palette viewer in `PrismUi`, and the `OnyxCli` executable. `Writer::Build` returns an empty buffer when an offset would overflow 32 bits. `Prism.Unit` runs on the shared test rig.
+- **MinimalViewer and Embedded.** `MinimalViewer` carries OnyxBox, Prism and Media. `Embedded` brings its own GLFW, ImGui and Vulkan device and adopts it into Onyx. `Examples.Build` runs `MinimalViewer --help`; `Examples.Embedded` runs `Embedded --frames 3` and exits 77 without a device; `Examples.Cli` exercises `OnyxCli`.
+- **OnyxCli argument handling.** `OnyxCli` uses `wmain` on Windows, in line with the UTF-8 argument contract.
+
+**Tools**
+- **Verdict and lint.** `tools/check.py` configures, builds, runs ctest and lint, and returns the exit code; `--lint-only` runs the lint step alone. `tools/lint.py` checks layer hygiene and restricts writes to `ImGuiStyle` colours to `Source/Ui/Theme.cpp`.
+- **Build options.** The `ONYX_WITH_GPU`, `ONYX_WITH_UI`, `ONYX_WITH_SHELL` and `ONYX_WITH_MEDIA` component options, each turning off those above it, `ONYX_BUILD_TESTS`, `ONYX_BUILD_EXAMPLES` and `ONYX_BUILD_TOOLS`, and the presets `windows-debug`, `windows-release`, `linux-debug` and `linux-release`.
+- **Consumer gate.** `Consumer.CoreOnly` builds Core from outside the tree and asserts that no GPU or UI dependency is fetched.
+- **Standalone headers.** `cmake/StandaloneHeaders.cmake` compiles every public header on its own.
+- **CI and README.** CI runs `check.py` on Windows and Linux, installing the X11 and Wayland development packages on Linux. The README figures are generated by `tools/readme_assets.py` into `docs/assets/`.
+- **Documentation.** `docs/architecture.md`, `docs/consuming.md` and `docs/modules.md`.
+
+### Changed
+
+- **Library over framework.** 1.x was an application framework; 2.0.0 is a set of libraries a host links and drives. The host owns `main`, the window and the device, or hands them to `Shell` and `Gpu::ExternalDevice`.
+- **Stateless virtual filesystem.** `IVirtualFileSystem` keeps no state between calls.
+- **Type catalog as an object.** `TypeCatalog` is a value the host creates and passes along, and keys are namespaced `TypeId` values.
+- **Module contract with capabilities.** A module implements `IGameModule` and declares `Capabilities`; the `DecoderRegistry` and the viewer routes select on them.
+- **Settings with a schema.** `Settings` validates against a declared `SettingsSchema` and writes atomically.
+- **No singletons.** Nothing is reachable without a reference except the default log, `Log::Default()`.
+- **CLI verbs with byte-exact goldens.** `probe`, `list`, `extract`, `decode` and `render` print output that `Tests/Cli/Goldens` compares byte for byte.
+- **FFmpeg on Windows.** The Windows build downloads the BtbN LGPL shared build at configure time (`ONYX_FFMPEG_WIN_URL`) instead of a GPL build. On Linux FFmpeg is found through pkg-config with a version floor, and `-DONYX_WITH_MEDIA=OFF` skips it.
+- **Third-party includes.** No third-party include crosses a layer boundary; `tools/lint.py` enforces the list per layer.
+
+### Removed
+
+- **The 1.x public surface.** No 1.x header, namespace or target is kept.
+- **`legacy/`.** The in-tree copy of the 1.x sources; use the tag `v1.3.3`.
+- **The old logo and brand files.**
+- **The 1.x design notes.**
+
+### Known gaps
+
+- **Hover-delay frame test.** The `ShellFrame::Step` test that covers polling through hover delays has only run on Windows.
+- **`media.stream`.** No test covers it, because triggering it needs a codec that the FFmpeg build does not include.
+- **`GetCommandLineW` path.** The real call in `Shell::Run` has no automated test.
+- **Linux FFmpeg version floor.** The pkg-config floor in `cmake/Deps/Ffmpeg.cmake` has only been exercised by CI.
+- **Read-ahead test.** The test that stores audio ten frames behind the video uses AVI, whose demuxer reorders packets, so it may not exercise packet read-ahead.
+- **Public-header rules.** `tools/lint.py` cannot express rules that apply to public headers only; `cmake/StandaloneHeaders.cmake` enforces them.
 
 ## v1.3.3 — 2026-10-16
 
