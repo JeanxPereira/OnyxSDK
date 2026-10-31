@@ -2,59 +2,51 @@
   "scene": "blend-stack",
   "width": 512,
   "height": 512,
-  "pixelHash": 3906600891000560312,
-  "batches": [
+  "pixelHash": 12259040124241603233,
+  "draws": [
     {
       "name": "floor",
+      "material": 0,
       "vertexCount": 4,
       "triangleCount": 2,
-      "blendMode": "Normal",
-      "hasTexture": true,
-      "hasEnvmap": false,
-      "hasSkeleton": false,
-      "metallic": 0.000000,
-      "materialColor": [1.000000, 1.000000, 1.000000, 1.000000],
-      "roleTexturesBound": 1,
-      "paletteJointCount": 0
+      "blend": "Opaque",
+      "skinned": false,
+      "sky": false,
+      "texturesBound": 1,
+      "jointCount": 0
     },
     {
       "name": "quad_normal",
+      "material": 1,
       "vertexCount": 4,
       "triangleCount": 2,
-      "blendMode": "Normal",
-      "hasTexture": true,
-      "hasEnvmap": false,
-      "hasSkeleton": false,
-      "metallic": 0.000000,
-      "materialColor": [1.000000, 1.000000, 1.000000, 0.500000],
-      "roleTexturesBound": 1,
-      "paletteJointCount": 0
+      "blend": "Opaque",
+      "skinned": false,
+      "sky": false,
+      "texturesBound": 1,
+      "jointCount": 0
     },
     {
       "name": "quad_additive",
+      "material": 2,
       "vertexCount": 4,
       "triangleCount": 2,
-      "blendMode": "Additive",
-      "hasTexture": true,
-      "hasEnvmap": false,
-      "hasSkeleton": false,
-      "metallic": 0.000000,
-      "materialColor": [1.000000, 1.000000, 1.000000, 1.000000],
-      "roleTexturesBound": 1,
-      "paletteJointCount": 0
+      "blend": "Additive",
+      "skinned": false,
+      "sky": false,
+      "texturesBound": 1,
+      "jointCount": 0
     },
     {
       "name": "quad_subtractive",
+      "material": 3,
       "vertexCount": 4,
       "triangleCount": 2,
-      "blendMode": "Subtractive",
-      "hasTexture": true,
-      "hasEnvmap": false,
-      "hasSkeleton": false,
-      "metallic": 0.000000,
-      "materialColor": [1.000000, 1.000000, 1.000000, 1.000000],
-      "roleTexturesBound": 1,
-      "paletteJointCount": 0
+      "blend": "Subtractive",
+      "skinned": false,
+      "sky": false,
+      "texturesBound": 1,
+      "jointCount": 0
     }
   ]
 }
