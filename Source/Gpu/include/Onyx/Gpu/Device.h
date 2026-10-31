@@ -30,6 +30,8 @@
 //   gpu.wait          vkWaitSemaphores failed
 //   gpu.timeout       vkWaitSemaphores timed out
 //   gpu.pipelineCache vkCreatePipelineCache failed
+//   gpu.extent        a render target or swapchain was asked for a zero extent
+//   gpu.surface       the graphics queue family cannot present to the surface
 //   gpu.vk            any other failing VkResult (enumerations, counter reads)
 namespace Onyx::Gpu {
 
