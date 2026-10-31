@@ -64,7 +64,7 @@ TEST_CASE("Open reads a clip at an offset and reports its info") {
         Media::MediaSource source;
         OpenClip(source, clip);
         const Media::MediaInfo& info = source.Info();
-        CHECK(info.duration == doctest::Approx(2.0).epsilon(0.05));
+        CHECK(std::abs(info.duration - 2.0) <= 0.1);
         CHECK(info.width == 64);
         CHECK(info.height == 48);
         CHECK(info.fps == doctest::Approx(25.0));
@@ -109,7 +109,7 @@ TEST_CASE("Seek lands on the right frame") {
         CHECK(source.Position() == doctest::Approx(1.0));
         auto frame = NextFrame(source);
         REQUIRE(frame.has_value());
-        CHECK(frame->pts == doctest::Approx(1.0).epsilon(0.08));
+        CHECK(std::abs(frame->pts - 1.0) <= 0.08);
         CHECK_MESSAGE(Near(CentreColour(*frame), Expected(25)), Text(CentreColour(*frame)));
     }
     SUBCASE("while playing") {
@@ -181,6 +181,69 @@ TEST_CASE("Play after the end restarts from zero") {
     REQUIRE(frame.has_value());
     CHECK(frame->pts < 0.1);
     CHECK(Near(CentreColour(*frame), Expected(0)));
+}
+
+namespace {
+
+struct PlayedOut {
+    bool ended = false;
+    bool monotonic = true;
+    double seconds = 0;
+    double finalPosition = 0;
+    std::optional<Media::VideoFrame> last;
+};
+
+// Plays the clip until Ended or `timeout`, taking every frame and watching Position.
+PlayedOut PlayToEnd(Media::MediaSource& source, std::chrono::milliseconds timeout) {
+    PlayedOut out;
+    const auto start = Clock::now();
+    double previous = 0;
+    source.Play();
+    while (Clock::now() - start < timeout) {
+        if (auto frame = source.TakeFrame()) out.last = std::move(frame);
+        const double position = source.Position();
+        if (position + 1e-9 < previous) out.monotonic = false;
+        previous = position;
+        if (source.State() == Media::PlayState::Ended) {
+            out.ended = true;
+            break;
+        }
+        std::this_thread::sleep_for(2ms);
+    }
+    out.seconds = std::chrono::duration<double>(Clock::now() - start).count();
+    out.finalPosition = source.Position();
+    return out;
+}
+
+}
+
+TEST_CASE("a clip whose audio ends first plays its video tail to the end") {
+    const ClipFixture clip = WriteClip("short-audio", true, 50, 1.0);
+    Media::MediaSource source;
+    OpenClip(source, clip);
+    REQUIRE(source.Info().hasAudio);
+    const PlayedOut played = PlayToEnd(source, 5000ms);
+    REQUIRE(played.ended);
+    CHECK(played.monotonic);
+    CHECK(played.seconds > 1.7);
+    CHECK(std::abs(played.finalPosition - 2.0) <= 0.1);
+    REQUIRE(played.last.has_value());
+    const auto index = static_cast<uint32_t>(std::lround(played.last->pts * 25.0));
+    CHECK(index >= 45);
+    CHECK_MESSAGE(Near(CentreColour(*played.last), Expected(index)), Text(CentreColour(*played.last)) << " at frame " << index);
+}
+
+TEST_CASE("a long video tail after one second of audio still reaches Ended") {
+    const ClipFixture clip = WriteClip("long-tail", true, 100, 1.0);
+    Media::MediaSource source;
+    OpenClip(source, clip);
+    const PlayedOut played = PlayToEnd(source, 7000ms);
+    REQUIRE(played.ended);
+    CHECK(played.monotonic);
+    CHECK(played.seconds > 3.7);
+    CHECK(std::abs(played.finalPosition - 4.0) <= 0.1);
+    REQUIRE(played.last.has_value());
+    CHECK(played.last->pts > 3.8);
 }
 
 TEST_CASE("Ten Open/destroy cycles each return within one second") {

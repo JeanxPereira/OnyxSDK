@@ -40,8 +40,10 @@ enum class PlayState : uint8_t { Stopped, Playing, Paused, Ended };
 // [offset, offset + size), never through a path.
 //
 // The clock is the audio clock (frames the playback device consumed) when the clip has audio and a
-// device started, a steady clock otherwise. Decoding runs ahead of the clock by at most four video
-// frames and blocks there, so a paused source costs nothing. Methods other than Open may be called
+// device started, a steady clock otherwise. When the audio runs out before the video while playing,
+// the steady clock takes over from the audio position and the video plays out; a seek returns to the
+// audio clock. Decoding runs ahead of the clock by at most four video frames and blocks there, so a
+// paused source costs nothing. Methods other than Open may be called
 // from any one thread at a time; the destructor stops and joins the decode thread.
 class MediaSource {
 public:

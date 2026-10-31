@@ -22,7 +22,8 @@ extern "C" {
 
 // A clip encoded with FFmpeg's own encoders: mpeg1video 64x48 at 25 fps, frame i a solid colour
 // Expected(i), muxed to AVI (with a pcm_s16le 44100 Hz stereo 440 Hz tone when asked) and written
-// after 4096 zero bytes, so the clip lives at [offset, offset + size) of `path`.
+// after 4096 zero bytes, so the clip lives at [offset, offset + size) of `path`. A positive
+// `audioSeconds` cuts the tone short of the video; zero lasts as long as the video.
 struct ClipFixture {
     std::filesystem::path path;
     uint64_t offset;
@@ -69,7 +70,7 @@ inline void Drain(AVFormatContext* out, AVCodecContext* codec, AVStream* stream,
 
 }
 
-inline ClipFixture WriteClip(const std::string& name, bool withAudio, uint32_t frames = 50) {
+inline ClipFixture WriteClip(const std::string& name, bool withAudio, uint32_t frames = 50, double audioSeconds = 0) {
     using namespace ClipDetail;
     const std::filesystem::path dir = std::filesystem::temp_directory_path();
     const std::filesystem::path raw = dir / ("onyx-media-" + name + ".raw.avi");
@@ -136,6 +137,8 @@ inline ClipFixture WriteClip(const std::string& name, bool withAudio, uint32_t f
         Check(av_frame_get_buffer(tone, 0), "tone buffer");
     }
 
+    const uint32_t audioFrames =
+        audioSeconds > 0 ? static_cast<uint32_t>(std::lround(audioSeconds * kFps)) : frames;
     for (uint32_t i = 0; i < frames; ++i) {
         const std::array<uint8_t, 3> colour = Expected(i);
         for (size_t p = 0; p < rgb.size(); p += 3) {
@@ -151,7 +154,7 @@ inline ClipFixture WriteClip(const std::string& name, bool withAudio, uint32_t f
         Check(avcodec_send_frame(video, picture), "send picture");
         Drain(out, video, videoStream, packet);
 
-        if (audio) {
+        if (audio && i < audioFrames) {
             Check(av_frame_make_writable(tone), "tone writable");
             auto* samples = reinterpret_cast<int16_t*>(tone->data[0]);
             for (int s = 0; s < kSamplesPerFrame; ++s) {

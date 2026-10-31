@@ -15,8 +15,6 @@ namespace {
 
 // Seconds of decoded audio the ring holds ahead of the device.
 constexpr double kRingSeconds = 1.0;
-// While the audio clock starves, video may queue this many frames so audio packets behind them get read.
-constexpr size_t kMaxQueuedFrames = 64;
 constexpr auto kPlayingPoll = std::chrono::milliseconds(5);
 
 }
@@ -93,7 +91,6 @@ void MediaSource::Impl::Loop(Decoder& decoder, Session& session) {
     const Decoder::AudioSink audio = [&](std::span<const float> samples, double pts) {
         PushAudio(session, samples, pts);
     };
-    const size_t starvedFrames = std::max<size_t>(decoder.SampleRate() / 10, 1);
 
     for (;;) {
         uint64_t seen = 0;
@@ -113,14 +110,16 @@ void MediaSource::Impl::Loop(Decoder& decoder, Session& session) {
         }
 
         const double position = transport.Position();
-        const bool starved = session.audioClock && ring.BufferedFrames() < starvedFrames;
-        const bool videoRoom = !session.info.hasVideo || mailbox.HasRoom(position, tolerance) ||
-                               (starved && mailbox.Size() < kMaxQueuedFrames);
+        const bool videoRoom = !session.info.hasVideo || mailbox.HasRoom(position, tolerance);
         if (!session.eof && videoRoom && session.pendingAudio.empty()) {
             session.eof = !decoder.Feed(video, audio);
             continue;
         }
         const bool playing = transport.State() == PlayState::Playing;
+        if (playing && AudioExhausted(session)) {
+            transport.UseSteadyClock();
+            continue;
+        }
         if (session.eof && playing && Finished(session, position)) {
             transport.End();
             continue;
@@ -161,9 +160,12 @@ void MediaSource::Impl::PushAudio(Session& session, std::span<const float> sampl
                                 samples.end());
 }
 
+bool MediaSource::Impl::AudioExhausted(const Session& session) const {
+    return transport.UsesAudioClock() && session.pendingAudio.empty() && ring.BufferedFrames() == 0;
+}
+
 bool MediaSource::Impl::Finished(const Session& session, double position) const {
-    if (!session.pendingAudio.empty()) return false;
-    if (session.audioClock) return ring.BufferedFrames() == 0;
+    if (!session.pendingAudio.empty() || transport.UsesAudioClock()) return false;
     if (mailbox.Ahead(position, tolerance) > 0) return false;
     return session.info.duration <= 0 || position >= session.info.duration - 1e-6;
 }

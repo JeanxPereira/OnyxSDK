@@ -17,7 +17,8 @@ class AudioRing;
 // Play state and clock shared by the calling thread, the decode thread and the audio callback.
 // Commands change the state at once; a seek is only requested here (a serial and a target) and the
 // decode thread reports it applied once the decoders, the mailbox and the ring were flushed. Until
-// then Position() reports the target. Thread-safe.
+// then Position() reports the target. The audio clock yields to the steady clock when the decode
+// thread finds the audio exhausted while playing. Thread-safe.
 class Transport {
 public:
     struct SeekRequest {
@@ -27,6 +28,10 @@ public:
 
     // `audio` is the ring whose consumed frames are the clock, or null for the steady clock.
     void Configure(double duration, const AudioRing* audio, uint32_t rate);
+    // Hands the clock to the steady clock from the current audio position, so Position() stays
+    // monotonic; the next applied seek returns to the audio clock.
+    void UseSteadyClock();
+    bool UsesAudioClock() const;
 
     void Play();
     void Pause();
@@ -54,6 +59,8 @@ private:
     mutable std::mutex m_mutex;
     PlayState m_state = PlayState::Stopped;
     double m_duration = 0;
+    // The configured ring, and the one the clock follows now (null while on the steady clock).
+    const AudioRing* m_ring = nullptr;
     const AudioRing* m_audio = nullptr;
     uint32_t m_rate = 0;
     // The position when the steady clock started, or when the ring last counted zero frames.

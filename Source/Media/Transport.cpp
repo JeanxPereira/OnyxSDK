@@ -10,8 +10,23 @@ namespace Onyx::Media {
 void Transport::Configure(double duration, const AudioRing* audio, uint32_t rate) {
     std::lock_guard lock(m_mutex);
     m_duration = std::max(duration, 0.0);
-    m_audio = rate != 0 ? audio : nullptr;
+    m_ring = rate != 0 ? audio : nullptr;
+    m_audio = m_ring;
     m_rate = rate;
+}
+
+void Transport::UseSteadyClock() {
+    std::lock_guard lock(m_mutex);
+    if (!m_audio) return;
+    const Clock::time_point now = Clock::now();
+    m_base = PositionLocked(now);
+    m_audio = nullptr;
+    m_start = now;
+}
+
+bool Transport::UsesAudioClock() const {
+    std::lock_guard lock(m_mutex);
+    return m_audio != nullptr;
 }
 
 double Transport::PositionLocked(Clock::time_point now) const {
@@ -100,6 +115,7 @@ void Transport::Applied(uint64_t serial) {
     std::lock_guard lock(m_mutex);
     if (serial != m_serial) return;
     m_applied = serial;
+    m_audio = m_ring;
     m_start = Clock::now();
 }
 

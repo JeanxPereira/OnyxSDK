@@ -60,6 +60,9 @@ private:
     void Loop(Decoder& decoder, Session& session);
     void ApplySeek(Decoder& decoder, Session& session, const Transport::SeekRequest& seek);
     void PushAudio(Session& session, std::span<const float> samples, double pts);
+    // The audio clock can advance no further: the ring ran dry and the thread cannot read on, because
+    // the container ended or the video ahead of the clock fills the mailbox.
+    bool AudioExhausted(const Session& session) const;
     bool Finished(const Session& session, double position) const;
 
     PlaybackDevice m_device;
