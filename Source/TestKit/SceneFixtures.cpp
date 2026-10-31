@@ -290,8 +290,9 @@ SceneFixture BuildAnimatedChain() {
     f.name = "animated-chain";
 
     // The v1 clip swept joints 1 and 2 about X from 60 to 120 degrees; the keys here start and end
-    // at identity and reach the mid-sweep angle of 90 degrees at 0.5 s.
-    const glm::quat identity(1.0f, 0.0f, 0.0f, 0.0f);
+    // at the rest rotation, so the clip at 0 s reproduces the rest pose, and reach the mid-sweep
+    // angle of 90 degrees at 0.5 s.
+    const glm::quat rest = QuantisedAxisRotation(30.0, 0);
     const glm::quat mid = QuantisedAxisRotation(90.0, 0);
 
     Domain::AnimClip clip;
@@ -300,7 +301,7 @@ SceneFixture BuildAnimatedChain() {
     for (uint32_t joint = 1; joint <= 2; ++joint) {
         Domain::AnimChannel channel;
         channel.joint = joint;
-        channel.rotation = {{0.0f, identity}, {0.5f, mid}, {1.0f, identity}};
+        channel.rotation = {{0.0f, rest}, {0.5f, mid}, {1.0f, rest}};
         clip.channels.push_back(std::move(channel));
     }
 

@@ -2,6 +2,8 @@
 
 #include <Onyx/TestKit/SceneFixtures.h>
 
+#include <glm/gtc/quaternion.hpp>
+
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -199,5 +201,11 @@ TEST_CASE("BuildAnimatedChain has one 1 s clip with keys on joints 1 and 2") {
         REQUIRE(ch.rotation.size() == 3);
         CHECK(ch.rotation.front().time == doctest::Approx(0.0f));
         CHECK(ch.rotation.back().time == doctest::Approx(1.0f));
+
+        const glm::quat bind = glm::quat_cast(glm::mat3(f.scene.skeleton->joints[ch.joint].localBind));
+        auto sameRotation = [](const glm::quat& a, const glm::quat& b) { return std::fabs(glm::dot(a, b)) > 1.0f - 1e-5f; };
+        CHECK(sameRotation(ch.rotation[0].value, bind));
+        CHECK(sameRotation(ch.rotation[2].value, bind));
+        CHECK_FALSE(sameRotation(ch.rotation[1].value, bind));
     }
 }
