@@ -11,6 +11,7 @@
 #include <string_view>
 
 namespace Onyx::Gpu {
+class Device;
 class RenderTarget;
 class UploadContext;
 }
@@ -26,7 +27,8 @@ class TexturePool;
 // The 3D view of the active scene tab. It owns the scene renderer and an upload context (both made
 // on the first draw that has a device) and a render target sized to the panel, shown through one
 // texture of the UI's pool. The scene is recorded into UiContext::frame, so the host must have begun
-// the frame before drawing panels. Orbit with the right button, pan with the middle one, zoom with
+// the frame before drawing panels and must record the ImGui pass into the same frame's command buffer
+// after the panels drew, so the target is rendered before the UI samples it. Orbit with the right button, pan with the middle one, zoom with
 // the wheel; F frames the scene, Z flips the shading, G the grid, keypad 5 resets the camera.
 //
 // Without a device or a frame it draws a placeholder. It removes its texture from the pool on
@@ -58,6 +60,7 @@ private:
     ImTextureID m_texture = ImTextureID_Invalid;
     uint64_t m_registered = 0;
     std::optional<Error> m_fault;
+    Gpu::Device* m_failedDevice = nullptr;
 };
 
 }

@@ -52,7 +52,8 @@ GizmoHit DrawAxisGizmo(ImDrawList* list, ImVec2 center, float radius, const glm:
 
     const ImGuiIO& io = ImGui::GetIO();
     int hovered = -1;
-    for (size_t k = order.size(); k-- > 0;) {
+    const bool windowHovered = ImGui::IsWindowHovered();
+    for (size_t k = order.size(); windowHovered && k-- > 0;) {
         const size_t i = order[k];
         const float dx = io.MousePos.x - caps[i].position.x;
         const float dy = io.MousePos.y - caps[i].position.y;

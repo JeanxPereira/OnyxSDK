@@ -1,6 +1,5 @@
 #pragma once
 
-// The Core headers come first: the Vulkan headers pull in windows.h, whose max macro breaks Reader.h.
 #include "../../Support/ObxViewerFixture.h"
 
 #include <Onyx/Gpu/FrameRing.h>

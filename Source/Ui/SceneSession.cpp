@@ -6,6 +6,7 @@ namespace Onyx::Ui {
 
 Result<void> SceneSession::Load(Render::SceneRenderer& renderer, Gpu::UploadContext& upload,
                                 const Domain::Scene& scene, Services::DiagSink* diags) {
+    if (m_scene) return Result<void>::Ok();
     auto loaded = renderer.Load(scene, upload, diags);
     if (!loaded.ok()) return Result<void>::Fail(loaded.error());
     m_scene.emplace(std::move(loaded.value()));
@@ -17,6 +18,10 @@ Result<void> SceneSession::Load(Render::SceneRenderer& renderer, Gpu::UploadCont
 void SceneSession::BindAnimation(const Domain::Scene& scene) {
     m_skeleton = scene.skeleton;
     m_animations = scene.animations;
+    m_clipNames.clear();
+    if (m_animations) {
+        for (const Domain::AnimClip& clip : m_animations->clips) m_clipNames.push_back(clip.name);
+    }
     m_player = Render::AnimationPlayer();
     if (HasAnimation()) {
         m_player.Set(m_skeleton, m_animations, 0);
@@ -32,13 +37,6 @@ bool SceneSession::HasSkeleton() const {
 
 bool SceneSession::HasAnimation() const {
     return HasSkeleton() && m_animations && !m_animations->clips.empty();
-}
-
-std::vector<std::string> SceneSession::ClipNames() const {
-    std::vector<std::string> names;
-    if (!m_animations) return names;
-    for (const Domain::AnimClip& clip : m_animations->clips) names.push_back(clip.name);
-    return names;
 }
 
 void SceneSession::Push() {

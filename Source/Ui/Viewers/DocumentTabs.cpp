@@ -70,11 +70,7 @@ IDocumentView* DocumentTabs::Active() {
 }
 
 void DocumentTabs::Draw(UiContext& ui) {
-    struct Sweep {
-        std::vector<std::unique_ptr<IDocumentView>>& retired;
-        explicit Sweep(std::vector<std::unique_ptr<IDocumentView>>& r) : retired(r) { retired.clear(); }
-        ~Sweep() { retired.clear(); }
-    } sweep(m_retired);
+    m_retired.clear();
 
     if (m_tabs.empty()) {
         Widgets::Hint("Open an asset to view it");

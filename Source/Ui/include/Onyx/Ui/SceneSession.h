@@ -24,7 +24,8 @@ namespace Onyx::Ui {
 class SceneSession {
 public:
     // Uploads `scene` through `renderer` and frames its bounds. Selects the first clip when the scene
-    // has a skeleton and animations. A second Load replaces the first.
+    // has a skeleton and animations. A session that is already Loaded keeps its GPU copy and returns Ok,
+    // so a live GpuScene is never replaced while a frame may still draw it.
     Result<void> Load(Render::SceneRenderer& renderer, Gpu::UploadContext& upload, const Domain::Scene& scene,
                       Services::DiagSink* diags);
     bool Loaded() const { return m_scene.has_value(); }
@@ -42,9 +43,10 @@ public:
 
     bool HasAnimation() const;
     bool HasSkeleton() const;
-    std::vector<std::string> ClipNames() const;
+    const std::vector<std::string>& ClipNames() const { return m_clipNames; }
 
-    // Advances the player and the camera tween by dt seconds.
+    // Advances the player and the camera tween by dt seconds. Only the Viewport calls it, so playback
+    // runs while a Viewport draws this session and pauses in time while none does.
     void Tick(float dt);
     // True while the pose or the camera is still changing by itself.
     bool Animating() const;
@@ -64,6 +66,7 @@ private:
 
     std::shared_ptr<const Domain::Skeleton> m_skeleton;
     std::shared_ptr<const Domain::AnimationSet> m_animations;
+    std::vector<std::string> m_clipNames;
     std::optional<Render::GpuScene> m_scene;
     Render::Camera m_camera;
     Render::AnimationPlayer m_player;

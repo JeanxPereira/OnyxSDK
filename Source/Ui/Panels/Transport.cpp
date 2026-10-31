@@ -29,7 +29,7 @@ Transport::Model Transport::Read(const SceneSession& session) {
     if (!model.available) return model;
     const Render::AnimationPlayer& player = session.Player();
     model.playing = player.IsPlaying();
-    model.clips = session.ClipNames();
+    model.clips = std::span<const std::string>(session.ClipNames());
     model.clip = player.Clip();
     model.time = player.Time();
     model.duration = player.Duration();

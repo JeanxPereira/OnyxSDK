@@ -23,7 +23,8 @@ TEST_CASE("Viewport shows the mesh opened through OpenEntry") {
     auto fx = MakeUiGpuFixture();
     SceneRig rig;
     auto host = MakeHostTarget(*fx->device);
-    rig.OpenMesh(*fx);
+    Ui::SceneView* mesh = rig.OpenMesh(*fx);
+    mesh->Session().Overlays().grid = false;
 
     {
         Ui::Viewport viewport;
@@ -35,7 +36,8 @@ TEST_CASE("Viewport shows the mesh opened through OpenEntry") {
         }
         CHECK_FALSE(viewport.Fault().has_value());
         CHECK(fx->textures->Count() == 1);
-        CHECK(CountDistinct(image, 0, 0, 256, 256) > 1000);
+        // The region stays clear of the axis gizmo in the bottom-right corner and of the grid, which is off.
+        CHECK(CountDistinct(image, 16, 16, 140, 140) > 500);
     }
     CHECK(fx->textures->Count() == 0);
     CHECK(fx->device->ValidationMessageCount() == 0);
@@ -77,5 +79,32 @@ TEST_CASE("Viewport draws a placeholder without a frame and records no texture")
     });
     REQUIRE(drawn.ok());
     CHECK(fx->textures->Count() == 0);
+    CHECK(fx->device->ValidationMessageCount() == 0);
+}
+
+TEST_CASE("Closing the active tab in the frame the viewport drew it leaves no resource in use") {
+    auto fx = MakeUiGpuFixture();
+    SceneRig rig;
+    auto host = MakeHostTarget(*fx->device);
+    rig.OpenMesh(*fx);
+
+    Ui::Viewport viewport;
+    const auto frame = [&](bool close) {
+        return RenderHostFrame(*fx, *host, [&](Gpu::Frame& f) {
+            Ui::UiContext ui = rig.Context(*fx, &f);
+            BeginFlatWindow("viewport", 0, 0, 256, 128);
+            viewport.Draw(ui);
+            if (close) rig.tabs->CloseActive();
+            ImGui::End();
+            BeginFlatWindow("documents", 0, 128, 256, 128);
+            rig.tabs->Draw(ui);
+            ImGui::End();
+        });
+    };
+    for (int i = 0; i < 3; ++i) REQUIRE(frame(false).ok());
+    REQUIRE(frame(true).ok());
+    CHECK(rig.tabs->Count() == 0);
+    for (int i = 0; i < 3; ++i) REQUIRE(frame(false).ok());
+    REQUIRE(fx->device->GraphicsQueue().WaitIdle().ok());
     CHECK(fx->device->ValidationMessageCount() == 0);
 }

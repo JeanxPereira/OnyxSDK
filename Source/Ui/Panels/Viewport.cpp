@@ -76,6 +76,9 @@ bool Viewport::EnsureTarget(UiContext& ui, uint32_t width, uint32_t height) {
         }
         m_target = std::move(target.value());
     } else if (m_target->Extent().width != width || m_target->Extent().height != height) {
+        // Nothing recorded in this frame touches the target yet (Draw records after EnsureTarget), so
+        // the old images and the old descriptor last served an earlier, submitted frame; both retire
+        // at LastSubmitted.
         auto resized = m_target->Resize(extent);
         if (!resized.ok()) {
             m_fault = resized.error();
@@ -107,16 +110,21 @@ void Viewport::Draw(UiContext& ui) {
         Widgets::Hint("Open a mesh to see it here.");
         return;
     }
-    if (!EnsureDevice(ui)) {
+    if (!m_renderer && m_fault && m_failedDevice == ui.gpu) {
         ShowFault(*m_fault);
         return;
     }
+    if (!EnsureDevice(ui)) {
+        m_failedDevice = ui.gpu;
+        ShowFault(*m_fault);
+        return;
+    }
+    m_failedDevice = nullptr;
 
     SceneSession& session = view->Session();
-    if (!session.Loaded() && !view->Fault()) {
-        Modules::Document* doc = ui.workspace.Get(view->Document());
-        (void)view->Load(*m_renderer, *m_upload, doc ? &doc->diags : nullptr);
-    }
+    Modules::Document* doc = ui.workspace.Get(view->Document());
+    Services::DiagSink* diags = doc ? &doc->diags : nullptr;
+    if (!session.Loaded() && !view->Fault()) (void)view->Load(*m_renderer, *m_upload, diags);
     if (view->Fault()) {
         ShowFault(*view->Fault());
         return;
@@ -148,12 +156,14 @@ void Viewport::Draw(UiContext& ui) {
     frameView.mode = session.Mode();
     const ImVec4 clear = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
     frameView.clear = glm::vec4(clear.x, clear.y, clear.z, 1.0f);
-    auto drawn = m_renderer->Draw(*ui.frame, *m_target, session.Scene(), frameView, session.Overlays());
+    auto drawn = m_renderer->Draw(*ui.frame, *m_target, session.Scene(), frameView, session.Overlays(), diags);
     if (!drawn.ok()) {
         m_fault = drawn.error();
         ShowFault(*m_fault);
         return;
     }
+
+    m_fault.reset();
 
     ImDrawList* list = ImGui::GetWindowDrawList();
     list->PushClipRect(min, max, true);

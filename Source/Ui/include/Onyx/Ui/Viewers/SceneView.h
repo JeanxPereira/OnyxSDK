@@ -1,7 +1,5 @@
 #pragma once
 
-#include <Onyx/Ui/ViewerRegistry.h>
-
 #include <Onyx/Core/Domain/Scene.h>
 #include <Onyx/Core/Result.h>
 #include <Onyx/Core/Services/Diagnostics.h>
@@ -9,6 +7,7 @@
 #include <Onyx/Render/SceneRenderer.h>
 #include <Onyx/Ui/Panel.h>
 #include <Onyx/Ui/SceneSession.h>
+#include <Onyx/Ui/ViewerRegistry.h>
 
 #include <memory>
 #include <optional>

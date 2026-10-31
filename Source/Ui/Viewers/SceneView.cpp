@@ -25,6 +25,7 @@ SceneView::SceneView(Modules::DocumentId doc, Modules::NodePath node, std::strin
 Result<void> SceneView::Load(Render::SceneRenderer& renderer, Gpu::UploadContext& upload,
                              Services::DiagSink* diags) {
     if (m_fault) return Result<void>::Fail(*m_fault);
+    if (m_session.Loaded()) return Result<void>::Ok();
     auto loaded = m_session.Load(renderer, upload, *m_scene, diags);
     if (!loaded.ok()) m_fault = loaded.error();
     return loaded;
