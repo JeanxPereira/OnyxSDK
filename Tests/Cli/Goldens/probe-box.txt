@@ -1,0 +1,6 @@
+exit 0
+--- stdout
+module	confidence	reason
+obx	95	OBX1 magic at 0
+winner: obx
+--- stderr

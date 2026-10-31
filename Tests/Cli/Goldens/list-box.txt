@@ -1,0 +1,7 @@
+exit 0
+--- stdout
+img  obx.image  260 bytes
+txt  obx.text  9 bytes
+bad  obx.blob  4 bytes [FAILED]
+[Error] obx.entry.range: bad: payload out of bounds
+--- stderr

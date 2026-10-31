@@ -25,4 +25,7 @@ const Domain::AssetEntry* Resolve(const Document& doc, const NodePath& path);
 // First entry whose name equals `name` in depth-first, declaration order.
 std::optional<NodePath> FindByName(const Document& doc, std::string_view name);
 
+// Every entry whose name equals `name`, in depth-first, declaration order.
+std::vector<NodePath> FindAllByName(const Document& doc, std::string_view name);
+
 }

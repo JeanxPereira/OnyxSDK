@@ -3,6 +3,8 @@
 #include <OnyxBox/Module.h>
 #include <OnyxBox/Writer.h>
 
+#include "Support/BoxFixture.h"
+
 #include <Onyx/Cli/StockVerbs.h>
 #include <Onyx/Core/Cli/Run.h>
 #include <Onyx/Core/Cli/Verb.h>
@@ -21,6 +23,7 @@
 #include <vector>
 
 using namespace Onyx;
+using Onyx::Tests::SampleBox;
 
 static_assert(sizeof(Domain::ByteRange) == 24, "ByteRange must stay a tight 24-byte value type");
 
@@ -53,20 +56,6 @@ std::string ReadFile(const std::filesystem::path& path) {
 
 bool Contains(const std::string& text, std::string_view needle) {
     return text.find(needle) != std::string::npos;
-}
-
-std::vector<std::byte> Gradient(size_t count) {
-    std::vector<std::byte> out(count);
-    for (size_t i = 0; i < count; ++i) out[i] = static_cast<std::byte>(i * 7 & 0xFF);
-    return out;
-}
-
-std::vector<std::byte> SampleBox() {
-    OnyxBox::Writer w;
-    w.AddImage("img", 8, 8, Gradient(256));
-    w.AddText("txt", "hello box");
-    w.AddRange("bad", OnyxBox::Kind::Blob, 0x100000, 4);
-    return w.Build();
 }
 
 std::vector<std::byte> UnsafeNamesBox() {
@@ -386,5 +375,6 @@ TEST_CASE("Cli.ObxPakIsProvenEndToEndThroughTheVerbs") {
     CHECK_FALSE(std::filesystem::exists(dir.path / "2" / "corrupt.bin"));
     CHECK(Contains(extract.out, "obx.entry.range"));
 
-    CHECK(h.Invoke({"decode", file.path.string(), "shared.txt", "--strict"}).rc == Cli::kStrictErrors);
+    CHECK(h.Invoke({"decode", file.path.string(), "shared.txt", "--strict"}).rc == Cli::kUsage);
+    CHECK(h.Invoke({"decode", file.path.string(), "shared.txt", "--strict", "--first"}).rc == Cli::kStrictErrors);
 }

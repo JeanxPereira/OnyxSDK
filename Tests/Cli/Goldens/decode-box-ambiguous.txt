@@ -1,0 +1,4 @@
+exit 1
+--- stdout
+--- stderr
+cli.ambiguous: 2 entries are named 'img': @0, @2

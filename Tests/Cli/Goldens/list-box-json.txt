@@ -1,0 +1,4 @@
+exit 0
+--- stdout
+{"path":"<file>","module":"obx","entries":[{"name":"img","type":"obx.image","size":260,"failed":false,"children":[]},{"name":"txt","type":"obx.text","size":9,"failed":false,"children":[]},{"name":"bad","type":"obx.blob","size":4,"failed":true,"children":[]}],"diags":[{"severity":"Error","code":"obx.entry.range","message":"bad: payload out of bounds"}]}
+--- stderr
