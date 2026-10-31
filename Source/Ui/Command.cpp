@@ -58,8 +58,10 @@ void CommandRegistry::PollShortcuts(UiContext& ui) {
     for (size_t i = 0; i < m_commands.size(); ++i) {
         const Command& c = m_commands[i];
         if (!c.shortcut || !ShortcutPressed(*c.shortcut)) continue;
-        if (c.enabled && !c.enabled(ui)) continue;
+        // Either callable may edit the registry, so neither runs through a reference into it.
+        const auto enabled = c.enabled;
         const auto run = c.run;
+        if (enabled && !enabled(ui)) continue;
         if (run) run(ui);
         return;
     }

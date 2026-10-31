@@ -5,6 +5,8 @@
 
 #include <Onyx/Ui/Command.h>
 
+#include <string>
+
 using namespace Onyx::Ui;
 
 namespace {
@@ -152,4 +154,34 @@ TEST_CASE("Run on a command without a run callback succeeds and does nothing") {
     c.id = "empty";
     reg.Add(std::move(c));
     CHECK(reg.Run("empty", ui).ok());
+}
+
+TEST_CASE("PollShortcuts survives an enabled callback that edits the registry") {
+    HeadlessImGui rig;
+    BareContext bare;
+    UiContext ui = bare.Make();
+    CommandRegistry reg;
+    int runs = 0;
+
+    Command editing = Counting("editing", runs);
+    editing.shortcut = ParseShortcut("Ctrl+K");
+    editing.enabled = [&reg](UiContext&) {
+        for (int i = 0; i < 64; ++i) reg.Add(Command{"filler" + std::to_string(i), "Filler", "", {}, {}, {}});
+        reg.Remove("editing");
+        return true;
+    };
+    reg.Add(std::move(editing));
+
+    // A shortcut route claimed in one frame resolves in the next.
+    rig.NewFrame();
+    reg.PollShortcuts(ui);
+    rig.EndFrame();
+    ImGui::GetIO().AddKeyEvent(ImGuiMod_Ctrl, true);
+    ImGui::GetIO().AddKeyEvent(ImGuiKey_K, true);
+    rig.NewFrame();
+    reg.PollShortcuts(ui);
+    rig.EndFrame();
+    CHECK(runs == 1);
+    CHECK(reg.Find("editing") == nullptr);
+    CHECK(reg.All().size() == 64);
 }

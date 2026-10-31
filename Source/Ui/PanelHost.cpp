@@ -47,9 +47,18 @@ void PanelHost::DrawAll(UiContext& ui) {
             host.m_drawing = false;
             std::vector<Pending> pending;
             pending.swap(host.m_pending);
+            // This runs during unwinding too, where a throw would terminate: each op is contained.
             for (Pending& op : pending) {
-                if (op.add) host.Add(std::move(op.add));
-                else host.Remove(op.remove);
+                try {
+                    if (op.add) host.Add(std::move(op.add));
+                    else host.Remove(op.remove);
+                } catch (const std::exception& e) {
+                    Services::Log::Default().Write(Services::LogLevel::Error, "ui.panel",
+                                                   "a deferred panel change failed: {}", e.what());
+                } catch (...) {
+                    Services::Log::Default().Write(Services::LogLevel::Error, "ui.panel",
+                                                   "a deferred panel change failed");
+                }
             }
         }
     } scope(*this);
