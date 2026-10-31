@@ -24,8 +24,15 @@ public:
     Result<void> Open(uint32_t rate, uint32_t channels, Fill fill);
     // Returns once the callback can no longer run.
     void Close();
+    // Stop returns once the callback can no longer run; Start resumes it. Both are no-ops without an
+    // open device.
+    Result<void> Start();
+    void Stop();
 
     bool IsOpen() const;
+    bool Running() const;
+    // Seconds of audio the device buffers ahead of what it has played; 0 without an open device.
+    double Latency() const;
     uint32_t Rate() const { return m_rate; }
     uint32_t Channels() const { return m_channels; }
 

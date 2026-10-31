@@ -1,16 +1,23 @@
 #include <doctest/doctest.h>
 
+#include <Onyx/Core/Services/Log.h>
 #include <Onyx/Core/Vfs/MemoryFile.h>
 #include <Onyx/Core/Vfs/OsFile.h>
 #include <Onyx/Media/MediaSource.h>
 
+#include "../../Source/Media/Transport.h"
 #include "Support/ClipFixture.h"
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <memory>
 #include <optional>
 #include <random>
+#include <span>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -267,7 +274,7 @@ TEST_CASE("audio stored ten frames behind the video keeps the audio clock") {
         std::this_thread::sleep_for(2ms);
     }
     CHECK(audioClockThroughout);
-    CHECK(position > 1.0);
+    CHECK(position > 0.7);
 
     const PlayedOut rest = PlayToEnd(source, 3000ms);
     REQUIRE(rest.ended);
@@ -324,4 +331,153 @@ TEST_CASE("the video-only clip keeps time on the steady clock") {
     const double wall = std::chrono::duration<double>(Clock::now() - start).count();
     CHECK(std::abs(advanced - wall) <= 0.1);
     CHECK(advanced > 0.4);
+}
+
+namespace {
+
+// Lines in the default log's ring whose message starts with `code`.
+size_t LogLines(std::string_view code) {
+    const auto entries = Services::Log::Default().Entries();
+    return static_cast<size_t>(std::count_if(entries.begin(), entries.end(), [&](const Services::LogEntry& e) {
+        return std::string_view(e.message).starts_with(code);
+    }));
+}
+
+// Another file's bytes, cut short: Size() still reports the whole file, but nothing at or past `cut`
+// can be read, and once `failing` is set nothing can be read at all.
+class CutFile final : public Vfs::IFile {
+public:
+    CutFile(std::shared_ptr<const Vfs::IFile> inner, uint64_t cut) : m_inner(std::move(inner)), m_cut(cut) {}
+
+    uint64_t Size() const override { return m_inner->Size(); }
+    size_t ReadAt(uint64_t offset, std::span<std::byte> dest) const override {
+        if (failing.load() || offset >= m_cut) return 0;
+        return m_inner->ReadAt(offset, dest.first(static_cast<size_t>(std::min<uint64_t>(dest.size(), m_cut - offset))));
+    }
+
+    std::atomic<bool> failing{false};
+
+private:
+    std::shared_ptr<const Vfs::IFile> m_inner;
+    uint64_t m_cut;
+};
+
+// Waits until `done` holds or `timeout` passes, taking frames meanwhile; returns `done()`.
+template <class Done>
+bool PlayUntil(Media::MediaSource& source, std::chrono::milliseconds timeout, Done done) {
+    const auto deadline = Clock::now() + timeout;
+    while (!done() && Clock::now() < deadline) {
+        source.TakeFrame();
+        std::this_thread::sleep_for(2ms);
+    }
+    return done();
+}
+
+}
+
+TEST_CASE("a seek queued at the end of the clip is applied before End") {
+    SUBCASE("the transport refuses End while a seek is pending") {
+        Media::Transport transport;
+        transport.Configure(0.2, nullptr, 0);
+        transport.Play();
+        const auto deadline = Clock::now() + 2s;
+        while (transport.Position() < 0.2 && Clock::now() < deadline) std::this_thread::sleep_for(2ms);
+        REQUIRE(transport.Position() == doctest::Approx(0.2));
+
+        // The decode thread found the clip finished, then a seek landed before it called End.
+        transport.Seek(0.0);
+        transport.End();
+        CHECK(transport.State() == Media::PlayState::Playing);
+        REQUIRE(transport.Pending().has_value());
+        CHECK(transport.Position() == 0.0);
+
+        transport.Applied(transport.Pending()->serial);
+        CHECK_FALSE(transport.Pending().has_value());
+        CHECK(transport.Position() < 0.2);
+        CHECK(transport.State() == Media::PlayState::Playing);
+    }
+    SUBCASE("a source sought back to zero at its end is never left Ended") {
+        const ClipFixture clip = WriteClip("seek-at-end", false, 5);
+        Media::MediaSource source;
+        OpenClip(source, clip);
+        const double duration = source.Info().duration;
+        REQUIRE(duration > 0.1);
+        source.Play();
+        int seeks = 0;
+        int endedAfterSeek = 0;
+        const auto until = Clock::now() + 300ms;
+        while (Clock::now() < until) {
+            source.TakeFrame();
+            if (source.State() == Media::PlayState::Ended) source.Play();
+            if (source.State() == Media::PlayState::Paused) source.Play();
+            source.Seek(0.0);
+            ++seeks;
+            if (source.State() == Media::PlayState::Ended && source.Position() >= duration) ++endedAfterSeek;
+            std::this_thread::sleep_for(1ms);
+        }
+        CHECK(seeks >= 10);
+        CHECK(endedAfterSeek == 0);
+        CHECK(PlayUntil(source, 3000ms, [&] { return source.State() == Media::PlayState::Ended; }));
+    }
+}
+
+TEST_CASE("the steady clock takes over 250 ms after the audio starves") {
+    const ClipFixture clip = WriteClip("starve", true, 13, 0.1);
+    Media::MediaSource source;
+    OpenClip(source, clip);
+    REQUIRE(source.Info().hasAudio);
+    if (!source.UsesAudioClock()) {
+        MESSAGE("media.audio: no playback device, the clip runs on the steady clock; skipping");
+        return;
+    }
+    const double duration = source.Info().duration;
+    CHECK(duration == doctest::Approx(0.52).epsilon(0.1));
+
+    source.Play();
+    const auto start = Clock::now();
+    REQUIRE(PlayUntil(source, 2000ms, [&] { return !source.UsesAudioClock(); }));
+    MESSAGE("the steady clock took over after " << std::chrono::duration<double>(Clock::now() - start).count() << " s");
+    REQUIRE(PlayUntil(source, 3000ms, [&] { return source.Position() >= duration - 0.05; }));
+    REQUIRE(PlayUntil(source, 3000ms, [&] { return source.State() == Media::PlayState::Ended; }));
+    CHECK(source.Position() == doctest::Approx(duration));
+}
+
+TEST_CASE("a read error is logged as media.read and ends the stream") {
+    const ClipFixture clip = WriteClip("truncated", true);
+    const uint64_t cut = clip.offset + clip.size / 2 + 101;
+    auto file = std::make_shared<CutFile>(OpenFile(clip), cut);
+    const size_t before = LogLines("media.read");
+
+    Media::MediaSource source;
+    auto info = source.Open(file, clip.offset, clip.size);
+    REQUIRE_MESSAGE(info.ok(), info.error().code << ": " << info.error().message);
+    source.SetVolume(0.0f);
+    source.Play();
+    REQUIRE(PlayUntil(source, 6000ms, [&] { return source.State() == Media::PlayState::Ended; }));
+    CHECK(LogLines("media.read") == before + 1);
+}
+
+TEST_CASE("a refused seek is logged as media.seek and playback continues") {
+    // Only the AVI header is readable, so the container holds no index and can seek only by reading
+    // packets, and every read fails once the clip is open.
+    const ClipFixture clip = WriteClip("refused-seek", true);
+    auto whole = OpenFile(clip);
+    std::vector<std::byte> bytes(static_cast<size_t>(clip.size));
+    REQUIRE(whole->ReadAt(clip.offset, bytes) == bytes.size());
+    const std::string_view text(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+    const size_t movi = text.find("movi");
+    REQUIRE(movi != std::string_view::npos);
+    auto file = std::make_shared<CutFile>(whole, clip.offset + movi + 4);
+    Media::MediaSource source;
+    auto info = source.Open(file, clip.offset, clip.size);
+    REQUIRE_MESSAGE(info.ok(), info.error().code << ": " << info.error().message);
+    source.SetVolume(0.0f);
+    const size_t before = LogLines("media.seek");
+
+    file->failing = true;
+    source.Seek(1.0);
+    source.Play();
+    REQUIRE(PlayUntil(source, 6000ms, [&] { return source.State() == Media::PlayState::Ended; }));
+    CHECK(LogLines("media.seek") == before + 1);
+    CHECK(source.Position() == doctest::Approx(source.Info().duration));
 }

@@ -70,8 +70,32 @@ void PlaybackDevice::Close() {
     m_channels = 0;
 }
 
+Result<void> PlaybackDevice::Start() {
+    if (!m_impl || ma_device_is_started(&m_impl->device)) return Result<void>::Ok();
+    if (const ma_result r = ma_device_start(&m_impl->device); r != MA_SUCCESS) {
+        return Result<void>::Fail({"media.audio", std::string("the playback device did not start: ") + ma_result_description(r), r});
+    }
+    return Result<void>::Ok();
+}
+
+void PlaybackDevice::Stop() {
+    if (m_impl && ma_device_is_started(&m_impl->device)) ma_device_stop(&m_impl->device);
+}
+
 bool PlaybackDevice::IsOpen() const {
     return m_impl != nullptr;
+}
+
+bool PlaybackDevice::Running() const {
+    return m_impl && ma_device_is_started(&m_impl->device);
+}
+
+double PlaybackDevice::Latency() const {
+    if (!m_impl) return 0.0;
+    const auto& playback = m_impl->device.playback;
+    const uint32_t rate = playback.internalSampleRate != 0 ? playback.internalSampleRate : m_impl->device.sampleRate;
+    if (rate == 0) return 0.0;
+    return static_cast<double>(playback.internalPeriodSizeInFrames) * playback.internalPeriods / rate;
 }
 
 }

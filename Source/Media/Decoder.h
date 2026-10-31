@@ -26,8 +26,8 @@ public:
     // Reads one packet and hands every frame it completes to the sinks. With `holdVideo`, or while
     // packets are held, a video packet is queued undecoded instead, so the reader can reach audio
     // that lies behind the video in the file without decoding more pictures. At the end of the
-    // container it drains the audio decoder and returns false; later calls return false until the next
-    // Seek.
+    // container, or when a read fails (logged as media.read), it drains the audio decoder and returns
+    // false; later calls return false until the next Seek.
     bool Feed(const VideoSink& video, const AudioSink& audio, bool holdVideo = false);
     // Decodes the oldest held video packet, or drains the video decoder once the container ended and
     // nothing is held. False when there was nothing to do.

@@ -88,3 +88,30 @@ TEST_CASE("AudioOutput rejects a clip without samples") {
     CHECK(played.error().code == "media.audio");
     CHECK_FALSE(output.Playing());
 }
+
+TEST_CASE("Stop stops the device") {
+    Media::AudioOutput output;
+    CHECK_FALSE(output.DeviceRunning());
+    if (!Started(output.Play(Tone(1.0)))) return;
+    CHECK(output.Playing());
+    CHECK(output.DeviceRunning());
+
+    output.Stop();
+    CHECK_FALSE(output.Playing());
+    CHECK_FALSE(output.DeviceRunning());
+
+    REQUIRE(output.Play(Tone(1.0)).ok());
+    CHECK(output.DeviceRunning());
+    std::this_thread::sleep_for(100ms);
+    CHECK(output.Position() > 0.0);
+}
+
+TEST_CASE("Latency is non-negative and below one second") {
+    Media::AudioOutput output;
+    CHECK(output.Latency() == 0.0);
+    if (!Started(output.Play(Tone(0.5)))) return;
+    const double latency = output.Latency();
+    MESSAGE("device latency " << latency * 1000.0 << " ms");
+    CHECK(latency >= 0.0);
+    CHECK(latency < 1.0);
+}
