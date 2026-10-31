@@ -16,6 +16,8 @@ layout(std140, set = 0, binding = 0) uniform FrameUBO {
     int  uShadingMode;
 };
 
+// Flags bit layout: 0 texture, 1 normal map, 2 AO, 3 gloss, 4 scatter,
+// 5 joints, 6 environment map, 7 opacity, 8 XYZ normal map.
 layout(std140, set = 1, binding = 0) uniform MaterialUBO {
     vec4  uBaseColor;
     vec4  uLayerColor;
@@ -27,6 +29,8 @@ layout(std140, set = 1, binding = 0) uniform MaterialUBO {
 
 const uint FLAG_USE_JOINTS = 1u << 5;
 
+// Skinning palette: unbounded, and bound even for unskinned draws with an
+// identity entry; FLAG_USE_JOINTS decides whether it is read.
 layout(std430, set = 1, binding = 2) readonly buffer JointPalette {
     mat4 uJoints[];
 };
@@ -58,6 +62,7 @@ void main() {
                   + uJoints[aBoneIndices.w] * aBoneWeights.w;
 
         float wsum = aBoneWeights.x + aBoneWeights.y + aBoneWeights.z + aBoneWeights.w;
+        // A vertex whose weights are all zero would collapse to the origin.
         if (wsum < 0.001) skin = uJoints[aBoneIndices.x];
 
         localPos     = skin * vec4(aPos, 1.0);
@@ -84,6 +89,8 @@ void main() {
     vUV  = aUV + uUvOffset;
     vUV1 = aUV1;
 
+    // Vertex colour convention of the data: 128 is full brightness, so the
+    // value is doubled and overbright is allowed.
     vColor   = aColor * 2.0;
     vColor.a = clamp(aColor.a, 0.0, 1.0);
 

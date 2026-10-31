@@ -15,7 +15,7 @@ layout(std140, set = 0, binding = 0) uniform FrameUBO {
     mat4 uView;
     mat4 uProjection;
     vec3 uCameraPos;
-    int  uShadingMode;
+    int  uShadingMode;   // 0 = Solid, 2 = Textured; any other value shades as Solid
 };
 
 layout(std140, set = 1, binding = 0) uniform MaterialUBO {
@@ -24,7 +24,7 @@ layout(std140, set = 1, binding = 0) uniform MaterialUBO {
     vec2  uUvOffset;
     float uMetallic;
     uint  uFlags;
-    vec4  uNormalDecode;
+    vec4  uNormalDecode; // scale, bias, XY strength, Y sign
 };
 
 const uint FLAG_USE_TEXTURE = 1u << 0;
@@ -47,7 +47,11 @@ const int ROLE_OPACITY = 6;
 
 layout(location = 0) out vec4 FragColor;
 
+// Deliberately not normalized here; every use normalizes it.
 const vec3  kLightDir       = vec3(0.4, 0.8, 0.5);
+// Rebuilds the tangent frame and applies the material's normal-map contract.
+// XY maps reconstruct Z; XYZ maps keep the authored blue channel. Decode
+// scale/bias reaches the exact UNORM endpoints instead of sample * 2 - 1.
 vec3 ApplyNormalMap(vec3 N) {
     vec3 T = vWorldTangent - N * dot(N, vWorldTangent);
     float len = length(T);
@@ -114,6 +118,7 @@ void main() {
 
     if (clr.a < 0.01) discard;
 
+    // Textured shading; every other mode falls through to Solid below.
     if (uShadingMode == 2) {
         vec3 Nm = ApplyNormalMap(N);
         vec3 V  = normalize(uCameraPos - vWorldPos);
