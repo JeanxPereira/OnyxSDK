@@ -7,7 +7,7 @@
 <img src="docs/assets/badge-cmake.svg" alt="CMake 3.28+">
 <img src="docs/assets/badge-vulkan.svg" alt="Vulkan 1.3">
 <img src="docs/assets/badge-license.svg" alt="license: MIT">
-[![ci](https://img.shields.io/github/actions/workflow/status/JeanxPereira/OnyxSDK/ci.yml?branch=main&label=CI&style=flat-square&labelColor=0b2124&color=17b3ac)](https://github.com/JeanxPereira/OnyxSDK/actions/workflows/ci.yml)
+<a href="https://github.com/JeanxPereira/OnyxSDK/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/JeanxPereira/OnyxSDK/ci.yml?branch=main&label=CI&style=flat-square&labelColor=0b2124&color=17b3ac" alt="CI"></a>
 
 </div>
 
