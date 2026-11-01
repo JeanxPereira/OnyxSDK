@@ -1,5 +1,7 @@
 #include <Onyx/Core/Services/Settings.h>
 
+#include <Onyx/Core/Services/Paths.h>
+
 #include <toml++/toml.hpp>
 
 #include <fstream>
@@ -100,7 +102,7 @@ Settings Settings::Load(const std::filesystem::path& file) {
     {
         std::ifstream in(file, std::ios::binary);
         if (!in.is_open()) {
-            s.impl_->loadError = "settings.read: cannot open " + file.string() + " for reading";
+            s.impl_->loadError = "settings.read: cannot open " + Paths::ToUtf8(file) + " for reading";
             return s;
         }
         std::stringstream ss;
@@ -113,7 +115,8 @@ Settings Settings::Load(const std::filesystem::path& file) {
     } catch (const toml::parse_error& e) {
         s.impl_->tbl = toml::table();
         std::string message(e.description());
-        auto broken = file.parent_path() / (file.stem().string() + ".broken.toml");
+        auto broken = file.parent_path() / file.stem();
+        broken += ".broken.toml";
         if (!std::filesystem::exists(broken, ec)) {
             std::error_code copyEc;
             std::filesystem::copy_file(file, broken, copyEc);
@@ -148,19 +151,19 @@ Result<void> Settings::Save() {
     {
         std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
         if (!f.is_open()) {
-            return Result<void>::Fail({"settings.write", "cannot open " + tmp.string(), 0});
+            return Result<void>::Fail({"settings.write", "cannot open " + Paths::ToUtf8(tmp), 0});
         }
         f << impl_->tbl;
         f.close();
         if (!f) {
             std::filesystem::remove(tmp, ec);
-            return Result<void>::Fail({"settings.write", "cannot write " + tmp.string(), 0});
+            return Result<void>::Fail({"settings.write", "cannot write " + Paths::ToUtf8(tmp), 0});
         }
     }
 
     if (!ReplaceFile(tmp, path)) {
         std::filesystem::remove(tmp, ec);
-        return Result<void>::Fail({"settings.replace", "cannot replace " + path.string(), 0});
+        return Result<void>::Fail({"settings.replace", "cannot replace " + Paths::ToUtf8(path), 0});
     }
 
     impl_->dirty = false;

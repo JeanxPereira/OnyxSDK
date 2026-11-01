@@ -349,3 +349,25 @@ TEST_CASE("Settings.CloneIsIndependent") {
     CHECK(c.GetInt("a.n") == 1);
     CHECK(c.Dirty());
 }
+
+TEST_CASE("Settings.BrokenFileWithANonAsciiNameIsPreserved") {
+    Onyx::Test::TempDir scope("settings");
+    const auto file = scope.path() / std::filesystem::path(u8"日本.toml");
+    { std::ofstream(file, std::ios::binary) << "a = ["; }
+
+    auto s = Settings::Load(file);
+    CHECK(s.LoadError().has_value());
+    CHECK(std::filesystem::exists(scope.path() / std::filesystem::path(u8"日本.broken.toml")));
+}
+
+TEST_CASE("Settings.SaveFailureNamesANonAsciiPathInUtf8") {
+    Onyx::Test::TempDir scope("settings");
+    const auto blocker = scope.path() / "file";
+    { std::ofstream(blocker) << "x"; }
+    auto s = Settings::Load(blocker / std::filesystem::path(u8"日本.toml"));
+    s.Set("a", int64_t{1});
+
+    const auto r = s.Save();
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find(reinterpret_cast<const char*>(u8"日本.toml")) != std::string::npos);
+}

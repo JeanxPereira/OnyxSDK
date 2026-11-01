@@ -1,5 +1,7 @@
 #include <Onyx/Core/Services/Log.h>
 
+#include <Onyx/Core/Services/Paths.h>
+
 #include <algorithm>
 #include <condition_variable>
 #include <cstdio>
@@ -195,7 +197,7 @@ Result<uint64_t> InstallFileSink(Log& log, const fs::path& path, size_t maxBytes
     auto sink = std::make_shared<FileSink>(path, maxBytes, rotations);
     if (!sink->IsOpen())
         return Result<uint64_t>::Fail({"log.fileOpenFailed",
-                                       "cannot open log file " + path.string(), 0});
+                                       "cannot open log file " + Paths::ToUtf8(path), 0});
     return Result<uint64_t>::Ok(log.AddSink([sink](const LogEntry& e) { (*sink)(e); }));
 }
 

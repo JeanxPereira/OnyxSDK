@@ -162,3 +162,13 @@ TEST_CASE("Log.FileSinkOnUnwritablePathFails") {
     log.Write(LogLevel::Info, "t", "still fine");
     CHECK(log.Entries().size() == 1);
 }
+
+TEST_CASE("Log.FileSinkFailureNamesANonAsciiPathInUtf8") {
+    Onyx::Test::TempDir scope("log");
+    auto blocker = scope.path() / "file";
+    { std::ofstream(blocker) << "x"; }
+    Log log;
+    auto r = InstallFileSink(log, blocker / fs::path(u8"日本.log"));
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find(reinterpret_cast<const char*>(u8"日本.log")) != std::string::npos);
+}
