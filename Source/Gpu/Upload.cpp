@@ -182,10 +182,13 @@ Result<UploadContext::Staged> UploadContext::Stage(VkDeviceSize size) {
                                 m_staging.allocation});
         }
         if (!m_stagingInFlight.empty()) {
-            auto waited = queue.Wait(m_stagingInFlight.front().value);
+            const FenceValue front = m_stagingInFlight.front().value;
+            auto waited = queue.Wait(front);
             if (!waited.ok()) {
                 return R::Fail(waited.error());
             }
+            // The wait proved this batch done, so it is reclaimed even when Completed() cannot read the timeline.
+            ReclaimStaging(front);
             continue;
         }
         if (m_cmd == VK_NULL_HANDLE) {
