@@ -157,7 +157,8 @@ before a host created its device, and `textures` is null whenever `gpu` is.
 
 **Dependency fetch is per component.** `FetchContent` for volk, Vulkan
 Headers, VMA and glslang runs only when `ONYX_WITH_GPU` is on; imgui only with
-`ONYX_WITH_UI`; glfw only with `ONYX_WITH_SHELL`; FFmpeg only
+`ONYX_WITH_UI`; glfw only with `ONYX_WITH_SHELL`; cgltf with `Onyx::Exchange`, which is
+always built; FFmpeg only
 with `ONYX_WITH_MEDIA` (miniaudio is vendored in `third_party/` and built with Media). An example may fetch what it alone needs:
 `Examples/Embedded` fetches glfw for its own window under `ONYX_WITH_UI` and
 `ONYX_BUILD_EXAMPLES`, even with the Shell off; no Onyx target links it. Defaults: all on when Onyx is the top-level project,

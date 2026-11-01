@@ -81,7 +81,10 @@ Test suites that need a GPU or a display skip themselves where there is none, so
 
 | Question | Where |
 |---|---|
-| How it is designed: layers, contracts, decisions | [`docs/superpowers/specs/2026-10-30-onyx-v2-design.md`](docs/superpowers/specs/2026-10-30-onyx-v2-design.md) |
+| How it is designed: layers, contracts | [`docs/architecture.md`](docs/architecture.md) |
+| How it was decided | [`docs/superpowers/specs/2026-10-30-onyx-v2-design.md`](docs/superpowers/specs/2026-10-30-onyx-v2-design.md) |
+| How to build on it | [`docs/consuming.md`](docs/consuming.md) |
+| How to write a module | [`docs/modules.md`](docs/modules.md) |
 | What a module looks like | [`Examples/Prism`](Examples/Prism), [`Examples/OnyxBox`](Examples/OnyxBox) |
 | A program that owns its own window | [`Examples/Embedded`](Examples/Embedded) |
 | The command line on its own | [`Examples/OnyxCli`](Examples/OnyxCli) |
