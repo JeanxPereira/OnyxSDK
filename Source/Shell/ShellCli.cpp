@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -5,8 +6,8 @@
 #include <vector>
 
 #include "Onyx/Core/Cli/Run.h"
+#include "Onyx/Core/Services/Paths.h"
 #include "Onyx/Shell/Shell.h"
-#include "Utf8.h"
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -17,6 +18,7 @@
 #endif
 #include <windows.h>
 
+#include <io.h>
 #include <shellapi.h>
 
 #pragma comment(lib, "shell32.lib")
@@ -55,6 +57,26 @@ bool RebuildFromCommandLine(int argc, char** argv, std::vector<std::string>& sto
     LocalFree(wide);
     return ownCommandLine;
 }
+
+// Switches a console standard output to UTF-8 for the object's lifetime and restores the code page
+// afterwards, since the console keeps it after the process exits. Redirected output is left alone.
+class Utf8Console {
+public:
+    Utf8Console() {
+        if (!_isatty(_fileno(stdout))) return;
+        m_previous = GetConsoleOutputCP();
+        if (m_previous == CP_UTF8 || !SetConsoleOutputCP(CP_UTF8)) m_previous = 0;
+    }
+    ~Utf8Console() {
+        if (m_previous != 0) SetConsoleOutputCP(m_previous);
+    }
+
+    Utf8Console(const Utf8Console&) = delete;
+    Utf8Console& operator=(const Utf8Console&) = delete;
+
+private:
+    UINT m_previous = 0;
+};
 
 #endif
 
@@ -97,6 +119,9 @@ int RunCli(Shell& shell, int argc, char** argv, std::ostream& out, std::ostream&
 }
 
 int RunCli(Shell& shell, int argc, char** argv) {
+#if defined(_WIN32)
+    const Utf8Console console;
+#endif
     return RunCli(shell, argc, argv, std::cout, std::cerr);
 }
 
@@ -106,7 +131,7 @@ ArgsRoute RouteArgs(int argc, char** argv, const Cli::VerbTable& verbs) {
         return {ArgsRoute::Kind::Gui, {}};
     }
     if (args.argc() == 2 && !verbs.Find(args.argv()[1])) {
-        std::filesystem::path file = FromUtf8(args.argv()[1]);
+        std::filesystem::path file = Services::Paths::FromUtf8(args.argv()[1]);
         std::error_code ec;
         if (std::filesystem::is_regular_file(file, ec)) {
             return {ArgsRoute::Kind::GuiOpen, std::move(file)};

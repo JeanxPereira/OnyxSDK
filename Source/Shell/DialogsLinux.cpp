@@ -6,7 +6,7 @@
 #include <string>
 
 #include "Onyx/Core/Services/Log.h"
-#include "Utf8.h"
+#include "Onyx/Core/Services/Paths.h"
 
 namespace Onyx::Shell {
 
@@ -84,7 +84,7 @@ private:
         if (status != 0 || chosen.empty()) {
             return std::nullopt;
         }
-        return FromUtf8(chosen);
+        return Services::Paths::FromUtf8(chosen);
     }
 
     bool m_available;

@@ -12,7 +12,6 @@
 #include <shobjidl.h>
 
 #include "Onyx/Core/Services/Log.h"
-#include "Utf8.h"
 
 #pragma comment(lib, "ole32.lib")
 

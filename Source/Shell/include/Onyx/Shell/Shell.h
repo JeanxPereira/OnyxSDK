@@ -172,7 +172,9 @@ private:
 // Cli exit code; a usage failure also writes a shell.args line to `err`. Arguments are UTF-8: on Windows,
 // when argv is the process's own, they are read again from the wide command line.
 int RunCli(Shell& shell, int argc, char** argv, std::ostream& out, std::ostream& err);
-// The same over std::cout and std::cerr.
+// The same over std::cout and std::cerr. On Windows, when standard output is a console, its output code
+// page is UTF-8 for the duration of the call. Cli::Run does not touch the console: a host that calls it
+// directly sets the code page itself.
 int RunCli(Shell& shell, int argc, char** argv);
 
 // How Shell::Run treats a command line. No argument: Gui. Exactly one argument that is not a verb name

@@ -9,6 +9,7 @@
 #include <span>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "Onyx/Shell/Shell.h"
@@ -119,4 +120,29 @@ TEST_CASE("RouteArgs opens a non-ASCII path given in UTF-8") {
     const Shell::ArgsRoute route = Shell::RouteArgs(static_cast<int>(argv.size()), argv.data(), shell.Verbs());
     CHECK(route.kind == Shell::ArgsRoute::Kind::GuiOpen);
     CHECK(std::filesystem::equivalent(route.file, obx));
+}
+
+TEST_CASE("RouteArgs does not throw on a narrow path that is not UTF-8") {
+    TempDir dir("cli_route_narrow");
+    Shell::Shell shell(TestOptions(dir.path));
+
+    std::string program = "onyx";
+    std::string file = Services::Paths::ToUtf8(dir.path / "caf") + "\xE9.obx";
+    std::vector<char*> argv{program.data(), file.data()};
+    Shell::ArgsRoute route;
+    CHECK_NOTHROW(route = Shell::RouteArgs(static_cast<int>(argv.size()), argv.data(), shell.Verbs()));
+    CHECK(route.kind == Shell::ArgsRoute::Kind::Cli);
+
+    // The same bytes through the narrow constructor name the file the route opens.
+    std::filesystem::path narrow;
+    try {
+        narrow = std::filesystem::path(file);
+    } catch (const std::system_error&) {
+        MESSAGE("the native code page cannot hold these bytes; the open check is skipped");
+        return;
+    }
+    WriteObx(narrow);
+    CHECK_NOTHROW(route = Shell::RouteArgs(static_cast<int>(argv.size()), argv.data(), shell.Verbs()));
+    CHECK(route.kind == Shell::ArgsRoute::Kind::GuiOpen);
+    CHECK(route.file == narrow);
 }

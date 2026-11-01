@@ -4,11 +4,11 @@
 #include <utility>
 
 #include "Onyx/Core/Services/Log.h"
+#include "Onyx/Core/Services/Paths.h"
 #include "Onyx/Shell/Dock.h"
 #include "Onyx/Shell/MenuBar.h"
 #include "Onyx/Ui/AssetPaths.h"
 #include "Onyx/Ui/Fonts.h"
-#include "Utf8.h"
 
 namespace Onyx::Shell {
 
@@ -81,7 +81,7 @@ Result<std::unique_ptr<GuiStack>> GuiStack::Create(const ShellOptions& options, 
     gui->imgui = ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    gui->iniPath = ToUtf8(options.configDir / "imgui.ini");
+    gui->iniPath = Services::Paths::ToUtf8(options.configDir / "imgui.ini");
     gui->freshLayout = !std::filesystem::exists(options.configDir / "imgui.ini");
     io.IniFilename = gui->iniPath.c_str();
 
@@ -109,7 +109,7 @@ Result<std::unique_ptr<GuiStack>> GuiStack::Create(const ShellOptions& options, 
 
     Ui::ThemeEnvironment environment = theme.Env();
     environment.nativeScale = gui->window->ContentScale();
-    environment.defaultFontPath = ToUtf8(Ui::FindAsset("fonts/SFMono-Regular.otf"));
+    environment.defaultFontPath = Services::Paths::ToUtf8(Ui::FindAsset("fonts/SFMono-Regular.otf"));
     theme.SetEnvironment(environment);
     theme.Commit();
     BuildAtlas(theme, gui->fonts);

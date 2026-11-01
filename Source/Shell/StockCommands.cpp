@@ -9,7 +9,6 @@
 #include "Onyx/Core/Services/Log.h"
 #include "Onyx/Shell/Shell.h"
 #include "Onyx/Ui/Viewers/DocumentTabs.h"
-#include "Utf8.h"
 
 namespace Onyx::Shell {
 

@@ -22,7 +22,6 @@
 #include "Onyx/Ui/Viewers/SceneView.h"
 #include "Onyx/Ui/Viewers/StockViewers.h"
 #include "ShellGui.h"
-#include "Utf8.h"
 
 namespace Onyx::Shell {
 
@@ -46,7 +45,7 @@ ShellOptions ResolveOptions(ShellOptions options) {
     std::filesystem::create_directories(options.configDir, ec);
     if (ec) {
         Services::Log::Default().Write(Services::LogLevel::Warn, "shell.config", "cannot create {}: {}",
-                                       ToUtf8(options.configDir), ec.message());
+                                       Services::Paths::ToUtf8(options.configDir), ec.message());
     }
     return options;
 }
@@ -184,7 +183,7 @@ void Shell::SetDialogs(std::unique_ptr<IDialogs> dialogs) {
 Result<void> Shell::Open(const std::filesystem::path& path, std::string_view moduleHint) {
     const Modules::DocumentId id = m_workspace.OpenAsync(path, moduleHint);
     if (id == 0) {
-        return Result<void>::Fail({"shell.open", "no module opens " + ToUtf8(path), 0});
+        return Result<void>::Fail({"shell.open", "no module opens " + Services::Paths::ToUtf8(path), 0});
     }
     const Modules::Document* doc = m_workspace.Get(id);
     std::error_code ec;
@@ -239,7 +238,7 @@ void Shell::UpdateTitle() {
         shown = documents.back().get();
     }
     if (shown) {
-        title = ToUtf8(shown->path.filename()) + kTitleSeparator + m_options.appName;
+        title = Services::Paths::ToUtf8(shown->path.filename()) + kTitleSeparator + m_options.appName;
     }
     if (title != m_title) {
         m_title = std::move(title);

@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cwctype>
 
-#include "Utf8.h"
+#include "Onyx/Core/Services/Paths.h"
 
 namespace Onyx::Shell {
 
@@ -51,7 +51,7 @@ bool SamePath(const std::filesystem::path& a, const std::filesystem::path& b) {
 }
 
 RecentEntry MakeEntry(const std::filesystem::path& path, std::string_view moduleId) {
-    return RecentEntry{path, std::string(moduleId), ToUtf8(path.filename())};
+    return RecentEntry{path, std::string(moduleId), Services::Paths::ToUtf8(path.filename())};
 }
 
 }
@@ -70,7 +70,7 @@ Recents::Recents(Services::Settings& settings) : m_settings(settings) {
         if (item.empty() || bar == std::string_view::npos || bar == 0) {
             continue;
         }
-        m_entries.push_back(MakeEntry(FromUtf8(Unescape(item.substr(0, bar))), Unescape(item.substr(bar + 1))));
+        m_entries.push_back(MakeEntry(Services::Paths::FromUtf8(Unescape(item.substr(0, bar))), Unescape(item.substr(bar + 1))));
     }
 }
 
@@ -94,7 +94,7 @@ void Recents::Store() {
         if (!text.empty()) {
             text += ';';
         }
-        text += Escape(ToUtf8(entry.path)) + '|' + Escape(entry.moduleId);
+        text += Escape(Services::Paths::ToUtf8(entry.path)) + '|' + Escape(entry.moduleId);
     }
     m_settings.Set(kKey, text);
 }
