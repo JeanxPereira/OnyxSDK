@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.0.0 — Unreleased
+## v2.0.0 — 2026-10-31
 
 Onyx 2.0.0 is a break-and-port of the 1.x library. The public surface is redesigned, nothing from 1.x is kept as a compatibility layer, and code written against 1.x has to be ported. The SDK is now nine static libraries (`Onyx::Core`, `Gpu`, `Render`, `Ui`, `Shell`, `Media`, `Cli`, `Exchange` and `TestKit`) that compose from the bottom up, and a game module carries format knowledge without any game being named in `Source/`. The 1.x tree is reachable at the tag `v1.3.3`.
 
