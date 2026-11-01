@@ -99,7 +99,7 @@ A module reports problems; it does not throw them.
 
 - **Report to the sink in the context.** `ContainerContext::diags` and `DecodeContext::diags` are the document's `DiagSink`. Each report is a `Services::Diag` with a severity, a code and a message. Codes use the module's prefix (`prism.image.size`), and messages start with the entry's name, so a reader of the problems panel or of `list` output can tell which entry failed.
 - **Report on the entry.** A parse-time failure flags the entry `NodeFlags::Failed` and leaves it in the tree. The browser marks it, `list` prints it with `[FAILED]`, `extract` skips it, and TestKit's decode smoke never hands it to a decoder. A decoder can still be asked for it from a viewer, so decoders check their input too.
-- **Return nothing after reporting.** A decoder that cannot produce a payload reports why and returns `std::nullopt` or null. The viewer then reports `ui.open.decode` as well, but the module's own diagnostic is the one that says what was wrong.
+- **Return nothing after reporting.** A decoder that cannot produce a payload reports why and returns `std::nullopt` or null. The viewer then reports `ui.open.decode` as well, or `ui.open.any` when it asked for an `Any` capability, as Prism's palette viewer does, but the module's own diagnostic is the one that says what was wrong.
 - **Never throw.** The workspace catches what escapes `ParseContainer` and reports it as `<id>.parse-threw`, failing the open, and the registry turns a throwing decoder into `onyx.decode.threw`. Both keep the program running and lose the detail a proper report would have carried.
 - **Distrust every count and offset.** Check them against `Reader::Size` or `Reader::Remaining` before allocating or seeking. Prism clamps its section count and checks every payload size before reading it.
 
@@ -128,7 +128,7 @@ add_library(MyModuleStandalone OBJECT ${standalone})
 target_link_libraries(MyModuleStandalone PRIVATE MyModule)
 ```
 
-The suites in this repository are registered with `onyx_add_tests` from `Tests/CMakeLists.txt`, which builds a doctest executable per layer and names the ctest entry `<Layer>.Unit`. That function is defined only when `ONYX_BUILD_TESTS` is on, which by default means Onyx is the top-level project, so a consumer's module registers its own test executable with `add_test`.
+The suites in this repository are registered with `onyx_add_tests` from `Tests/CMakeLists.txt`, which builds one doctest executable per suite and names the ctest entry `<Layer>.<Suite>`, with `Unit` as the default suite. That function is defined only when `ONYX_BUILD_TESTS` is on, which by default means Onyx is the top-level project, so a consumer's module registers its own test executable with `add_test`.
 
 ## Viewers and commands for a module's types
 
@@ -158,4 +158,4 @@ The stock verbs already cover every slot: `list` shows the tree, `decode` summar
 
 ### A UI command
 
-A menu item or shortcut is a `Ui::Command` added to `Shell::Commands` or to the host's `CommandRegistry`. Its `enabled` predicate decides when it applies. A command that acts on the selected entry follows the `Modules::SelectionChanged` events that the document browser posts on the workspace's `EventBus`, and checks the entry's type key the same way a verb does.
+A menu item or shortcut is a `Ui::Command` added to `Shell::Commands` or to the host's `CommandRegistry`. Its `enabled` predicate decides when it applies. A command that acts on the selected entry follows the `Modules::SelectionChanged` events that `Ui::SelectionModel::Set` posts on the workspace's `EventBus` whenever the document browser's selection changes, and checks the entry's type key the same way a verb does.

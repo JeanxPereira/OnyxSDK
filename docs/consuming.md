@@ -4,7 +4,7 @@ This document covers building a program on Onyx: how to bring it into a CMake pr
 
 ## Requirements
 
-CMake 3.28 or newer, Ninja, and a C++20 compiler: MSVC 2022 on Windows, Clang 18 on Linux. The GPU layers need the Vulkan SDK at build time for the shader compiler; without one the configure fetches glslang and builds it. Every other dependency is fetched or vendored at configure time, except FFmpeg on Linux (see [FFmpeg](#ffmpeg)).
+CMake 3.28 or newer, Ninja, and a C++20 compiler: MSVC 2022 on Windows, Clang 18 on Linux. The GPU layers compile their shaders at build time with `glslang`, taken from the Vulkan SDK or `PATH` when present and otherwise fetched and built by the configure. Every other dependency is fetched or vendored at configure time, except FFmpeg on Linux (see [FFmpeg](#ffmpeg)).
 
 ## Fetching
 
@@ -24,7 +24,7 @@ target_link_libraries(MyTool PRIVATE Onyx::Core Onyx::Cli)
 
 Link the layers you use; each brings the layers below it. To build against a local checkout instead of the tag, configure with `-DFETCHCONTENT_SOURCE_DIR_ONYXSDK=<path>`, which is how the `Consumer.CoreOnly` test builds `Tests/Consumer/CoreOnly` against the tree it runs in.
 
-The two example modules are not part of any `Onyx::` target. A consumer that wants one, for a test or a demo, adds its directory after the fetch, as `Tests/Consumer/CoreOnly/CMakeLists.txt` does with `Examples/OnyxBox`.
+The two example modules, the targets `Onyx::ExampleBox` and `Onyx::ExamplePrism`, are not part of any layer. A consumer that wants one, for a test or a demo, adds its directory after the fetch, as `Tests/Consumer/CoreOnly/CMakeLists.txt` does with `Examples/OnyxBox`.
 
 ## Options
 
@@ -58,7 +58,7 @@ onyx_install_media_runtime(MyViewer)     # FFmpeg DLLs on Windows
 A program that already has a window, an ImGui context and a Vulkan device links `Onyx::Ui` and configures with `ONYX_WITH_SHELL=OFF`. `Examples/Embedded` is that program. It:
 
 1. creates its own GLFW window, Vulkan 1.3 device and ImGui context;
-2. wraps the device with `Gpu::Device::Adopt`, passing a second queue of the graphics family when the family has one, so Onyx and the host never submit to the same queue;
+2. wraps the device with `Gpu::Device::Adopt`, passing a second queue of the graphics family when the family has one; when the family has only one queue, Onyx and the host share it, which is safe only because the example drives everything from one thread (its present does not take Onyx's queue mutex);
 3. creates the `ImGuiVulkanBackend`, an `UploadContext` and a `TexturePool`, then a `Workspace`, the registries and the panels it wants;
 4. each frame, builds a `Ui::UiContext`, draws the panels into its own dockspace, makes its frame wait on `TexturePool::Flush`, and records ImGui into the same command buffer.
 
@@ -101,7 +101,7 @@ py -3 tools/check.py --preset windows-debug
 python3 tools/check.py --preset linux-debug
 ```
 
-The presets in `CMakePresets.json` (`windows-debug`, `windows-release`, `linux-debug`, `linux-release`) select Ninja, the compiler and the build type, and build into `build/<preset>`. On Windows `check.py` finds Visual Studio through `vswhere` and runs every step inside `vcvars64.bat`, so it works from a plain shell. A consumer's own project gets the same verdict by copying `check.py` next to a `CMakePresets.json` with the same preset names; its lint step runs `tools/lint.py` and `tools/lint_test.py`, whose rules describe Onyx's layers, so a copy either brings its own lint or drops that step.
+The presets in `CMakePresets.json` (`windows-debug`, `windows-release`, `linux-debug`, `linux-release`) select Ninja, the compiler and the build type, and build into `build/<preset>`. On Windows `check.py` finds Visual Studio through `vswhere` and runs every step inside `vcvars64.bat`, so it works from a plain shell. A consumer's own project gets the same verdict by copying it to `<project>/tools/check.py`, because it takes the directory above its own as the root, with a `<project>/CMakePresets.json` that defines the same preset names; its lint step runs `tools/lint.py` and `tools/lint_test.py`, whose rules describe Onyx's layers, so a copy either brings its own lint or drops that step.
 
 GPU and window test suites exit 77 where no Vulkan device or display exists, and `ctest` reports them as skipped; set `ONYX_NO_VALIDATION=1` where the Khronos validation layer is not installed. [`tools/README.md`](../tools/README.md) lists every suite and what it needs.
 

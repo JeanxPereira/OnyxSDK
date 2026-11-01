@@ -32,7 +32,7 @@ No aggregate `Onyx::Onyx` target exists; a consumer names the layers it uses.
 
 ### Files: Vfs
 
-`Vfs::IFile` is a stateless file: a size and `ReadAt(offset, span)`, with no cursor of its own, so any number of readers can share one. `OsFile`, `MemoryFile` and `SliceFile` implement it over a path, a byte vector and a range of a parent file. `Vfs::Reader` is the value type every parser reads through: a shared file, a cursor and endian helpers, so two readers over one file never interfere. `IVirtualFileSystem` lists and opens files inside a mounted archive, and `IsoFileSystem` mounts ISO 9660 images with it. `Vfs::Lz4Decompress` covers the one compression Core carries.
+`Vfs::IFile` is a stateless file: a size and `ReadAt(offset, span)`, with no cursor of its own, so any number of readers can share one. `OsFile`, `MemoryFile` and `SliceFile` implement it over a path, a byte vector and a range of a parent file. `Vfs::Reader` is the value type every parser reads through: a shared file, a cursor and endian helpers, so two readers over one file never interfere. `IVirtualFileSystem` lists and opens files inside a mounted archive, and `IsoFileSystem` mounts ISO 9660 images with it. `Vfs::Lz4Decompress` and `Vfs::Lz4FrameDecompress` cover LZ4 blocks and frames, the one compression Core carries.
 
 ### Types: TypeCatalog
 
@@ -44,7 +44,7 @@ A type is identified by a key of the form `<module>.<key>` (for example `prm.pal
 
 ### Modules: IGameModule and DecoderRegistry
 
-`Modules::IGameModule` is the one class a module implements: `Info`, `Probe`, `RegisterTypes`, `RegisterDecoders`, `RegisterSettings`, an optional `Mounts`, and `ParseContainer`. Parsing builds the tree of `AssetEntry` values and decodes nothing.
+`Modules::IGameModule` is the one class a module implements: `Info`, `Probe`, `RegisterTypes`, `RegisterDecoders` and `ParseContainer`, plus `RegisterSettings` and `Mounts`, which have default bodies and are optional. Parsing builds the tree of `AssetEntry` values and decodes nothing.
 
 `Modules::DecoderRegistry` maps a type to its decoders, one slot per payload: `Scene`, `Image`, `Text`, `Audio`, `Table`, `Schema` (a declarative record layout from `Onyx/Core/Schema/Schema.h`) and any number of `Any` slots, each under a capability name. `DecoderRegistry::Of` returns the `Capabilities` of a type, and it is the single routing source: the `decode` verb, the viewer registry and TestKit's decode smoke all consult it. A decoder receives a `DecodeContext` with a reader over the entry's bytes, the document's diagnostics, the settings and the document's module state.
 
@@ -80,13 +80,13 @@ A verb that names an entry resolves it with `Cli::ResolveEntry`, which accepts `
 
 `Onyx::Ui` draws into whatever ImGui context is current and never creates one. Every draw receives a `Ui::UiContext`: references to the workspace, theme, command registry, viewer registry, panel host and frame clock, plus pointers to the GPU device, the current frame, the `TexturePool`, the audio output and the fonts. The pointers are null when the host has no GPU device yet or no output, and views must cope with that.
 
-A panel implements `Ui::IPanel` (an id, a title and `Draw`); `Ui::PanelHost` draws the visible ones. A viewer is an `IDocumentView`, a panel bound to one entry. `Ui::ViewerRegistry` routes an entry's type to a `ViewerSpec`, which targets a `MediaKind` or an exact `TypeKey` and may require an `Any` capability. `Ui::OpenEntry` routes the selection, decodes the payload on the job queue and hands the finished view to the caller. A decode that yields nothing is reported as `ui.open.decode` on the document. `Ui::CommandRegistry` holds the commands from which the Shell draws its menu bar and binds its shortcuts.
+A panel implements `Ui::IPanel` (an id, a title and `Draw`); `Ui::PanelHost` draws the visible ones. A viewer is an `IDocumentView`, a panel bound to one entry. `Ui::ViewerRegistry` routes an entry's type to a `ViewerSpec`, which targets a `MediaKind` or an exact `TypeKey` and may require an `Any` capability. `Ui::OpenEntry` routes the selection, decodes the payload on the job queue and hands the finished view to the caller. A decode that yields nothing is reported on the document as `ui.open.decode`, or as `ui.open.any` when the viewer names an `Any` capability. `Ui::CommandRegistry` holds the commands from which the Shell draws its menu bar and binds its shortcuts.
 
 `Ui::TexturePool` turns `Domain::Texture` values into ImGui texture ids through an `ITextureBinder`, which `ImGuiVulkanBackend` implements. `Create` and `Update` serve textures that change rarely, and `Update` waits for the queue to go idle. `TexturePool::Stream` is the per-frame path: each streamed texture owns a ring of three images and never rewrites a descriptor that a frame in flight uses. It waits on the host only when all three images are still in use or the upload staging ring needs bytes back.
 
 ### Application: Shell
 
-`Shell::Shell` is the finished application. Constructing it registers the stock viewers, panels, commands and verbs; no window or GPU object exists until the first `Step`. `Shell::Run` routes the command line through `RouteArgs`: no argument opens the window, a single argument naming an existing file opens that file in the window, and anything else runs the CLI over `Shell::Verbs`. A host adds modules to `Shell::Workspace`, viewers and panels through an `IShellExtension`, and verbs to `Shell::Verbs`. Only `Cli::StockVerbs` is installed by default; adding `Render::CliVerbs` and `Exchange::AddExporters` is up to the host. `Shell::SetAudioOutput` hands the Shell the output that every audio view shares; a call made during a frame takes effect at the next frame boundary.
+`Shell::Shell` is the finished application. Constructing it registers the stock viewers, panels, commands and verbs; no window or GPU object exists until the first `Step`. `Shell::Run` routes the command line through `RouteArgs`: no argument opens the window, a single argument that is not a verb name and names an existing file opens that file in the window, and anything else runs the CLI over `Shell::Verbs`. A host adds modules to `Shell::Workspace`, viewers and panels through an `IShellExtension`, and verbs to `Shell::Verbs`. Only `Cli::StockVerbs` is installed by default; adding `Render::CliVerbs` and `Exchange::AddExporters` is up to the host. `Shell::SetAudioOutput` hands the Shell the output that every audio view shares; a call made during a frame takes effect at the next frame boundary.
 
 ### Media: MediaSource
 
