@@ -18,22 +18,19 @@
 #include <string>
 #include <system_error>
 #include <vector>
+#include "TempDir.h"
 
 using namespace Onyx;
 
 namespace {
 
 struct TempBox {
+    Onyx::Test::TempDir scope{"cligold"};
     std::filesystem::path path;
 
-    TempBox(const std::string& name, const std::vector<std::byte>& bytes)
-        : path(std::filesystem::temp_directory_path() / ("onyx_cligold_" + name + ".obx")) {
+    TempBox(const std::string& name, const std::vector<std::byte>& bytes) : path(scope / (name + ".obx")) {
         std::ofstream f(path, std::ios::binary);
         f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-    }
-    ~TempBox() {
-        std::error_code ec;
-        std::filesystem::remove(path, ec);
     }
 };
 

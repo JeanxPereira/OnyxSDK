@@ -8,6 +8,7 @@ extern "C" {
 }
 
 #include <Onyx/Media/MediaSource.h>
+#include "TempDir.h"
 
 #include <array>
 #include <cmath>
@@ -17,6 +18,7 @@ extern "C" {
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -33,6 +35,7 @@ struct ClipFixture {
     std::filesystem::path path;
     uint64_t offset;
     uint64_t size;
+    std::shared_ptr<Onyx::Test::TempDir> scope;
 };
 
 inline std::array<uint8_t, 3> Expected(uint32_t i) {
@@ -105,9 +108,9 @@ inline void WriteHeld(AVFormatContext* out, std::deque<HeldPacket>& held, int64_
 inline ClipFixture WriteClip(const std::string& name, bool withAudio, uint32_t frames = 50, double audioSeconds = 0,
                              uint32_t audioLagFrames = 0, const std::string& container = "avi") {
     using namespace ClipDetail;
-    const std::filesystem::path dir = std::filesystem::temp_directory_path();
-    const std::filesystem::path raw = dir / ("onyx-media-" + name + ".raw");
-    const std::filesystem::path path = dir / ("onyx-media-" + name + ".bin");
+    auto scope = std::make_shared<Onyx::Test::TempDir>("media-" + name);
+    const std::filesystem::path raw = *scope / "clip.raw";
+    const std::filesystem::path path = *scope / "clip.bin";
     const std::string rawName = raw.string();
 
     AVFormatContext* out = nullptr;
@@ -235,5 +238,5 @@ inline ClipFixture WriteClip(const std::string& name, bool withAudio, uint32_t f
         file.write(padding.data(), static_cast<std::streamsize>(padding.size()));
         file.write(clip.data(), static_cast<std::streamsize>(clip.size()));
     }
-    return ClipFixture{path, kPadding, static_cast<uint64_t>(clip.size())};
+    return ClipFixture{path, kPadding, static_cast<uint64_t>(clip.size()), scope};
 }

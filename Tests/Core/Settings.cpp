@@ -9,10 +9,13 @@
 #include <sstream>
 #include <string>
 
+#include "TempDir.h"
+
 using namespace Onyx::Services;
 
 TEST_CASE("Settings.Settings round-trips typed values through TOML") {
-    auto tmp = std::filesystem::temp_directory_path() / "onyx_settings_test.toml";
+    Onyx::Test::TempDir scope("settings");
+    auto tmp = scope / "onyx_settings_test.toml";
     std::filesystem::remove(tmp);
     {
         auto s = Settings::Load(tmp);
@@ -34,7 +37,8 @@ TEST_CASE("Settings.Settings round-trips typed values through TOML") {
 }
 
 TEST_CASE("Settings.Settings persists table structure in TOML") {
-    auto tmp = std::filesystem::temp_directory_path() / "onyx_settings_table_test.toml";
+    Onyx::Test::TempDir scope("settings");
+    auto tmp = scope / "onyx_settings_table_test.toml";
     std::filesystem::remove(tmp);
     {
         auto s = Settings::Load(tmp);
@@ -55,7 +59,8 @@ TEST_CASE("Settings.Settings persists table structure in TOML") {
 }
 
 TEST_CASE("Settings.Settings missing file loads empty") {
-    auto missing = std::filesystem::temp_directory_path() / "onyx_settings_does_not_exist_xyz.toml";
+    Onyx::Test::TempDir scope("settings");
+    auto missing = scope / "onyx_settings_does_not_exist_xyz.toml";
     std::filesystem::remove(missing);
     auto s = Settings::Load(missing);
     CHECK_FALSE(s.GetString("proj.texIndexDir").has_value());
@@ -65,7 +70,8 @@ TEST_CASE("Settings.Settings missing file loads empty") {
 }
 
 TEST_CASE("Settings.Settings type mismatch returns nullopt") {
-    auto tmp = std::filesystem::temp_directory_path() / "onyx_settings_typemismatch.toml";
+    Onyx::Test::TempDir scope("settings");
+    auto tmp = scope / "onyx_settings_typemismatch.toml";
     std::filesystem::remove(tmp);
     {
         auto s = Settings::Load(tmp);
@@ -83,7 +89,8 @@ TEST_CASE("Settings.Settings type mismatch returns nullopt") {
 }
 
 TEST_CASE("Settings.Settings no-dot-key lands at root") {
-    auto tmp = std::filesystem::temp_directory_path() / "onyx_settings_root_key.toml";
+    Onyx::Test::TempDir scope("settings");
+    auto tmp = scope / "onyx_settings_root_key.toml";
     std::filesystem::remove(tmp);
     {
         auto s = Settings::Load(tmp);
@@ -110,7 +117,8 @@ TEST_CASE("Settings.Settings no-dot-key lands at root") {
 }
 
 TEST_CASE("Settings.Settings Dirty flag management") {
-    auto tmp = std::filesystem::temp_directory_path() / "onyx_settings_dirty.toml";
+    Onyx::Test::TempDir scope("settings");
+    auto tmp = scope / "onyx_settings_dirty.toml";
     std::filesystem::remove(tmp);
     {
         auto s = Settings::Load(tmp);
@@ -124,7 +132,8 @@ TEST_CASE("Settings.Settings Dirty flag management") {
 }
 
 TEST_CASE("Settings.Settings Path returns loaded path") {
-    auto tmp = std::filesystem::temp_directory_path() / "onyx_settings_path_test.toml";
+    Onyx::Test::TempDir scope("settings");
+    auto tmp = scope / "onyx_settings_path_test.toml";
     std::filesystem::remove(tmp);
     auto s = Settings::Load(tmp);
     CHECK(s.Path() == tmp);
@@ -132,7 +141,8 @@ TEST_CASE("Settings.Settings Path returns loaded path") {
 }
 
 TEST_CASE("Settings.Settings GetDouble typed access") {
-    auto tmp = std::filesystem::temp_directory_path() / "onyx_settings_double.toml";
+    Onyx::Test::TempDir scope("settings");
+    auto tmp = scope / "onyx_settings_double.toml";
     std::filesystem::remove(tmp);
     {
         auto s = Settings::Load(tmp);
@@ -149,7 +159,8 @@ TEST_CASE("Settings.Settings GetDouble typed access") {
 }
 
 TEST_CASE("Settings.Settings type mismatches return nullopt, never coerce") {
-    auto tmp = std::filesystem::temp_directory_path() / "onyx_settings_mismatch.toml";
+    Onyx::Test::TempDir scope("settings");
+    auto tmp = scope / "onyx_settings_mismatch.toml";
     std::filesystem::remove(tmp);
     auto s = Settings::Load(tmp);
     s.Set("t.flag", true);
@@ -163,7 +174,8 @@ TEST_CASE("Settings.Settings type mismatches return nullopt, never coerce") {
 }
 
 TEST_CASE("Settings.Settings two-dot key split uses only first dot") {
-    auto tmp = std::filesystem::temp_directory_path() / "onyx_settings_twodot.toml";
+    Onyx::Test::TempDir scope("settings");
+    auto tmp = scope / "onyx_settings_twodot.toml";
     std::filesystem::remove(tmp);
     {
         auto s = Settings::Load(tmp);
@@ -198,17 +210,11 @@ std::string ReadAll(const std::filesystem::path& p) {
     return ss.str();
 }
 
-std::filesystem::path FreshDir(const char* name) {
-    auto dir = std::filesystem::temp_directory_path() / name;
-    std::filesystem::remove_all(dir);
-    std::filesystem::create_directories(dir);
-    return dir;
-}
-
 }  // namespace
 
 TEST_CASE("Settings.SaveIsAtomic") {
-    auto dir = FreshDir("onyx_settings_atomic");
+    Onyx::Test::TempDir scope("settings");
+    const auto dir = scope.path();
     auto file = dir / "s.toml";
     {
         auto s = Settings::Load(file);
@@ -220,11 +226,11 @@ TEST_CASE("Settings.SaveIsAtomic") {
     CHECK_FALSE(std::filesystem::exists(dir / "s.toml.tmp"));
     CHECK(std::filesystem::exists(file));
     CHECK(Settings::Load(file).GetInt("a.b") == 4);
-    std::filesystem::remove_all(dir);
 }
 
 TEST_CASE("Settings.BrokenFileIsPreservedAndNotOverwritten") {
-    auto dir = FreshDir("onyx_settings_broken");
+    Onyx::Test::TempDir scope("settings");
+    const auto dir = scope.path();
     auto file = dir / "s.toml";
     const std::string bad = "a = [";
     { std::ofstream(file, std::ios::binary) << bad; }
@@ -252,11 +258,11 @@ TEST_CASE("Settings.BrokenFileIsPreservedAndNotOverwritten") {
     CHECK_FALSE(s.LoadError().has_value());
     CHECK(s.Save().ok());
     CHECK(Settings::Load(file).GetInt("x") == 1);
-    std::filesystem::remove_all(dir);
 }
 
 TEST_CASE("Settings.SaveIfDirtyWritesOnlyWhenDirty") {
-    auto dir = FreshDir("onyx_settings_ifdirty");
+    Onyx::Test::TempDir scope("settings");
+    const auto dir = scope.path();
     auto file = dir / "s.toml";
     auto s = Settings::Load(file);
     CHECK(s.SaveIfDirty().ok());
@@ -271,11 +277,11 @@ TEST_CASE("Settings.SaveIfDirtyWritesOnlyWhenDirty") {
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
     CHECK(s.SaveIfDirty().ok());
     CHECK(std::filesystem::last_write_time(file) == before);
-    std::filesystem::remove_all(dir);
 }
 
 TEST_CASE("Settings.ApplyDefaultsLeavesWrongTypedValueAlone") {
-    auto dir = FreshDir("onyx_settings_wrongtype");
+    Onyx::Test::TempDir scope("settings");
+    const auto dir = scope.path();
     auto file = dir / "s.toml";
     { std::ofstream(file, std::ios::binary) << "[ui]\ncount = \"x\"\n"; }
     auto s = Settings::Load(file);
@@ -286,11 +292,11 @@ TEST_CASE("Settings.ApplyDefaultsLeavesWrongTypedValueAlone") {
     CHECK_FALSE(s.GetInt("ui.count").has_value());
     CHECK(s.Has("ui.count"));
     CHECK_FALSE(s.Has("ui.other"));
-    std::filesystem::remove_all(dir);
 }
 
 TEST_CASE("Settings.SchemaApplyDefaultsFillsMissingOnly") {
-    auto dir = FreshDir("onyx_settings_schema");
+    Onyx::Test::TempDir scope("settings");
+    const auto dir = scope.path();
     auto s = Settings::Load(dir / "s.toml");
     s.Set("ui.scale", 1.5);
 
@@ -316,7 +322,6 @@ TEST_CASE("Settings.SchemaApplyDefaultsFillsMissingOnly") {
     CHECK(s.GetString("ui.name") == "onyx");
     CHECK(s.GetString("ui.mode") == "b");
     CHECK(s.GetString("paths.cache") == "cache");
-    std::filesystem::remove_all(dir);
 }
 
 TEST_CASE("Settings.SetWithStringLiteralStoresAString") {

@@ -17,6 +17,7 @@
 #include <string>
 #include <system_error>
 #include <vector>
+#include "TempDir.h"
 
 using namespace Onyx;
 
@@ -60,16 +61,10 @@ private:
 };
 
 struct TempDir {
-    std::filesystem::path path = std::filesystem::temp_directory_path() / "onyx_render_verb_gpu";
+    Onyx::Test::TempDir scope{"render-verb-gpu"};
+    std::filesystem::path path = scope.path();
     TempDir() {
-        std::error_code ec;
-        std::filesystem::remove_all(path, ec);
-        std::filesystem::create_directories(path);
         std::ofstream(path / "container.bin", std::ios::binary) << "container";
-    }
-    ~TempDir() {
-        std::error_code ec;
-        std::filesystem::remove_all(path, ec);
     }
 };
 

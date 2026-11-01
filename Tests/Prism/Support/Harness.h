@@ -17,19 +17,17 @@
 #include <system_error>
 #include <vector>
 
+#include "TempDir.h"
+
 namespace Onyx::Tests {
 
 struct TempFile {
+    Test::TempDir scope{"prism"};
     std::filesystem::path path;
 
-    TempFile(const std::string& name, const std::vector<std::byte>& bytes)
-        : path(std::filesystem::temp_directory_path() / ("onyx_prism_" + name)) {
+    TempFile(const std::string& name, const std::vector<std::byte>& bytes) : path(scope / name) {
         std::ofstream f(path, std::ios::binary);
         f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-    }
-    ~TempFile() {
-        std::error_code ec;
-        std::filesystem::remove(path, ec);
     }
 };
 

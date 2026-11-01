@@ -18,6 +18,8 @@
 #include <thread>
 #include <vector>
 
+#include "TempDir.h"
+
 using namespace Onyx::Vfs;
 
 namespace {
@@ -113,7 +115,8 @@ TEST_CASE("Vfs.TwoReadersOverOneFileFromTwoThreads") {
 }
 
 TEST_CASE("Vfs.TwoReadersOverOneOsFileFromTwoThreads") {
-    std::filesystem::path path = std::filesystem::temp_directory_path() / "onyx_two_readers.bin";
+    Onyx::Test::TempDir scope("vfs");
+    std::filesystem::path path = scope / "two_readers.bin";
     {
         const auto data = Sequence();
         std::ofstream out(path, std::ios::binary);
@@ -137,8 +140,8 @@ TEST_CASE("Vfs.TwoReadersOverOneOsFileFromTwoThreads") {
 }
 
 TEST_CASE("Vfs.OsFileOpensNonAsciiPath") {
-    std::filesystem::path path = std::filesystem::temp_directory_path() /
-        std::filesystem::path(std::u8string(u8"açãoランス.bin"));
+    Onyx::Test::TempDir scope("vfs");
+    std::filesystem::path path = scope.path() / std::filesystem::path(std::u8string(u8"açãoランス.bin"));
     {
         std::ofstream out(path, std::ios::binary);
         REQUIRE(out);
@@ -157,7 +160,8 @@ TEST_CASE("Vfs.OsFileOpensNonAsciiPath") {
 }
 
 TEST_CASE("Vfs.OsFileMissingPathFails") {
-    auto result = OsFile::Open(std::filesystem::temp_directory_path() / "onyx_missing_file_xyz.bin");
+    Onyx::Test::TempDir scope("vfs");
+    auto result = OsFile::Open(scope / "missing_file.bin");
     CHECK_FALSE(result.ok());
     CHECK(result.error().code == "vfs.open");
 }

@@ -22,6 +22,7 @@
 #include <string>
 #include <system_error>
 #include <vector>
+#include "TempDir.h"
 
 using namespace Onyx;
 using Onyx::Tests::SampleBox;
@@ -31,16 +32,10 @@ static_assert(sizeof(Domain::ByteRange) == 24, "ByteRange must stay a tight 24-b
 namespace {
 
 struct TempPath {
+    Onyx::Test::TempDir scope{"obxcli"};
     std::filesystem::path path;
 
-    explicit TempPath(const std::string& name) : path(std::filesystem::temp_directory_path() / ("onyx_obxcli_" + name)) {
-        std::error_code ec;
-        std::filesystem::remove_all(path, ec);
-    }
-    ~TempPath() {
-        std::error_code ec;
-        std::filesystem::remove_all(path, ec);
-    }
+    explicit TempPath(const std::string& name) : path(scope / name) {}
 };
 
 struct TempFile : TempPath {

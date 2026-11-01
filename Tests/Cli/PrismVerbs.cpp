@@ -18,23 +18,20 @@
 #include <string>
 #include <system_error>
 #include <vector>
+#include "TempDir.h"
 
 using namespace Onyx;
 
 namespace {
 
 struct TempPrism {
+    Onyx::Test::TempDir scope{"cliprism"};
     std::filesystem::path path;
 
-    explicit TempPrism(const std::string& name)
-        : path(std::filesystem::temp_directory_path() / ("onyx_cligold_" + name + ".prm")) {
+    explicit TempPrism(const std::string& name) : path(scope / (name + ".prm")) {
         const std::vector<std::byte> bytes = Tests::SamplePrism();
         std::ofstream f(path, std::ios::binary);
         f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-    }
-    ~TempPrism() {
-        std::error_code ec;
-        std::filesystem::remove(path, ec);
     }
 };
 

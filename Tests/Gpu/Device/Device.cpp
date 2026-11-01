@@ -12,6 +12,7 @@
 #include "Onyx/Gpu/FrameRing.h"
 #include "Onyx/Gpu/Handles.h"
 #include "Support/TestDevice.h"
+#include "TempDir.h"
 
 using namespace Onyx;
 
@@ -139,8 +140,8 @@ TEST_CASE("Two owned devices coexist and dispatch through their own tables") {
 }
 
 TEST_CASE("Pipeline cache file is written on destruction and loaded on the next Create") {
-    auto path = std::filesystem::temp_directory_path() / "onyx-gpu-cache.bin";
-    std::filesystem::remove(path);
+    Onyx::Test::TempDir scope("gpu-cache");
+    auto path = scope / "cache.bin";
     {
         Gpu::DeviceOptions o;
         o.pipelineCachePath = path;
@@ -156,7 +157,6 @@ TEST_CASE("Pipeline cache file is written on destruction and loaded on the next 
         CHECK(d->PipelineCache() != VK_NULL_HANDLE);
         CHECK(d->ValidationMessageCount() == 0);
     }
-    std::filesystem::remove(path);
 }
 
 namespace {

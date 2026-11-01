@@ -19,22 +19,19 @@
 #include <system_error>
 #include <utility>
 #include <vector>
+#include "TempDir.h"
 
 using namespace Onyx;
 
 namespace {
 
 struct TempFile {
+    Onyx::Test::TempDir scope{"testkit"};
     std::filesystem::path path;
 
-    TempFile(const std::string& name, const std::vector<std::byte>& bytes)
-        : path(std::filesystem::temp_directory_path() / ("onyx_obx_testkit_" + name)) {
+    TempFile(const std::string& name, const std::vector<std::byte>& bytes) : path(scope / name) {
         std::ofstream f(path, std::ios::binary);
         f.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-    }
-    ~TempFile() {
-        std::error_code ec;
-        std::filesystem::remove(path, ec);
     }
 };
 
@@ -253,7 +250,8 @@ TEST_CASE("TestKit.SnapshotTreeEscapesNamesAndHandlesAnEmptyDocument") {
 
 TEST_CASE("TestKit.CompareTreeGoldenReportsAPreciseDiffAndWritesActualOnMismatch") {
     const std::string snapshot = Snapshot("compare.obx", TwoEntryBox());
-    const std::filesystem::path golden = std::filesystem::temp_directory_path() / "onyx_testkit_golden.json";
+    Onyx::Test::TempDir scope("testkit");
+    const std::filesystem::path golden = scope / "golden.json";
     std::filesystem::path actual = golden;
     actual += ".actual";
     std::error_code ec;
@@ -305,7 +303,8 @@ TEST_CASE("TestKit.CompareTreeGoldenReportsAPreciseDiffAndWritesActualOnMismatch
 TEST_CASE("TestKit.CompareTreeGoldenIgnoresLineEndings") {
     const std::string lf = "{\n  \"roots\": []\n}\n";
     const std::string crlf = "{\r\n  \"roots\": []\r\n}\r\n";
-    const std::filesystem::path golden = std::filesystem::temp_directory_path() / "onyx_testkit_eol.json";
+    Onyx::Test::TempDir scope("testkit");
+    const std::filesystem::path golden = scope / "eol.json";
     std::filesystem::path actual = golden;
     actual += ".actual";
     std::error_code ec;
@@ -334,10 +333,8 @@ TEST_CASE("TestKit.CompareTreeGoldenIgnoresLineEndings") {
 }
 
 TEST_CASE("TestKit.UpdateGoldenWritesOnlyWhenTheEnvironmentAsksForIt") {
-    const std::filesystem::path golden =
-        std::filesystem::temp_directory_path() / "onyx_testkit_update" / "nested" / "g.golden.json";
-    std::error_code ec;
-    std::filesystem::remove_all(golden.parent_path().parent_path(), ec);
+    Onyx::Test::TempDir scope("testkit");
+    const std::filesystem::path golden = scope / "nested" / "g.golden.json";
 
     {
         EnvGuard off("ONYX_UPDATE_GOLDENS", "");
@@ -356,8 +353,6 @@ TEST_CASE("TestKit.UpdateGoldenWritesOnlyWhenTheEnvironmentAsksForIt") {
         CHECK(TestKit::UpdateGolden("second\n", golden));
         CHECK(ReadFile(golden) == "second\n");
     }
-
-    std::filesystem::remove_all(golden.parent_path().parent_path(), ec);
 }
 
 TEST_CASE("TestKit.ObxTreesMatchTheirGoldens") {

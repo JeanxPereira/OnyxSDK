@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include "TempDir.h"
 
 using namespace Onyx::Modules;
 
@@ -58,7 +59,8 @@ TEST_CASE("Probe.FilePathOverloadFeedsTheHeaderToEveryModule") {
             return {0, "no magic"};
         }
     };
-    auto tmp = std::filesystem::temp_directory_path() / "onyx_probe_test.bin";
+    Onyx::Test::TempDir scope("probe");
+    auto tmp = scope / "test.bin";
     {
         std::ofstream f(tmp, std::ios::binary);
         f << "OBX1rest-of-file";
@@ -67,7 +69,6 @@ TEST_CASE("Probe.FilePathOverloadFeedsTheHeaderToEveryModule") {
     FakeModule other("o", 10, "ext only");
     auto r = RankProbes(std::vector<IGameModule*>{&s, &other}, tmp);
     CHECK(r.winner == &s);
-    std::filesystem::remove(tmp);
 }
 
 TEST_CASE("Probe.HeaderIsCappedAt64KiB") {
@@ -81,7 +82,8 @@ TEST_CASE("Probe.HeaderIsCappedAt64KiB") {
             return {0, ""};
         }
     };
-    auto tmp = std::filesystem::temp_directory_path() / "onyx_probe_big.bin";
+    Onyx::Test::TempDir scope("probe");
+    auto tmp = scope / "big.bin";
     {
         std::ofstream f(tmp, std::ios::binary);
         std::string chunk(1024, 'x');
@@ -91,7 +93,6 @@ TEST_CASE("Probe.HeaderIsCappedAt64KiB") {
     RankProbes(std::vector<IGameModule*>{&m}, tmp);
     CHECK(m.seen == 64 * 1024);
     CHECK(m.fileSize == 100 * 1024);
-    std::filesystem::remove(tmp);
 }
 
 TEST_CASE("Probe.ThrowingProbeIsContained") {

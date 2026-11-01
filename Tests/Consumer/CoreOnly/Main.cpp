@@ -10,7 +10,21 @@
 #include <string>
 #include <vector>
 
+#if defined(_WIN32)
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace {
+
+long ProcessId() {
+#if defined(_WIN32)
+    return static_cast<long>(_getpid());
+#else
+    return static_cast<long>(getpid());
+#endif
+}
 
 void Print(const Onyx::Domain::AssetEntry& entry, int depth, size_t& count) {
     std::cout << std::string(static_cast<size_t>(depth) * 2, ' ') << entry.name << '\n';
@@ -21,7 +35,8 @@ void Print(const Onyx::Domain::AssetEntry& entry, int depth, size_t& count) {
 }
 
 int main() {
-    const auto path = std::filesystem::temp_directory_path() / "onyx-coreonly-consumer.obx";
+    const auto path = std::filesystem::temp_directory_path() /
+                      ("onyx-coreonly-consumer-" + std::to_string(ProcessId()) + ".obx");
     {
         const auto bytes = OnyxBox::Writer()
                                .AddText("readme.txt", "hello")

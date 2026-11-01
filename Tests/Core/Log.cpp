@@ -12,6 +12,8 @@
 #include <string>
 #include <thread>
 
+#include "TempDir.h"
+
 using namespace Onyx::Services;
 namespace fs = std::filesystem;
 
@@ -20,13 +22,6 @@ namespace {
 struct Counted {
     static inline int formatted = 0;
 };
-
-fs::path TempDir(const char* name) {
-    fs::path d = fs::temp_directory_path() / "OnyxLogTests" / name;
-    fs::remove_all(d);
-    fs::create_directories(d);
-    return d;
-}
 
 }
 
@@ -79,7 +74,8 @@ TEST_CASE("Log.SinkRemovedStopsReceiving") {
 }
 
 TEST_CASE("Log.FileSinkRotatesBySize") {
-    auto dir = TempDir("Rotate");
+    Onyx::Test::TempDir scope("log");
+    const auto dir = scope.path();
     auto path = dir / "log";
     {
         Log log;
@@ -94,7 +90,8 @@ TEST_CASE("Log.FileSinkRotatesBySize") {
 }
 
 TEST_CASE("Log.FileSinkKeepsHandleOpen") {
-    auto dir = TempDir("Handle");
+    Onyx::Test::TempDir scope("log");
+    const auto dir = scope.path();
     Log log;
     log.SetMinLevel(LogLevel::Trace);
     InstallFileSink(log, dir / "log");
@@ -155,7 +152,8 @@ TEST_CASE("Log.SinkMayWriteToTheLogItself") {
 }
 
 TEST_CASE("Log.FileSinkOnUnwritablePathFails") {
-    auto dir = TempDir("Unwritable");
+    Onyx::Test::TempDir scope("log");
+    const auto dir = scope.path();
     auto blocker = dir / "file";
     { std::ofstream(blocker) << "x"; }
     Log log;

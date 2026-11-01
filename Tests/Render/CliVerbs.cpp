@@ -15,20 +15,18 @@
 #include <string>
 #include <system_error>
 #include <vector>
+#include "TempDir.h"
 
 using namespace Onyx;
 
 namespace {
 
 struct TempFile {
-    std::filesystem::path path = std::filesystem::temp_directory_path() / "onyx_render_verb_unit.bin";
+    Onyx::Test::TempDir scope{"render-verb"};
+    std::filesystem::path path = scope / "verb_unit.bin";
     TempFile() {
         std::ofstream f(path, std::ios::binary);
         f << "scene-bytes";
-    }
-    ~TempFile() {
-        std::error_code ec;
-        std::filesystem::remove(path, ec);
     }
 };
 

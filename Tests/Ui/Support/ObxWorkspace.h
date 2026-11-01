@@ -32,6 +32,7 @@
 #include <vector>
 
 #include "HeadlessImGui.h"
+#include "TempDir.h"
 
 // A workspace with the obx module registered and one document opened from a freshly written
 // .obx. Its roots, in order: an 8x8 image "img", the three-line text "txt", a mesh "mesh", a 3x2
@@ -98,6 +99,7 @@ struct ObxWorkspace {
 // A UiContext over an ObxWorkspace: no GPU, a theme over empty settings and real registries with
 // the stock viewers registered. `workspace` and `doc` name the ObxWorkspace's own.
 struct ObxUi {
+    Onyx::Test::TempDir scope;
     ObxWorkspace obx;
     Onyx::Modules::Workspace& workspace = obx.workspace;
     const Onyx::Modules::DocumentId doc = obx.doc;
@@ -109,16 +111,11 @@ struct ObxUi {
     Onyx::Ui::FrameClock clock;
 
     // A document with the five roots only, in a scratch directory of its own.
-    ObxUi() : ObxUi(UniqueName().c_str(), 0) {}
+    ObxUi() : ObxUi("fixture", 0) {}
 
     explicit ObxUi(const char* name, size_t flatChildren = 8, std::string_view fileName = "fixture.obx")
-        : obx(std::filesystem::temp_directory_path() / (std::string("onyx_ui_") + name), flatChildren, fileName) {
+        : scope(std::string("ui-") + name), obx(scope.path(), flatChildren, fileName) {
         Onyx::Ui::RegisterStockViewers(viewers);
-    }
-
-    ~ObxUi() {
-        std::error_code ec;
-        std::filesystem::remove_all(obx.file.parent_path(), ec);
     }
 
     ObxUi(const ObxUi&) = delete;
@@ -145,13 +142,6 @@ struct ObxUi {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         return true;
-    }
-
-private:
-    static std::string UniqueName() {
-        static std::atomic<int> counter{0};
-        return "fixture_" + std::to_string(++counter) + "_" +
-               std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
     }
 };
 

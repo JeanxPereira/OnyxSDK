@@ -8,6 +8,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include "../Support/TempDir.h"
 
 using namespace Onyx;
 using namespace Onyx::Oracle;
@@ -149,19 +150,20 @@ TEST_CASE("JsonEqualMaskingPixelHash rejects a different line count") {
 
 TEST_CASE("SameDirectory resolves spelling differences and missing directories") {
     namespace fs = std::filesystem;
-    const fs::path base = fs::temp_directory_path() / "OnyxOracleSameDirectory";
+    Onyx::Test::TempDir scope("oracle");
+    const fs::path base = scope.path();
     fs::create_directories(base / "golden");
     CHECK(SameDirectory(base / "golden", base / "golden"));
     CHECK(SameDirectory(base / "golden", base / "golden" / ".." / "golden"));
     CHECK(SameDirectory(base / "golden", base / "golden" / ""));
     CHECK_FALSE(SameDirectory(base / "golden", base / "out"));
     CHECK_FALSE(SameDirectory(base / "golden", base / "golden" / "a"));
-    fs::remove_all(base);
 }
 
 TEST_CASE("SameDirectory fails closed when a path cannot be resolved") {
     namespace fs = std::filesystem;
-    const fs::path base = fs::temp_directory_path() / "OnyxOracleSameDirectoryClosed";
+    Onyx::Test::TempDir scope("oracle");
+    const fs::path base = scope.path();
     fs::create_directories(base);
     const auto failing = [](const fs::path&, std::error_code& ec) {
         ec = std::make_error_code(std::errc::io_error);
@@ -177,13 +179,12 @@ TEST_CASE("SameDirectory fails closed when a path cannot be resolved") {
     };
     CHECK(SameDirectory(base / "first", base / "second", failsOnSecond));
     CHECK_FALSE(SameDirectory(base / "first", base / "other", failsOnSecond));
-    fs::remove_all(base);
 }
 
 TEST_CASE("HoldsForeignPng refuses directories with unmarked corpus PNGs") {
     namespace fs = std::filesystem;
-    const fs::path base = fs::temp_directory_path() / "OnyxOracleForeignPng";
-    fs::remove_all(base);
+    Onyx::Test::TempDir scope("oracle");
+    const fs::path base = scope.path();
     const std::vector<std::string> names = {"one", "two"};
     CHECK_FALSE(HoldsForeignPng(base / "missing", names));
 
@@ -202,5 +203,4 @@ TEST_CASE("HoldsForeignPng refuses directories with unmarked corpus PNGs") {
     fs::create_directories(base / "unrelated");
     std::ofstream(base / "unrelated" / "three.png") << "x";
     CHECK_FALSE(HoldsForeignPng(base / "unrelated", names));
-    fs::remove_all(base);
 }

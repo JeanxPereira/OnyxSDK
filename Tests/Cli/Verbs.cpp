@@ -16,6 +16,7 @@
 #include <string>
 #include <system_error>
 #include <vector>
+#include "TempDir.h"
 
 using namespace Onyx;
 using Onyx::Tests::StubEntry;
@@ -27,15 +28,9 @@ namespace {
 constexpr std::string_view kContainer = "hello boxABCDEFGH";
 
 struct TempPath {
+    Onyx::Test::TempDir scope{"cli"};
     std::filesystem::path path;
-    explicit TempPath(const std::string& name) : path(std::filesystem::temp_directory_path() / ("onyx_cli_" + name)) {
-        std::error_code ec;
-        std::filesystem::remove_all(path, ec);
-    }
-    ~TempPath() {
-        std::error_code ec;
-        std::filesystem::remove_all(path, ec);
-    }
+    explicit TempPath(const std::string& name) : path(scope / name) {}
 };
 
 struct TempFile : TempPath {

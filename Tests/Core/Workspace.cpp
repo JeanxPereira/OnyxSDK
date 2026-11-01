@@ -3,6 +3,7 @@
 #include <Onyx/Core/Modules/Workspace.h>
 
 #include "Support/StubModule.h"
+#include "TempDir.h"
 
 #include <atomic>
 #include <chrono>
@@ -20,19 +21,12 @@ using Onyx::Tests::StubOptions;
 
 namespace {
 
-std::filesystem::path WriteTemp(const std::filesystem::path& name, const std::string& contents) {
-    const auto path = std::filesystem::temp_directory_path() / name;
-    std::ofstream f(path, std::ios::binary);
-    f << contents;
-    return path;
-}
-
 struct TempFile {
+    Onyx::Test::TempDir scope{"ws"};
     std::filesystem::path path;
-    TempFile(const std::filesystem::path& name, const std::string& contents) : path(WriteTemp(name, contents)) {}
-    ~TempFile() {
-        std::error_code ec;
-        std::filesystem::remove(path, ec);
+    TempFile(const std::filesystem::path& name, const std::string& contents) : path(scope.path() / name) {
+        std::ofstream f(path, std::ios::binary);
+        f << contents;
     }
 };
 
@@ -398,7 +392,8 @@ TEST_CASE("Workspace.ThrowingParseIsContained") {
 TEST_CASE("Workspace.UnreadableFileWithHintYieldsAnErrorDocument") {
     Workspace ws;
     REQUIRE(ws.AddModule(std::make_unique<StubModule>(StubOptions{"stub", 90, 1})));
-    const DocumentId id = ws.Open(std::filesystem::temp_directory_path() / "onyx_ws_missing_file.bin", "stub");
+    Onyx::Test::TempDir scope("ws");
+    const DocumentId id = ws.Open(scope / "missing_file.bin", "stub");
     REQUIRE(id != 0);
     Document* doc = ws.Get(id);
     CHECK(doc->ready);
@@ -431,7 +426,8 @@ TEST_CASE("Workspace.CancelOpenCancelsABlockedParse") {
 }
 
 TEST_CASE("Workspace.SettingsPathLoadsAndLocksAfterTheFirstOpen") {
-    const auto settingsFile = std::filesystem::temp_directory_path() / "onyx_ws_settings.toml";
+    Onyx::Test::TempDir scope("ws");
+    const auto settingsFile = scope / "settings.toml";
     TempFile tmp("onyx_ws_settings.bin", "data");
     std::error_code ec;
     std::filesystem::remove(settingsFile, ec);
@@ -454,7 +450,8 @@ TEST_CASE("Workspace.SettingsPathLoadsAndLocksAfterTheFirstOpen") {
 }
 
 TEST_CASE("Workspace.OptionsSettingsPathIsLoaded") {
-    const auto settingsFile = std::filesystem::temp_directory_path() / "onyx_ws_options.toml";
+    Onyx::Test::TempDir scope("ws");
+    const auto settingsFile = scope / "options.toml";
     {
         auto s = Services::Settings::Load(settingsFile);
         s.Set("stub.flag", false);

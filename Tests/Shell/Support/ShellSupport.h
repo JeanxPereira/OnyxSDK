@@ -13,24 +13,16 @@
 #include <vector>
 
 #include "Onyx/Shell/Shell.h"
+#include "TempDir.h"
 
 namespace Onyx::TestSupport {
 
-// A scratch directory under the system temp folder, emptied on construction and removed with the object.
+// A scratch directory of its own under the system temp folder, removed with the object.
 struct TempDir {
+    Onyx::Test::TempDir scope;
     std::filesystem::path path;
 
-    explicit TempDir(const std::string& name) : path(std::filesystem::temp_directory_path() / ("onyx_shell_" + name)) {
-        std::error_code ec;
-        std::filesystem::remove_all(path, ec);
-        std::filesystem::create_directories(path, ec);
-    }
-    ~TempDir() {
-        std::error_code ec;
-        std::filesystem::remove_all(path, ec);
-    }
-    TempDir(const TempDir&) = delete;
-    TempDir& operator=(const TempDir&) = delete;
+    explicit TempDir(const std::string& name) : scope("shell-" + name), path(scope.path()) {}
 };
 
 // Writes an .obx holding an 8x8 image "img", a text "txt" and a blob "blob", in that order.
