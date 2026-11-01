@@ -142,7 +142,7 @@ int Export(Decoding& d, const Exporter& exporter, const std::filesystem::path& t
         return kPartial;
     }
     if (!result.ok()) {
-        out << "export failed: " << result.error().message << "\n";
+        out << result.error().code << ": " << result.error().message << "\n";
         return kPartial;
     }
     out << "exported " << d.entry.name << " to " << Services::Paths::ToUtf8(to) << " (" << format << ")\n";

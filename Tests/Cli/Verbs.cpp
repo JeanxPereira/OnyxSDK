@@ -450,7 +450,7 @@ TEST_CASE("Cli.DecodeToExportWriteFailureIsPartial") {
 
     const auto r = h.Invoke({"decode", file.path.string(), "mesh", "--to", "gltf", "--out", outPath.path.string()});
     CHECK(r.rc == Cli::kPartial);
-    CHECK(Contains(r.out, "export failed: disk full"));
+    CHECK(Contains(r.out, "export.io: disk full"));
 }
 
 TEST_CASE("Cli.DecodeToWithNoExporterRegisteredReturnsKUsage") {
