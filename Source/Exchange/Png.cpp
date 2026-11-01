@@ -3,6 +3,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
+#include <Onyx/Core/Services/Paths.h>
 #include <Onyx/Exchange/Png.h>
 
 #include "PngEncode.h"
@@ -33,7 +34,7 @@ Result<void> WritePng(const Domain::Texture& texture, const std::filesystem::pat
     if (bytes.empty()) return Result<void>::Fail({"exchange.png.write", "the PNG encoder failed", 0});
     std::ofstream file(out, std::ios::binary | std::ios::trunc);
     if (file) file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-    if (!file) return Result<void>::Fail({"exchange.png.write", "cannot write " + out.string(), 0});
+    if (!file) return Result<void>::Fail({"exchange.png.write", "cannot write " + Services::Paths::ToUtf8(out), 0});
     return Result<void>::Ok();
 }
 

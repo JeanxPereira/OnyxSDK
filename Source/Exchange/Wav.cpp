@@ -1,3 +1,4 @@
+#include <Onyx/Core/Services/Paths.h>
 #include <Onyx/Exchange/Wav.h>
 
 #include <algorithm>
@@ -59,7 +60,7 @@ Result<void> WriteWav(const Domain::Audio& audio, const std::filesystem::path& o
 
     std::ofstream file(out, std::ios::binary | std::ios::trunc);
     if (file) file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-    if (!file) return Result<void>::Fail({"exchange.wav.write", "cannot write " + out.string(), 0});
+    if (!file) return Result<void>::Fail({"exchange.wav.write", "cannot write " + Services::Paths::ToUtf8(out), 0});
     return Result<void>::Ok();
 }
 

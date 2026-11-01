@@ -2,6 +2,7 @@
 #include <cgltf_write.h>
 
 #include <Onyx/Core/Services/Log.h>
+#include <Onyx/Core/Services/Paths.h>
 #include <Onyx/Exchange/Gltf.h>
 
 #include "PngEncode.h"
@@ -18,6 +19,7 @@
 #include <fstream>
 #include <map>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -59,6 +61,41 @@ char* Mutable(const char* s) {
 
 Result<void> Fail(const char* code, std::string message) {
     return Result<void>::Fail({code, std::move(message), 0});
+}
+
+// A relative URI reference for a UTF-8 file name: unreserved bytes stay, every other byte (space, '%', '#', '?',
+// and each byte of a non-ASCII character) becomes %XX, which glTF loaders decode back to the name.
+std::string EncodeUri(std::string_view name) {
+    static constexpr char kHex[] = "0123456789ABCDEF";
+    std::string uri;
+    for (const char c : name) {
+        const auto byte = static_cast<unsigned char>(c);
+        const bool unreserved = (byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z') ||
+                                (byte >= '0' && byte <= '9') || byte == '-' || byte == '.' || byte == '_' ||
+                                byte == '~';
+        if (unreserved) {
+            uri.push_back(c);
+        } else {
+            uri.push_back('%');
+            uri.push_back(kHex[byte >> 4]);
+            uri.push_back(kHex[byte & 0x0Fu]);
+        }
+    }
+    return uri;
+}
+
+// Writes `bytes` to `path` and reports whether every byte reached the file, the close included.
+bool WriteFile(const std::filesystem::path& path, const char* bytes, size_t size) {
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    if (file) file.write(bytes, static_cast<std::streamsize>(size));
+    file.close();
+    return static_cast<bool>(file);
+}
+
+std::filesystem::path TemporaryBeside(const std::filesystem::path& target) {
+    std::filesystem::path temporary = target;
+    temporary += ".tmp";
+    return temporary;
 }
 
 // One buffer; every blob starts on a 4-byte boundary so each view satisfies every attribute alignment rule.
@@ -521,7 +558,8 @@ Result<void> WriteGltf(const Domain::Scene& scene, const std::filesystem::path& 
     if (out.has_parent_path()) std::filesystem::create_directories(out.parent_path(), ec);
 
     cgltf_options writeOptions{};
-    std::string binName;
+    std::filesystem::path binPath;
+    std::string binUri;
     if (options.embedBuffers) {
         writeOptions.type = cgltf_file_type_glb;
         data.file_type = cgltf_file_type_glb;
@@ -530,35 +568,51 @@ Result<void> WriteGltf(const Domain::Scene& scene, const std::filesystem::path& 
     } else {
         writeOptions.type = cgltf_file_type_gltf;
         data.file_type = cgltf_file_type_gltf;
-        binName = out.stem().string() + ".bin";
-        buffers[0].uri = Mutable(binName.c_str());
+        binPath = out;
+        binPath.replace_extension(".bin");
+        if (binPath == out) {
+            return Fail("exchange.gltf.write", Services::Paths::ToUtf8(out) + " would also be the name of its .bin buffer");
+        }
+        binUri = EncodeUri(Services::Paths::ToUtf8(binPath.filename()));
+        buffers[0].uri = Mutable(binUri.c_str());
     }
 
     const cgltf_size needed = cgltf_write(&writeOptions, nullptr, 0, &data);
-    if (needed == 0) return Fail("exchange.gltf.write", "cannot encode " + out.string());
+    if (needed == 0) return Fail("exchange.gltf.write", "cannot encode " + Services::Paths::ToUtf8(out));
     std::string document(needed, '\0');
     cgltf_write(&writeOptions, document.data(), document.size(), &data);
     // cgltf_write emits JSON only and counts a terminating NUL, which neither form keeps.
     if (!document.empty() && document.back() == '\0') document.pop_back();
     if (options.embedBuffers) document = PackGlb(document, blob.bytes);
 
-    std::filesystem::path binPath;
-    if (!options.embedBuffers) {
-        binPath = out.parent_path() / binName;
-        std::ofstream file(binPath, std::ios::binary | std::ios::trunc);
-        if (file) file.write(reinterpret_cast<const char*>(blob.bytes.data()), static_cast<std::streamsize>(blob.bytes.size()));
-        if (!file) {
-            std::filesystem::remove(binPath, ec);
-            return Fail("exchange.gltf.write", "cannot write " + binPath.string());
-        }
-    }
+    // Both files land under temporary names first; an existing pair is replaced only once both are complete.
+    const std::filesystem::path documentTemporary = TemporaryBeside(out);
+    const std::filesystem::path binTemporary = binPath.empty() ? std::filesystem::path() : TemporaryBeside(binPath);
+    const auto discard = [&] {
+        std::filesystem::remove(documentTemporary, ec);
+        if (!binTemporary.empty()) std::filesystem::remove(binTemporary, ec);
+    };
 
-    std::ofstream file(out, std::ios::binary | std::ios::trunc);
-    if (file) file.write(document.data(), static_cast<std::streamsize>(document.size()));
-    file.close();
-    if (!file) {
-        if (!binPath.empty()) std::filesystem::remove(binPath, ec);
-        return Fail("exchange.gltf.write", "cannot write " + out.string());
+    if (!binTemporary.empty() &&
+        !WriteFile(binTemporary, reinterpret_cast<const char*>(blob.bytes.data()), blob.bytes.size())) {
+        discard();
+        return Fail("exchange.gltf.write", "cannot write " + Services::Paths::ToUtf8(binPath));
+    }
+    if (!WriteFile(documentTemporary, document.data(), document.size())) {
+        discard();
+        return Fail("exchange.gltf.write", "cannot write " + Services::Paths::ToUtf8(out));
+    }
+    std::filesystem::rename(documentTemporary, out, ec);
+    if (ec) {
+        discard();
+        return Fail("exchange.gltf.write", "cannot replace " + Services::Paths::ToUtf8(out) + ": " + ec.message());
+    }
+    if (!binTemporary.empty()) {
+        std::filesystem::rename(binTemporary, binPath, ec);
+        if (ec) {
+            discard();
+            return Fail("exchange.gltf.write", "cannot replace " + Services::Paths::ToUtf8(binPath) + ": " + ec.message());
+        }
     }
     return Result<void>::Ok();
 }

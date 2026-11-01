@@ -1,5 +1,6 @@
 #include <Onyx/Exchange/Exporters.h>
 
+#include <Onyx/Core/Services/Paths.h>
 #include <Onyx/Exchange/Gltf.h>
 #include <Onyx/Exchange/Png.h>
 #include <Onyx/Exchange/Wav.h>
@@ -13,7 +14,7 @@ namespace Onyx::Exchange {
 void AddExporters(Cli::VerbTable& table) {
     Cli::Exporters& exporters = table.Exporters();
     exporters.Add("gltf", Domain::MediaKind::Mesh, [](const void* payload, const std::filesystem::path& out) {
-        std::string extension = out.extension().string();
+        std::string extension = Services::Paths::ToUtf8(out.extension());
         std::ranges::transform(extension, extension.begin(),
                                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         GltfOptions options;

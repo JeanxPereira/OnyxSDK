@@ -410,3 +410,93 @@ TEST_CASE("a .gltf under a non-ASCII directory is written") {
     CHECK(data->meshes_count > 0);
     cgltf_free(data);
 }
+
+namespace {
+
+std::string ReadBytes(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
+std::string BufferUri(const std::filesystem::path& document) {
+    const std::string bytes = ReadBytes(document);
+    cgltf_options options{};
+    cgltf_data* data = nullptr;
+    if (cgltf_parse(&options, bytes.data(), bytes.size(), &data) != cgltf_result_success) return {};
+    std::string uri = data->buffers_count == 1 && data->buffers[0].uri ? data->buffers[0].uri : "";
+    cgltf_free(data);
+    return uri;
+}
+
+std::string DecodedUri(std::string uri) {
+    uri.resize(cgltf_decode_uri(uri.data()));
+    return uri;
+}
+
+}
+
+TEST_CASE("a .gltf with a non-ASCII stem writes a valid buffer URI") {
+    Tests::TempDir dir("gltf_unicode_stem");
+    const auto path = dir.path / std::filesystem::path(u8"日本.gltf");
+    const TestKit::SceneFixture fixture = TestKit::BuildAnimatedChain();
+    Exchange::GltfOptions options;
+    options.embedBuffers = false;
+
+    REQUIRE(Exchange::WriteGltf(fixture.scene, path, options).ok());
+
+    const std::string uri = BufferUri(path);
+    REQUIRE_FALSE(uri.empty());
+    for (const char c : uri) CHECK(static_cast<unsigned char>(c) < 0x80u);
+    CHECK(DecodedUri(uri) == reinterpret_cast<const char*>(u8"日本.bin"));
+    CHECK(std::filesystem::exists(dir.path / std::filesystem::path(u8"日本.bin")));
+}
+
+TEST_CASE("a .gltf with a space in its stem percent-encodes the URI") {
+    Tests::TempDir dir("gltf_space_stem");
+    const auto path = dir.path / "a b.gltf";
+    const TestKit::SceneFixture fixture = TestKit::BuildAnimatedChain();
+    Exchange::GltfOptions options;
+    options.embedBuffers = false;
+
+    REQUIRE(Exchange::WriteGltf(fixture.scene, path, options).ok());
+
+    CHECK(BufferUri(path) == "a%20b.bin");
+    CHECK(std::filesystem::exists(dir.path / "a b.bin"));
+    Parsed parsed(path);
+    CHECK(parsed.Ok());
+}
+
+TEST_CASE("a failed document write leaves an existing pair untouched") {
+    Tests::TempDir dir("gltf_atomic");
+    const auto path = dir.path / "pair.gltf";
+    const auto bin = dir.path / "pair.bin";
+    Exchange::GltfOptions options;
+    options.embedBuffers = false;
+    REQUIRE(Exchange::WriteGltf(TestKit::BuildAnimatedChain().scene, path, options).ok());
+    const std::string oldDocument = ReadBytes(path);
+    const std::string oldBin = ReadBytes(bin);
+    REQUIRE_FALSE(oldBin.empty());
+
+    namespace fs = std::filesystem;
+    const fs::perms writable = fs::perms::owner_write | fs::perms::group_write | fs::perms::others_write;
+    fs::permissions(path, writable, fs::perm_options::remove);
+#ifndef _WIN32
+    // A read-only file can still be renamed over on POSIX; a read-only directory blocks the write instead.
+    fs::permissions(dir.path, writable, fs::perm_options::remove);
+#endif
+    const bool blocked = !std::ofstream(path, std::ios::binary | std::ios::app);
+
+    if (blocked) {
+        const Result<void> written = Exchange::WriteGltf(TestKit::BuildJointChain200().scene, path, options);
+        CHECK_FALSE(written.ok());
+        CHECK(ReadBytes(path) == oldDocument);
+        CHECK(ReadBytes(bin) == oldBin);
+    } else {
+        MESSAGE("the document stays writable for this user; the check is skipped");
+    }
+
+#ifndef _WIN32
+    fs::permissions(dir.path, writable, fs::perm_options::add);
+#endif
+    fs::permissions(path, writable, fs::perm_options::add);
+}
