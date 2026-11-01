@@ -2,6 +2,7 @@
 """Single build verdict: configure, build, ctest, lint.
 
 Usage: check.py [--preset P] [--no-build] [--no-test] [--lint-only] [--ctest-regex R] [--jobs N]
+       [--cmake-arg ARG ...]
 """
 import argparse
 import os
@@ -89,6 +90,8 @@ def main():
     ap.add_argument("--ctest-regex", help="pass -R <regex> to ctest")
     ap.add_argument("--jobs", type=int, default=os.cpu_count() or 1,
                     help="parallel build jobs (default: CPU count)")
+    ap.add_argument("--cmake-arg", action="append", default=[], metavar="ARG",
+                    help="extra argument for the configure step, after the preset (repeatable)")
     a = ap.parse_args()
     p = a.preset
 
@@ -102,7 +105,7 @@ def main():
 
     steps = []
     if not a.lint_only:
-        steps.append(("configure", ["cmake", "--preset", p], True))
+        steps.append(("configure", ["cmake", "--preset", p] + a.cmake_arg, True))
         if not a.no_build:
             steps.append(("build", ["cmake", "--build", "--preset", p, "--parallel", str(a.jobs)], True))
         if not a.no_test:
