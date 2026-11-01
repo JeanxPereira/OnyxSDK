@@ -14,11 +14,22 @@
 #include <cstdio>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <utility>
 
 namespace Onyx::Media {
 
 namespace {
+
+// The node path as `@i/j/k`: two same-named entries of one document still get distinct view ids.
+std::string NodePathText(const Modules::NodePath& path) {
+    std::string text = "@";
+    for (size_t i = 0; i < path.indices.size(); ++i) {
+        if (i) text += '/';
+        text += std::to_string(path.indices[i]);
+    }
+    return text;
+}
 
 const char* StateName(PlayState state) {
     switch (state) {
@@ -43,7 +54,7 @@ MediaView::MediaView(Modules::DocumentId doc, Modules::NodePath node, std::strin
     : m_doc(doc),
       m_node(std::move(node)),
       m_name(std::move(name)),
-      m_id("onyx.media." + std::to_string(doc) + "." + m_name),
+      m_id("onyx.media." + std::to_string(doc) + "." + NodePathText(m_node) + "." + m_name),
       m_file(std::move(file)),
       m_range(range),
       m_source(std::make_shared<MediaSource>()) {}

@@ -100,7 +100,7 @@ TEST_CASE("MediaView draws the transport without a texture pool") {
     const ClipFixture clip = WriteClip("view", true);
     ViewRig rig;
     Media::MediaView view(3, {}, "clip", OpenFile(clip), RangeOf(clip));
-    CHECK(view.Id() == "onyx.media.3.clip");
+    CHECK(view.Id() == "onyx.media.3.@.clip");
     CHECK(view.Title() == "clip");
     CHECK(view.Document() == 3);
 
@@ -173,7 +173,7 @@ TEST_CASE("RegisterMediaViewer routes video to a MediaView over the request's fi
                             .range = RangeOf(clip)};
     auto view = routed->create(request);
     REQUIRE(view != nullptr);
-    CHECK(view->Id() == "onyx.media.7.movie");
+    CHECK(view->Id() == "onyx.media.7.@.movie");
     auto* media = dynamic_cast<Media::MediaView*>(view.get());
     REQUIRE(media != nullptr);
     REQUIRE(DrawUntilOpened(rig, *media));
@@ -230,4 +230,11 @@ TEST_CASE("Open does not block the first Draw") {
     REQUIRE(DrawUntilOpened(rig, view, 5000ms));
     CHECK_FALSE(view.Fault().has_value());
     CHECK(view.Source().Info().width == 64);
+}
+
+TEST_CASE("MediaViews of same-named entries in one document get different ids") {
+    Media::MediaView first(3, Modules::NodePath{{0}}, "clip", nullptr, Domain::ByteRange{});
+    Media::MediaView second(3, Modules::NodePath{{1, 4}}, "clip", nullptr, Domain::ByteRange{});
+    CHECK(first.Id() == "onyx.media.3.@0.clip");
+    CHECK(second.Id() == "onyx.media.3.@1/4.clip");
 }

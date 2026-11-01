@@ -99,7 +99,8 @@ TEST_CASE("MediaView uploads the first frame into the pool") {
 }
 
 TEST_CASE("played frames stream without a queue wait") {
-    const ClipFixture clip = WriteClip("gpu-stream", false);
+    // 200 frames last 8 s, which leaves a slow runner 400 ms for each of the 20 uploads counted below.
+    const ClipFixture clip = WriteClip("gpu-stream", false, 200);
     auto opened = Vfs::OsFile::Open(clip.path);
     REQUIRE(opened.ok());
 
