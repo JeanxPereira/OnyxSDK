@@ -17,7 +17,6 @@ cmake_dependent_option(ONYX_WITH_SHELL "Build Onyx::Shell" ON "ONYX_WITH_UI" OFF
 cmake_dependent_option(ONYX_WITH_MEDIA "Build Onyx::Media" ON "ONYX_WITH_UI" OFF)
 option(ONYX_BUILD_TESTS "Build the test executables" ${PROJECT_IS_TOP_LEVEL})
 option(ONYX_BUILD_EXAMPLES "Build the examples" ${PROJECT_IS_TOP_LEVEL})
-option(ONYX_BUILD_TOOLS "Build the tools" ${PROJECT_IS_TOP_LEVEL})
 
 message(STATUS "Onyx components: GPU=${ONYX_WITH_GPU} UI=${ONYX_WITH_UI} SHELL=${ONYX_WITH_SHELL} MEDIA=${ONYX_WITH_MEDIA}")
 
