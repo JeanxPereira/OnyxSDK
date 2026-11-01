@@ -161,9 +161,9 @@ Headers, VMA and glslang runs only when `ONYX_WITH_GPU` is on; imgui only with
 always built; FFmpeg only
 with `ONYX_WITH_MEDIA` (miniaudio is vendored in `third_party/` and built with Media). An example may fetch what it alone needs:
 `Examples/Embedded` fetches glfw for its own window under `ONYX_WITH_UI` and
-`ONYX_BUILD_EXAMPLES`, even with the Shell off; no Onyx target links it. Defaults: all on when Onyx is the top-level project,
-and when nested the consumer sets what it links. `ONYX_BUILD_TESTS`,
-`ONYX_BUILD_EXAMPLES`, `ONYX_BUILD_TOOLS` default ON only when top-level.
+`ONYX_BUILD_EXAMPLES`, even with the Shell off; no Onyx target links it. Defaults: the component
+options are on whether Onyx is top-level or nested, so a nested consumer turns off what it does not
+link. `ONYX_BUILD_TESTS` and `ONYX_BUILD_EXAMPLES` default ON only when top-level.
 
 **Layer enforcement.** Each target's `target_include_directories` exposes only
 its own `include/`. A header from another layer resolves only through that

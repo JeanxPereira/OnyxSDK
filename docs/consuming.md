@@ -37,7 +37,7 @@ The two example modules, the targets `Onyx::ExampleBox` and `Onyx::ExamplePrism`
 | `ONYX_BUILD_TESTS` | ON only as the top-level project | no test executables and no standalone-header checks |
 | `ONYX_BUILD_EXAMPLES` | ON only as the top-level project | no example programs |
 
-The component options default to ON even when Onyx is nested, so a consumer turns off what it does not link. Core, Cli, Exchange and TestKit are always built; Core fetches glm, toml++ and lz4, and Exchange fetches cgltf. The configure prints one `Onyx components:` line with the resulting values.
+The component options default to ON even when Onyx is nested, so a consumer turns off what it does not link. A consumer that links only `Onyx::Core` on a machine without the FFmpeg or X11 development packages must pass `-DONYX_WITH_MEDIA=OFF`, and `-DONYX_WITH_UI=OFF` where GLFW cannot build. Core, Cli, Exchange and TestKit are always built; Core fetches glm, toml++ and lz4, and Exchange fetches cgltf. The configure prints one `Onyx components:` line with the resulting values.
 
 ## Three shapes
 
