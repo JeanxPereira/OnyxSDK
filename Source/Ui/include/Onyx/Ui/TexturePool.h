@@ -59,7 +59,8 @@ public:
     // Streams a new frame into a texture created by Create, without waiting on the queue: each streamed
     // id owns a ring of three images, each bound once; Stream uploads into the image whose last use the
     // queue has completed (waiting only when all three are in flight) and returns that image's id, which
-    // replaces `id` for the next Draw. Remove on any id of the ring removes the whole ring.
+    // replaces `id` for the next Draw. Remove on any id of the ring removes the whole ring; Update on
+    // an id of the ring replaces that slot's image only.
     Result<ImTextureID> Stream(ImTextureID id, const Domain::Texture& texture);
     // An external view, for example a render target's resolve image. The pool never owns it.
     Result<ImTextureID> Register(VkImageView view, VkImageLayout layout);

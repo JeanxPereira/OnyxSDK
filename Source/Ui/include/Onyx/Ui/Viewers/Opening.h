@@ -13,6 +13,9 @@
 //   ui.viewer.none    no registered viewer routes the entry's type
 //   ui.open.entry     the selection names no document or no entry in it
 //   ui.open.range     the entry's byte range names a file the document does not hold
+// Reported on the document's diagnostics once the decode finishes:
+//   ui.open.decode    a fixed-kind decode yielded nothing, or the viewer made no view of its payload
+//   ui.open.any       an Any decode yielded nothing for the requested capability
 namespace Onyx::Ui {
 
 // Decodes run on this job lane; the continuation that builds the view runs inside Jobs().Pump().

@@ -8,16 +8,31 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <string>
 #include <string_view>
 #include <utility>
 
 namespace Onyx::Ui {
 
+namespace {
+
+// The node path as `@i/j/k`: two same-named entries of one document still get distinct view ids.
+std::string NodePathText(const Modules::NodePath& path) {
+    std::string text = "@";
+    for (size_t i = 0; i < path.indices.size(); ++i) {
+        if (i) text += '/';
+        text += std::to_string(path.indices[i]);
+    }
+    return text;
+}
+
+}
+
 AudioView::AudioView(Modules::DocumentId doc, Modules::NodePath node, std::string name, Domain::Audio audio)
     : m_doc(doc),
       m_node(std::move(node)),
       m_name(std::move(name)),
-      m_id("onyx.audio." + std::to_string(doc) + "." + m_name),
+      m_id("onyx.audio." + std::to_string(doc) + "." + NodePathText(m_node) + "." + m_name),
       m_audio(std::move(audio)) {}
 
 double AudioView::Duration() const {

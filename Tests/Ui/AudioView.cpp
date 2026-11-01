@@ -249,3 +249,20 @@ TEST_CASE("two AudioViews share one output and only the owner shows Stop") {
     CHECK(output.plays == 3);
     CHECK(output.owner == a.Id());
 }
+
+TEST_CASE("two AudioViews of same-named entries keep separate owners") {
+    HeadlessImGui imgui;
+    ObxUi fx;
+    UiContext ui = fx.Make();
+    FakeOutput output;
+    ui.audio = &output;
+    AudioView a(1, Modules::NodePath{{0}}, "same", Ramp(400, 1));
+    AudioView b(1, Modules::NodePath{{2, 1}}, "same", Ramp(400, 1));
+    CHECK(a.Id() != b.Id());
+
+    Click(imgui, b, ui, FindButton(imgui, b, ui, "Play"));
+    REQUIRE(output.plays == 1);
+    CHECK(output.owner == b.Id());
+    FindButton(imgui, a, ui, "Play");
+    FindButton(imgui, b, ui, "Stop");
+}
